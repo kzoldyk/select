@@ -20,20 +20,20 @@ export type ResultRow = Record<string, CellValue>
 export type ResultStatus = 'idle' | 'running' | 'success' | 'error'
 export type ResultView = 'table' | 'json' | 'plan' | 'messages'
 
-const SAMPLE_COLUMNS: Column[] = []
-const SAMPLE_ROWS: ResultRow[] = []
-
 export const useResultStore = defineStore('result', {
   state: () => ({
     rows: [] as ResultRow[],
     columns: [] as Column[],
+    planColumns: [] as Column[],
+    planRows: [] as ResultRow[],
     status: 'idle' as ResultStatus,
     duration: 0,
     activeView: 'table' as ResultView,
     error: null as DbError | null,
-    selectedRows: new Set<string>(),
-    messages: [] as string[],
-  }),
+	    selectedRows: new Set<string>(),
+	    messages: [] as string[],
+	    requestId: 0,
+	  }),
 
   getters: {
     rowCount: (state) => state.rows.length,
@@ -42,25 +42,58 @@ export const useResultStore = defineStore('result', {
   },
 
   actions: {
-    async runQuery(_sql: string) {
-      this.status = 'running'
-      this.error = null
-      this.selectedRows = new Set()
-      try {
-        const result = await invoke<{ columns: Column[], rows: ResultRow[], duration_ms: number, row_count: number }>('run_query', { sql: _sql })
-        this.rows = result.rows
+	    async runQuery(_sql: string) {
+	      const requestId = ++this.requestId
+	      this.status = 'running'
+	      this.error = null
+	      this.selectedRows = new Set()
+	      try {
+	        const result = await invoke<{ columns: Column[], rows: ResultRow[], duration_ms: number, row_count: number }>('run_query', { sql: _sql })
+	        if (requestId !== this.requestId) return
+	        this.rows = result.rows
         this.columns = result.columns
+        this.planRows = []
+        this.planColumns = []
         this.duration = result.duration_ms
         this.status = 'success'
         this.messages = [`Query completed successfully. ${result.row_count} rows returned in ${this.duration}ms.`]
         this.activeView = 'table'
-      } catch (err) {
-        this.error = {
+	      } catch (err) {
+	        if (requestId !== this.requestId) return
+	        this.error = {
           code: 'QUERY_ERROR',
           message: String(err),
         }
         this.status = 'error'
         this.messages = [`Error: ${String(err)}`]
+        this.activeView = 'messages'
+      }
+    },
+	    async explainQuery(sql: string) {
+	      const requestId = ++this.requestId
+	      this.status = 'running'
+      this.error = null
+      this.selectedRows = new Set()
+      const cleanSql = sql.trim().replace(/;+$/, '')
+      const explainSql = cleanSql.toUpperCase().startsWith('EXPLAIN') ? cleanSql : `EXPLAIN ${cleanSql}`
+
+	      try {
+	        const result = await invoke<{ columns: Column[], rows: ResultRow[], duration_ms: number, row_count: number }>('run_query', { sql: explainSql })
+	        if (requestId !== this.requestId) return
+	        this.planRows = result.rows
+        this.planColumns = result.columns
+        this.duration = result.duration_ms
+        this.status = 'success'
+        this.messages = [`Execution plan returned ${result.row_count} rows in ${this.duration}ms.`]
+        this.activeView = 'plan'
+	      } catch (err) {
+	        if (requestId !== this.requestId) return
+	        this.error = {
+          code: 'EXPLAIN_ERROR',
+          message: String(err),
+        }
+        this.status = 'error'
+        this.messages = [`Explain error: ${String(err)}`]
         this.activeView = 'messages'
       }
     },
@@ -80,19 +113,36 @@ export const useResultStore = defineStore('result', {
     clearSelection() {
       this.selectedRows = new Set()
     },
+    clearResults() {
+      this.rows = []
+      this.columns = []
+      this.planRows = []
+      this.planColumns = []
+      this.status = 'idle'
+      this.duration = 0
+      this.error = null
+      this.selectedRows = new Set()
+	      this.messages = []
+	      this.activeView = 'table'
+	      this.requestId++
+	    },
     deleteSelected() {
       const indices = Array.from(this.selectedRows).map(Number)
       this.rows = this.rows.filter((_, i) => !indices.includes(i))
       this.selectedRows = new Set()
     },
-    exportCsv() {
-      const header = this.columns.map(c => c.name).join(',')
+	    exportCsv() {
+	      if (!this.columns.length) return
+	      const csvEscape = (value: string) => {
+        if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`
+        return value
+      }
+      const header = this.columns.map(c => csvEscape(c.name)).join(',')
       const rows = this.rows.map(row =>
         this.columns.map(c => {
           const val = row[c.name]
           if (val === null || val === undefined) return ''
-          if (typeof val === 'string' && val.includes(',')) return `"${val}"`
-          return String(val)
+          return csvEscape(String(val))
         }).join(',')
       )
       const csv = [header, ...rows].join('\n')

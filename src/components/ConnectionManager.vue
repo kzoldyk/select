@@ -1,169 +1,142 @@
 <template>
-  <Teleport to="body">
-    <div
-      v-if="uiStore.connectionManagerOpen"
-      class="cm-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Connection manager"
-      @click.self="uiStore.closeConnectionManager()"
-    >
-      <div class="cm-modal">
-        <!-- Left pane: connection list -->
-        <div class="cm-left">
-          <div class="cm-list">
-            <button
-              v-for="conn in connStore.connections"
-              :key="conn.id"
-              class="cm-conn-item"
-              :class="{ active: selectedId === conn.id }"
-              @click="selectConn(conn.id)"
-            >
-              <span class="status-dot" :class="conn.id === connStore.activeId ? 'connected' : 'idle'"></span>
-              <span class="cm-conn-name">{{ conn.name }}</span>
-              <span class="cm-conn-type">{{ conn.dbType }}</span>
-            </button>
-          </div>
-          <button class="ghost-btn cm-new-btn" @click="newConnection" aria-label="Create new connection">
-            + New connection
+  <Dialog :open="uiStore.connectionManagerOpen" @update:open="uiStore.closeConnectionManager()">
+    <DialogContent class="sm:max-w-[540px] max-h-[90vh] overflow-hidden flex !p-0">
+      <!-- Left: connection list -->
+      <div class="w-[180px] border-r border-border flex flex-col flex-shrink-0">
+        <div class="flex-1 overflow-y-auto py-2">
+          <button
+            v-for="conn in connStore.connections"
+            :key="conn.id"
+            class="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent border-l-2 border-transparent transition-colors bg-transparent border-none cursor-pointer"
+            :class="{ 'bg-accent text-foreground border-l-primary': selectedId === conn.id }"
+            @click="selectConn(conn.id)"
+          >
+            <span class="w-2 h-2 rounded-full flex-shrink-0" :class="conn.id === connStore.activeId ? 'bg-emerald-500' : 'bg-muted-foreground'"></span>
+            <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ conn.name }}</span>
+            <span class="text-[9px] text-muted-foreground flex-shrink-0">{{ conn.dbType }}</span>
           </button>
         </div>
+        <Button variant="ghost" size="sm" class="mx-2 my-2 text-xs justify-center" @click="newConnection">
+          + New connection
+        </Button>
+      </div>
 
-        <!-- Right pane: form -->
-        <div class="cm-right">
-          <div v-if="form" class="cm-form">
-            <h2 class="cm-title">{{ isNew ? 'New Connection' : 'Edit Connection' }}</h2>
+      <!-- Right: form -->
+      <div class="flex-1 overflow-y-auto p-4">
+        <div v-if="form" class="space-y-3">
+          <DialogHeader>
+            <DialogTitle class="text-sm">{{ isNew ? 'New Connection' : 'Edit Connection' }}</DialogTitle>
+          </DialogHeader>
 
-            <div class="form-row">
-              <label class="form-label" for="f-name">Name</label>
-              <input id="f-name" class="input-base form-input" v-model="form.name" placeholder="My database" />
+          <div class="grid gap-2">
+            <Label for="f-name" class="text-xs text-muted-foreground uppercase tracking-wider">Name</Label>
+            <Input id="f-name" v-model="form.name" placeholder="My database" class="h-8 text-xs" />
+          </div>
+
+          <div class="grid gap-2">
+            <Label for="f-dbtype" class="text-xs text-muted-foreground uppercase tracking-wider">DB Type</Label>
+            <select
+              id="f-dbtype"
+              v-model="form.dbType"
+              class="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+	            >
+	              <option value="mysql">MySQL</option>
+	              <option value="mariadb">MariaDB</option>
+	            </select>
+	            <p class="text-[10px] text-muted-foreground">
+	              PostgreSQL, SQLite, SQL Server, and MongoDB are not available in this build.
+	            </p>
+	          </div>
+
+          <div class="grid grid-cols-3 gap-3">
+            <div class="col-span-2 grid gap-2">
+              <Label for="f-host" class="text-xs text-muted-foreground uppercase tracking-wider">Host</Label>
+              <Input id="f-host" v-model="form.host" placeholder="localhost" class="h-8 text-xs" />
             </div>
-
-            <div class="form-row">
-              <label class="form-label" for="f-dbtype">DB Type</label>
-              <select id="f-dbtype" class="input-base form-input" v-model="form.dbType">
-                <option value="postgres">PostgreSQL</option>
-                <option value="mysql">MySQL</option>
-                <option value="sqlite">SQLite</option>
-                <option value="mssql">SQL Server</option>
-                <option value="mariadb">MariaDB</option>
-                <option value="mongodb">MongoDB</option>
-              </select>
-            </div>
-
-            <div class="form-row-2">
-              <div class="form-field">
-                <label class="form-label" for="f-host">Host</label>
-                <input id="f-host" class="input-base form-input" v-model="form.host" placeholder="localhost" />
-              </div>
-              <div class="form-field form-field-sm">
-                <label class="form-label" for="f-port">Port</label>
-                <input id="f-port" class="input-base form-input" v-model.number="form.port" type="number" placeholder="5432" />
-              </div>
-            </div>
-
-            <div class="form-row">
-              <label class="form-label" for="f-db">Database</label>
-              <input id="f-db" class="input-base form-input" v-model="form.database" placeholder="my_database" />
-            </div>
-
-            <div class="form-row">
-              <label class="form-label" for="f-user">Username</label>
-              <input id="f-user" class="input-base form-input" v-model="form.username" placeholder="admin" />
-            </div>
-
-            <div class="form-row">
-              <label class="form-label" for="f-pass">Password</label>
-              <div class="pw-row">
-                <input
-                  id="f-pass"
-                  class="input-base form-input"
-                  :type="showPw ? 'text' : 'password'"
-                  v-model="form.password"
-                  placeholder="••••••••"
-                />
-                <button
-                  class="ghost-btn pw-toggle"
-                  :aria-label="showPw ? 'Hide password' : 'Show password'"
-                  @click="showPw = !showPw"
-                >{{ showPw ? 'Hide' : 'Show' }}</button>
-              </div>
-            </div>
-
-            <div class="form-row form-row-check">
-              <label class="form-label check-label">
-                <input type="checkbox" v-model="form.ssl" aria-label="Enable SSL" />
-                Enable SSL
-              </label>
-            </div>
-
-            <div class="form-row form-row-check">
-              <label class="form-label check-label">
-                <input type="checkbox" v-model="form.sshTunnel" aria-label="Enable SSH tunnel" />
-                SSH Tunnel
-              </label>
-            </div>
-
-            <div v-if="form.sshTunnel" class="ssh-fields">
-              <div class="form-row-2">
-                <div class="form-field">
-                  <label class="form-label" for="f-ssh-host">SSH Host</label>
-                  <input id="f-ssh-host" class="input-base form-input" v-model="form.sshHost" placeholder="ssh.example.com" />
-                </div>
-                <div class="form-field form-field-sm">
-                  <label class="form-label" for="f-ssh-port">SSH Port</label>
-                  <input id="f-ssh-port" class="input-base form-input" v-model.number="form.sshPort" type="number" placeholder="22" />
-                </div>
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="f-ssh-key">Key File</label>
-                <input id="f-ssh-key" class="input-base form-input" v-model="form.sshKeyFile" placeholder="~/.ssh/id_rsa" />
-              </div>
-            </div>
-
-            <!-- Color tags -->
-            <div class="form-row">
-              <span class="form-label">Color tag</span>
-              <div class="color-swatches">
-                <button
-                  v-for="color in colorOptions"
-                  :key="color"
-                  class="color-swatch"
-                  :style="{ background: color }"
-                  :class="{ selected: form.color === color }"
-                  :aria-label="`Select color ${color}`"
-                  @click="form.color = color"
-                ></button>
-              </div>
-            </div>
-
-            <!-- Test result -->
-            <div v-if="testResult" class="test-result" :class="testResult.ok ? 'ok' : 'fail'">
-              {{ testResult.ok ? `✓ Connected in ${testResult.latency}ms` : `✗ ${testResult.error}` }}
-            </div>
-
-            <!-- Actions -->
-            <div class="cm-actions">
-              <button class="ghost-btn" @click="testConn" :disabled="testing" aria-label="Test connection">
-                {{ testing ? 'Testing…' : 'Test connection' }}
-              </button>
-              <div class="cm-actions-right">
-                <button class="ghost-btn" @click="uiStore.closeConnectionManager()" aria-label="Cancel">Cancel</button>
-                <button class="primary-btn" @click="save" aria-label="Save and connect">Save & Connect</button>
-              </div>
+            <div class="grid gap-2">
+              <Label for="f-port" class="text-xs text-muted-foreground uppercase tracking-wider">Port</Label>
+              <Input id="f-port" v-model.number="form.port" type="number" placeholder="5432" class="h-8 text-xs" />
             </div>
           </div>
-          <div v-else class="cm-empty">
-            <p>Select a connection or create a new one.</p>
+
+          <div class="grid gap-2">
+            <Label for="f-db" class="text-xs text-muted-foreground uppercase tracking-wider">Database</Label>
+            <Input id="f-db" v-model="form.database" placeholder="my_database" class="h-8 text-xs" />
+          </div>
+
+          <div class="grid gap-2">
+            <Label for="f-user" class="text-xs text-muted-foreground uppercase tracking-wider">Username</Label>
+            <Input id="f-user" v-model="form.username" placeholder="admin" class="h-8 text-xs" />
+          </div>
+
+          <div class="grid gap-2">
+            <Label for="f-pass" class="text-xs text-muted-foreground uppercase tracking-wider">Password</Label>
+            <div class="flex gap-2">
+              <Input
+                id="f-pass"
+                :type="showPw ? 'text' : 'password'"
+                v-model="form.password"
+                placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                class="h-8 text-xs flex-1"
+              />
+              <Button variant="outline" size="sm" class="h-8 text-xs whitespace-nowrap" @click="showPw = !showPw">
+                {{ showPw ? 'Hide' : 'Show' }}
+              </Button>
+            </div>
+          </div>
+
+	          <div class="grid gap-2">
+            <span class="text-xs text-muted-foreground uppercase tracking-wider">Color tag</span>
+            <div class="flex gap-1.5">
+              <button
+                v-for="color in colorOptions"
+                :key="color"
+                class="w-4 h-4 rounded-full border-2 transition-colors cursor-pointer"
+                :class="form.color === color ? 'border-foreground' : 'border-transparent'"
+                :style="{ background: color }"
+                :aria-label="`Select color ${color}`"
+                @click="form.color = color"
+              ></button>
+            </div>
+          </div>
+
+          <div v-if="testResult" class="rounded-md px-3 py-2 text-xs font-mono" :class="testResult.ok ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'">
+            {{ testResult.ok ? '\u2713 Connected in ' + testResult.latency + 'ms' : '\u2717 ' + testResult.error }}
+          </div>
+
+          <div v-if="connStore.lastError && !testResult" class="rounded-md px-3 py-2 text-xs font-mono bg-red-500/10 text-red-500 border border-red-500/20">
+            {{ connStore.lastError }}
+          </div>
+        </div>
+        <div v-else class="flex items-center justify-center h-full text-xs text-muted-foreground">
+          Select a connection or create a new one.
+        </div>
+
+        <div v-if="form" class="flex items-center justify-between pt-3 mt-2 border-t border-border">
+          <Button variant="outline" size="sm" class="text-xs h-8" :disabled="testing" @click="testConn">
+            {{ testing ? 'Testing\u2026' : 'Test connection' }}
+          </Button>
+          <div class="flex gap-2">
+            <Button variant="ghost" size="sm" class="text-xs h-8" @click="uiStore.closeConnectionManager()">Cancel</Button>
+            <Button size="sm" class="text-xs h-8" @click="save">Save &amp; Connect</Button>
           </div>
         </div>
       </div>
-    </div>
-  </Teleport>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+	import { ref, watch } from 'vue'
+	import { Button } from '@/components/ui/button'
+	import { Input } from '@/components/ui/input'
+	import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useUiStore } from '../stores/ui'
 import { useConnectionStore, type Connection } from '../stores/connection'
 
@@ -182,15 +155,29 @@ type FormData = Omit<Connection, 'id' | 'createdAt'>
 
 const form = ref<FormData | null>(null)
 
-function selectConn(id: string) {
-  selectedId.value = id
-  isNew.value = false
-  testResult.value = null
-  const conn = connStore.connections.find(c => c.id === id)
-  if (conn) {
-    form.value = { ...conn } as FormData
-  }
-}
+	function selectConn(id: string) {
+	  selectedId.value = id
+	  isNew.value = false
+	  testResult.value = null
+	  const conn = connStore.connections.find(c => c.id === id)
+	  if (conn) {
+	    form.value = {
+	      name: conn.name,
+	      host: conn.host,
+	      port: conn.port,
+	      database: conn.database,
+	      username: conn.username,
+	      password: conn.password,
+	      dbType: conn.dbType,
+	      ssl: conn.ssl,
+	      sshTunnel: conn.sshTunnel,
+	      sshHost: conn.sshHost,
+	      sshPort: conn.sshPort,
+	      sshKeyFile: conn.sshKeyFile,
+	      color: conn.color,
+	    }
+	  }
+	}
 
 function newConnection() {
   isNew.value = true
@@ -222,160 +209,45 @@ async function save() {
   if (!form.value) return
   let targetId = selectedId.value
   if (isNew.value) {
-    targetId = connStore.addConnection(form.value)
+    targetId = await connStore.addConnection(form.value)
   } else if (targetId) {
-    connStore.updateConnection(targetId, form.value)
+    await connStore.updateConnection(targetId, form.value)
   }
-  
   if (targetId) {
-    await connStore.connect(targetId)
+    const connected = await connStore.connect(targetId)
+    if (!connected) {
+      testResult.value = null
+      return
+    }
   }
-  
   uiStore.closeConnectionManager()
 }
 
-// Load initial selection
-selectConn(connStore.activeId ?? connStore.connections[0]?.id)
+	function selectInitialConnection() {
+	  const id = connStore.activeId ?? connStore.connections[0]?.id
+	  if (id) selectConn(id)
+	  else {
+	    selectedId.value = null
+	    isNew.value = false
+	    testResult.value = null
+	    form.value = null
+	  }
+	}
+
+	watch(
+	  () => uiStore.connectionManagerOpen,
+	  (open) => {
+	    if (!open) return
+	    showPw.value = false
+	    selectInitialConnection()
+	  },
+	  { immediate: true }
+	)
+
+	watch(
+	  () => [connStore.activeId, connStore.connections.length] as const,
+	  () => {
+	    if (uiStore.connectionManagerOpen && !isNew.value) selectInitialConnection()
+	  }
+	)
 </script>
-
-<style scoped>
-.cm-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cm-modal {
-  width: 520px;
-  max-height: 90vh;
-  background: var(--surface);
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  display: flex;
-  overflow: hidden;
-}
-
-/* Left pane */
-.cm-left {
-  width: 180px;
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-.cm-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-}
-.cm-conn-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: transparent;
-  border: none;
-  border-left: 2px solid transparent;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-family: 'Inter', sans-serif;
-  cursor: pointer;
-  text-align: left;
-}
-.cm-conn-item:hover { background: var(--row-hover); color: var(--text); }
-.cm-conn-item.active {
-  background: var(--row-hover);
-  border-left-color: var(--blue);
-  color: var(--text);
-}
-.cm-conn-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cm-conn-type { font-size: 9px; color: var(--text-dim); flex-shrink: 0; }
-
-.cm-new-btn {
-  margin: 8px;
-  font-size: 10px;
-  justify-content: center;
-}
-
-/* Right pane */
-.cm-right {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-}
-.cm-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-  margin-bottom: 14px;
-  font-family: 'Inter', sans-serif;
-}
-.cm-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--text-dim);
-  font-size: 11px;
-  font-family: 'Inter', sans-serif;
-}
-
-/* Form */
-.cm-form { display: flex; flex-direction: column; gap: 10px; }
-.form-row { display: flex; flex-direction: column; gap: 4px; }
-.form-row-2 { display: flex; gap: 8px; }
-.form-row-check { flex-direction: row; align-items: center; }
-.form-field { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.form-field-sm { max-width: 80px; }
-.form-label {
-  font-size: 10px;
-  color: var(--text-dim);
-  font-family: 'Inter', sans-serif;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-}
-.form-input { width: 100%; }
-.check-label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); text-transform: none; letter-spacing: 0; }
-.check-label input { accent-color: var(--blue); }
-
-.pw-row { display: flex; gap: 6px; }
-.pw-row .form-input { flex: 1; }
-.pw-toggle { font-size: 10px; padding: 3px 6px; flex-shrink: 0; }
-
-.ssh-fields { background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-
-.color-swatches { display: flex; gap: 6px; margin-top: 2px; }
-.color-swatch {
-  width: 18px; height: 18px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: border-color 0.1s;
-}
-.color-swatch.selected { border-color: var(--text); }
-.color-swatch:hover { border-color: var(--text-muted); }
-
-.test-result {
-  padding: 6px 10px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
-}
-.test-result.ok   { background: rgba(34,197,94,0.1); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
-.test-result.fail { background: rgba(239,68,68,0.1); color: var(--red);   border: 1px solid rgba(239,68,68,0.2); }
-
-.cm-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
-}
-.cm-actions-right { display: flex; gap: 6px; }
-</style>

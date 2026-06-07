@@ -1,26 +1,29 @@
 <template>
-  <div class="editor-panel">
-    <!-- Tab bar -->
+  <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1">
     <TabBar />
 
-    <!-- Action bar -->
-    <div class="action-bar">
-      <div class="action-left">
-        <button class="ghost-btn action-btn" aria-label="Format SQL (⌘⇧F)" @click="formatSql">Format</button>
-        <button class="ghost-btn action-btn" aria-label="Explain query" @click="$emit('explain')">Explain</button>
-        <button class="ghost-btn action-btn" aria-label="Beautify SQL" @click="formatSql">Beautify</button>
+    <div class="flex items-center justify-between h-7 px-2 bg-muted/30 border-b border-border flex-shrink-0">
+      <div class="flex gap-1">
+        <Button variant="ghost" size="sm" class="text-[10px] h-5 px-2 gap-1" @click="formatSql">
+          <FileText class="w-3 h-3" /> Format
+        </Button>
+        <Button variant="ghost" size="sm" class="text-[10px] h-5 px-2 gap-1" @click="$emit('explain')">
+          <Search class="w-3 h-3" /> Explain
+        </Button>
       </div>
-      <div class="action-right">
-        <span class="kb-pill">⌘↵ Run</span>
-        <span class="kb-pill">⌘S Save</span>
-        <span class="kb-pill">⌘/ Comment</span>
-        <span class="kb-pill">⌘Z Undo</span>
-        <span class="kb-pill">⌘⇧F Format</span>
+      <div class="flex items-center gap-1.5">
+        <Kbd class="text-[9px]">&#8984;&#8629;</Kbd>
+        <span class="text-[9px] text-muted-foreground">Run</span>
+        <Kbd class="text-[9px]">&#8984;S</Kbd>
+        <span class="text-[9px] text-muted-foreground">Save</span>
+        <Kbd class="text-[9px]">&#8984;/</Kbd>
+        <span class="text-[9px] text-muted-foreground">Comment</span>
+        <Kbd class="text-[9px]">&#8984;&#8679;F</Kbd>
+        <span class="text-[9px] text-muted-foreground">Format</span>
       </div>
     </div>
 
-    <!-- CodeMirror editor -->
-    <div class="editor-area" ref="editorContainer"></div>
+    <div class="flex-1 overflow-hidden" ref="editorContainer"></div>
   </div>
 </template>
 
@@ -28,28 +31,31 @@
 import { ref, onMounted, onUnmounted, watch, shallowRef } from 'vue'
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
-import { sql, PostgreSQL, MySQL, StandardSQL } from '@codemirror/lang-sql'
+import { sql, MySQL, StandardSQL } from '@codemirror/lang-sql'
 import { defaultKeymap, historyKeymap, history, indentWithTab } from '@codemirror/commands'
 import { syntaxHighlighting } from '@codemirror/language'
 import { autocompletion, closeBrackets } from '@codemirror/autocomplete'
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { darkTheme, sqlHighlight } from '../editor/sqlTheme'
+import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
+import { FileText, Search } from '@lucide/vue'
 import { useEditorStore } from '../stores/editor'
 import { useConnectionStore } from '../stores/connection'
+import { useSchemaStore } from '../stores/schema'
 import TabBar from './TabBar.vue'
 
-const emit = defineEmits<{ explain: []; run: [] }>()
+const emit = defineEmits<{ explain: []; run: [sql?: string] }>()
 
 const editorStore = useEditorStore()
 const connStore = useConnectionStore()
+const schemaStore = useSchemaStore()
 const editorContainer = ref<HTMLDivElement | null>(null)
 const view = shallowRef<EditorView | null>(null)
 
 function getSqlAutocomplete() {
-  const tables = ['users', 'orders', 'products', 'order_items', 'categories', 'payments', 'shipping', 'reviews']
-  const columns = ['id', 'email', 'created_at', 'updated_at', 'status', 'user_id', 'order_id', 'total_amount', 'name', 'description']
-  const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'INSERT INTO', 'UPDATE', 'DELETE', 'CREATE TABLE', 'DROP TABLE', 'ALTER TABLE', 'COUNT', 'SUM', 'MAX', 'MIN', 'AVG', 'COALESCE', 'DISTINCT', 'AS', 'ON', 'AND', 'OR', 'NOT', 'IN', 'IS NULL', 'IS NOT NULL', 'LIKE', 'BETWEEN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END']
+  const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'SHOW', 'DESCRIBE', 'EXPLAIN', 'WITH', 'COUNT', 'SUM', 'MAX', 'MIN', 'AVG', 'COALESCE', 'DISTINCT', 'AS', 'ON', 'AND', 'OR', 'NOT', 'IN', 'IS NULL', 'IS NOT NULL', 'LIKE', 'BETWEEN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END']
 
   return autocompletion({
     override: [
@@ -57,13 +63,13 @@ function getSqlAutocomplete() {
         const word = context.matchBefore(/\w+/)
         if (!word || (word.from === word.to && !context.explicit)) return null
         const q = word.text.toLowerCase()
-
+        const tables = [...schemaStore.tables, ...schemaStore.views].map(item => item.name)
+        const columns = schemaStore.tableDetails?.columns.map(col => col.name) ?? []
         const options = [
-          ...tables.filter(t => t.startsWith(q)).map(t => ({ label: t, type: 'type', detail: 'table' })),
-          ...columns.filter(c => c.startsWith(q)).map(c => ({ label: c, type: 'property', detail: 'column' })),
-          ...keywords.filter(k => k.toLowerCase().startsWith(q)).map(k => ({ label: k, type: 'keyword' })),
+          ...tables.filter(t => t.toLowerCase().startsWith(q)).map(t => ({ label: t, type: 'type', detail: 'table' })),
+          ...columns.filter(c => c.toLowerCase().startsWith(q)).map(c => ({ label: c, type: 'property', detail: 'column' })),
+          ...keywords.filter(k => k.toLowerCase().startsWith(q)).map(k => ({ label: k, type: 'keyword', apply: `${k} ` })),
         ]
-
         return { from: word.from, options: options.slice(0, 8) }
       },
     ],
@@ -71,11 +77,17 @@ function getSqlAutocomplete() {
   })
 }
 
-function buildExtensions(onUpdate: (sql: string) => void, onRun: () => void) {
+function selectedSql(editorView: EditorView): string {
+  const selection = editorView.state.selection.main
+  if (selection.empty) return editorView.state.doc.toString()
+  return editorView.state.sliceDoc(selection.from, selection.to)
+}
+
+function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) => void) {
   const activeConn = connStore.activeConnection
-  const dialect = activeConn?.dbType === 'mysql' ? MySQL :
-                  activeConn?.dbType === 'postgres' ? PostgreSQL :
-                  StandardSQL;
+	  const dialect = activeConn?.dbType === 'mysql' || activeConn?.dbType === 'mariadb'
+	    ? MySQL
+	    : StandardSQL
 
   return [
     history(),
@@ -94,30 +106,16 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: () => void) {
       ...historyKeymap,
       ...searchKeymap,
       indentWithTab,
-      {
-        key: 'Mod-Enter',
-        run: () => { onRun(); return true },
-      },
-      {
-        key: 'Mod-s',
-        run: () => {
-          if (editorStore.activeTabId) editorStore.saveTab(editorStore.activeTabId)
-          return true
-        },
-      },
+	      { key: 'Mod-Shift-Enter', run: (editorView) => { onRun(selectedSql(editorView)); return true } },
+	      { key: 'Mod-Enter', run: () => { onRun(); return true } },
+      { key: 'Mod-s', run: () => { if (editorStore.activeTabId) { editorStore.saveTab(editorStore.activeTabId); return true } return false } },
     ]),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
-        onUpdate(update.state.doc.toString())
-      }
+      if (update.docChanged) { onUpdate(update.state.doc.toString()) }
       if (update.selectionSet) {
         const sel = update.state.selection.main.head
         const line = update.state.doc.lineAt(sel)
-        editorStore.updateCursor(
-          editorStore.activeTabId,
-          line.number,
-          sel - line.from + 1
-        )
+        editorStore.updateCursor(editorStore.activeTabId, line.number, sel - line.from + 1)
       }
     }),
   ]
@@ -125,7 +123,6 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: () => void) {
 
 function initEditor() {
   if (!editorContainer.value) return
-
   const activeTab = editorStore.activeTab
   const initialSql = activeTab?.sql ?? ''
 
@@ -136,82 +133,37 @@ function initEditor() {
       () => emit('run')
     ),
   })
-
   view.value = new EditorView({ state, parent: editorContainer.value })
 }
 
 function formatSql() {
-  // Basic SQL formatter stub
   const current = view.value?.state.doc.toString() ?? ''
   const keywords = ['SELECT', 'FROM', 'LEFT JOIN', 'INNER JOIN', 'RIGHT JOIN', 'JOIN', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT', 'OFFSET', 'AND', 'OR']
   let formatted = current
-  keywords.forEach(kw => {
-    formatted = formatted.replace(new RegExp(`\\b${kw}\\b`, 'gi'), `\n${kw}`)
-  })
+  keywords.forEach(kw => { formatted = formatted.replace(new RegExp(`\\b${kw}\\b`, 'gi'), `\n${kw}`) })
   formatted = formatted.trim()
   if (view.value) {
-    view.value.dispatch({
-      changes: { from: 0, to: view.value.state.doc.length, insert: formatted },
-    })
+    view.value.dispatch({ changes: { from: 0, to: view.value.state.doc.length, insert: formatted } })
   }
 }
 
-// Watch active tab and reload editor content
 watch(() => editorStore.activeTabId, (newId) => {
   const tab = editorStore.tabs.find(t => t.id === newId)
   if (!tab || !view.value) return
   const currentDoc = view.value.state.doc.toString()
   if (currentDoc !== tab.sql) {
-    view.value.dispatch({
-      changes: { from: 0, to: view.value.state.doc.length, insert: tab.sql },
-    })
+    view.value.dispatch({ changes: { from: 0, to: view.value.state.doc.length, insert: tab.sql } })
   }
 })
 
 onMounted(initEditor)
 onUnmounted(() => view.value?.destroy())
 
-// Expose for parent to trigger run
 defineExpose({ formatSql })
 </script>
 
 <style scoped>
-.editor-panel {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg);
-  min-height: 0;
-}
-
-.action-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 28px;
-  padding: 0 8px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  gap: 4px;
-}
-.action-left { display: flex; gap: 4px; }
-.action-right { display: flex; align-items: center; gap: 4px; }
-.action-btn { font-size: 10px; padding: 2px 7px; }
-
-.editor-area {
-  flex: 1;
-  overflow: hidden;
-  background: var(--bg);
-  min-height: 0;
-}
-
-/* Override CodeMirror to fill container */
-.editor-area :deep(.cm-editor) {
-  height: 100%;
-}
-.editor-area :deep(.cm-scroller) {
-  height: 100%;
-  overflow: auto;
-}
+:deep(.cm-editor) { height: 100%; }
+:deep(.cm-scroller) { height: 100%; overflow: auto; }
+:deep(.cm-content) { font-size: 12px; font-family: 'JetBrains Mono', monospace; }
 </style>

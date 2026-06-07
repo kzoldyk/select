@@ -1,5 +1,8 @@
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
+import { saveConnections, loadConnections, saveActiveConnectionId, loadActiveConnectionId } from './storage'
+import { useResultStore } from './result'
+import { useSchemaStore } from './schema'
 
 export interface Connection {
   id: string
@@ -9,7 +12,7 @@ export interface Connection {
   database: string
   username: string
   password: string
-  dbType: 'postgres' | 'mysql' | 'sqlite' | 'mssql' | 'mariadb' | 'mongodb'
+	  dbType: 'mysql' | 'mariadb'
   ssl: boolean
   sshTunnel: boolean
   sshHost?: string
@@ -23,88 +26,163 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
 export const useConnectionStore = defineStore('connection', {
   state: () => ({
-    connections: [
-      {
-        id: 'conn-1',
-        name: 'Local DB',
-        host: 'localhost',
-        port: 3306,
-        database: 'mysql',
-        username: 'root',
-        password: '',
-        dbType: 'mysql' as const,
-        ssl: false,
-        sshTunnel: false,
-        color: '#22C55E',
-        createdAt: new Date().toISOString(),
-      }
-    ] as Connection[],
-    activeId: 'conn-1' as string | null,
+    connections: [] as Connection[],
+    activeId: null as string | null,
     status: 'idle' as ConnectionStatus,
     latency: 0,
+    loaded: false,
+    lastError: null as string | null,
   }),
 
-  getters: {
-    activeConnection: (state): Connection | null =>
-      state.connections.find(c => c.id === state.activeId) ?? null,
-    env: () => 'PROD' as 'PROD' | 'DEV' | 'STAGING',
-  },
+	  getters: {
+	    activeConnection: (state): Connection | null =>
+	      state.connections.find(c => c.id === state.activeId) ?? null,
+	    env: (state): 'PROD' | 'DEV' | 'STAGING' => {
+	      const conn = state.connections.find(c => c.id === state.activeId)
+	      if (!conn) return 'DEV'
+	      const name = conn.name.toLowerCase()
+	      const host = conn.host.toLowerCase()
+	      if (name.includes('stag') || host.includes('stag')) return 'STAGING'
+	      if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return 'DEV'
+	      return 'PROD'
+	    },
+	  },
 
   actions: {
-    setActive(id: string) {
-      this.activeId = id
+    async load() {
+      if (this.loaded) return
+      
+      const saved = await loadConnections()
+      if (saved && saved.length > 0) {
+        this.connections = saved as Connection[]
+      } else {
+        this.connections = [{
+          id: 'conn-1',
+          name: 'Local DB',
+          host: 'localhost',
+          port: 3306,
+          database: 'mysql',
+          username: 'root',
+          password: '',
+          dbType: 'mysql' as const,
+          ssl: false,
+          sshTunnel: false,
+          color: '#22C55E',
+          createdAt: new Date().toISOString(),
+        }]
+      }
+
+      const savedActiveId = await loadActiveConnectionId()
+      if (savedActiveId && this.connections.find(c => c.id === savedActiveId)) {
+        this.activeId = savedActiveId
+      } else if (this.connections.length > 0) {
+        this.activeId = this.connections[0].id
+      }
+      
+      this.loaded = true
     },
-    addConnection(conn: Omit<Connection, 'id' | 'createdAt'>) {
+
+    async setActive(id: string) {
+      this.activeId = id
+      await saveActiveConnectionId(id)
+    },
+
+    async addConnection(conn: Omit<Connection, 'id' | 'createdAt'>) {
       const newConn: Connection = {
         ...conn,
         id: `conn-${Date.now()}`,
         createdAt: new Date().toISOString(),
       }
       this.connections.push(newConn)
+      await saveConnections(this.connections)
       return newConn.id
     },
-    updateConnection(id: string, updates: Partial<Connection>) {
+
+    async updateConnection(id: string, updates: Partial<Connection>) {
       const idx = this.connections.findIndex(c => c.id === id)
       if (idx !== -1) {
         this.connections[idx] = { ...this.connections[idx], ...updates }
+        await saveConnections(this.connections)
       }
     },
-    removeConnection(id: string) {
+
+    async removeConnection(id: string) {
       this.connections = this.connections.filter(c => c.id !== id)
-      if (this.activeId === id) this.activeId = this.connections[0]?.id ?? null
+      if (this.activeId === id) {
+        this.activeId = this.connections[0]?.id ?? null
+        await saveActiveConnectionId(this.activeId)
+      }
+      await saveConnections(this.connections)
     },
     async testConnection(conn: Partial<Connection>): Promise<{ ok: boolean; latency?: number; error?: string }> {
       try {
+        const validationError = validateConnection(conn)
+        if (validationError) return { ok: false, error: validationError }
         const latency = await invoke<number>('test_connection', { config: conn })
         return { ok: true, latency }
       } catch (err) {
         return { ok: false, error: String(err) }
       }
     },
-    async connect(id: string) {
-      this.status = 'connecting'
-      try {
-        const conn = this.connections.find(c => c.id === id)
-        if (!conn) throw new Error("Connection not found")
-        await invoke('connect', { config: conn })
-        this.activeId = id
-        this.status = 'connected'
-      } catch (e) {
-        this.status = 'error'
+	    async connect(id: string) {
+	      this.status = 'connecting'
+	      this.lastError = null
+	      try {
+	        const conn = this.connections.find(c => c.id === id)
+	        if (!conn) throw new Error("Connection not found")
+	        const validationError = validateConnection(conn)
+	        if (validationError) throw new Error(validationError)
+	        await invoke('connect', { config: conn })
+	        this.activeId = id
+	        this.status = 'connected'
+	        await saveActiveConnectionId(id)
+	        useResultStore().clearResults()
+	        useSchemaStore().clearSchema()
+	        return true
+	      } catch (e) {
+	        this.status = 'error'
+	        this.lastError = String(e)
+	        return false
       }
     },
     async changeDatabase(dbName: string) {
       if (!this.activeId) return
-      this.updateConnection(this.activeId, { database: dbName })
-      await this.connect(this.activeId)
+      this.lastError = null
+      try {
+        await invoke('change_database', { database: dbName })
+        await this.updateConnection(this.activeId, { database: dbName })
+        useResultStore().clearResults()
+        useSchemaStore().clearSchema()
+      } catch (e) {
+        this.status = 'error'
+        this.lastError = String(e)
+      }
     },
     async disconnect() {
       try {
         if (this.activeId) await invoke('disconnect', { id: this.activeId })
-      } finally {
         this.status = 'idle'
         this.activeId = null
+        this.lastError = null
+        await saveActiveConnectionId(null)
+        useResultStore().clearResults()
+        useSchemaStore().clearSchema()
+      } catch (e) {
+        this.status = 'error'
+        this.lastError = String(e)
       }
     },
   },
 })
+
+function validateConnection(conn: Partial<Connection>): string | null {
+  if (!conn.host?.trim()) return 'Host is required.'
+  if (!conn.username?.trim()) return 'Username is required.'
+  if (!Number.isInteger(conn.port) || conn.port < 1 || conn.port > 65535) {
+    return 'Port must be between 1 and 65535.'
+  }
+  if (conn.dbType !== 'mysql' && conn.dbType !== 'mariadb') {
+    return 'Only MySQL and MariaDB connections are currently supported.'
+  }
+  return null
+}

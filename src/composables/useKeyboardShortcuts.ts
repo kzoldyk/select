@@ -18,6 +18,14 @@ export function useKeyboardShortcuts(onRun?: () => void) {
     const meta = isMac() ? e.metaKey : e.ctrlKey
     const shift = e.shiftKey
     const key = e.key
+    const target = e.target as HTMLElement | null
+    const isTyping =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      target?.isContentEditable
+
+    if (isTyping && key !== 'Escape') return
 
     // ⌘K — Toggle command palette
     if (meta && !shift && key === 'k') {
@@ -33,10 +41,9 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       return
     }
 
-    // ⌘⇧↵ — Run selected text
+    // ⌘⇧↵ — Run query outside the editor. CodeMirror handles selected text.
     if (meta && shift && (key === 'Enter' || key === 'Return')) {
       e.preventDefault()
-      // TODO: run selected text only
       onRun?.()
       return
     }
@@ -45,6 +52,16 @@ export function useKeyboardShortcuts(onRun?: () => void) {
     if (meta && !shift && key === 's') {
       e.preventDefault()
       if (editor.activeTabId) editor.saveTab(editor.activeTabId)
+      return
+    }
+
+    // ⌘⇧S — Save query as (always show dialog)
+    if (meta && shift && key === 'S') {
+      e.preventDefault()
+      if (editor.activeTabId) {
+        editor.saveDialogTabId = editor.activeTabId
+        editor.saveDialogOpen = true
+      }
       return
     }
 
@@ -100,7 +117,9 @@ export function useKeyboardShortcuts(onRun?: () => void) {
     // ⌘I — Schema inspector
     if (meta && !shift && key === 'i') {
       e.preventDefault()
-      ui.inspectorOpen ? ui.closeInspector() : ui.openInspector(schema.activeTable ?? 'users')
+      const tableName = schema.activeTable ?? schema.tables[0]?.name
+      if (ui.inspectorOpen) ui.closeInspector()
+      else if (tableName) ui.openInspector(tableName)
       return
     }
 
@@ -120,9 +139,10 @@ export function useKeyboardShortcuts(onRun?: () => void) {
 
     // Esc — Close any open overlay
     if (key === 'Escape') {
-      if (ui.paletteOpen) { ui.closePalette(); return }
-      if (ui.inspectorOpen) { ui.closeInspector(); return }
       if (ui.connectionManagerOpen) { ui.closeConnectionManager(); return }
+      if (ui.inspectorOpen) { ui.closeInspector(); return }
+      if (ui.paletteOpen) { ui.closePalette(); return }
+      if (editor.saveDialogOpen) { editor.saveDialogOpen = false; return }
     }
   }
 

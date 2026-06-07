@@ -1,30 +1,31 @@
 <template>
-  <div class="tab-bar" role="tablist" aria-label="Query tabs">
+  <div class="flex items-stretch h-8 bg-muted/30 border-b border-border overflow-x-auto overflow-y-hidden flex-shrink-0" role="tablist" aria-label="Query tabs">
     <button
       v-for="tab in editorStore.tabs"
       :key="tab.id"
-      class="tab"
-      :class="{ active: editorStore.activeTabId === tab.id }"
+      class="inline-flex items-center gap-1.5 px-3 h-full text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 border-r border-border bg-transparent border-none cursor-pointer whitespace-nowrap flex-shrink-0 relative transition-colors"
+      :class="{ 'bg-background text-foreground shadow-[inset_0_-2px_0_0_hsl(var(--primary))]': editorStore.activeTabId === tab.id }"
       role="tab"
       :aria-selected="editorStore.activeTabId === tab.id"
       :title="tab.name"
       @click="editorStore.selectTab(tab.id)"
     >
-      <span v-if="tab.isUnsaved" class="unsaved-dot" aria-label="Unsaved changes"></span>
-      <span class="tab-name">{{ tab.name }}</span>
+      <span v-if="tab.isUnsaved" class="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" aria-label="Unsaved changes"></span>
+      <span class="max-w-[120px] overflow-hidden text-ellipsis">{{ tab.name }}</span>
       <span
-        class="tab-close"
+        class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-sm text-muted-foreground hover:text-red-500 hover:bg-accent text-xs flex-shrink-0 cursor-pointer"
         role="button"
         :aria-label="`Close tab ${tab.name}`"
+        tabindex="0"
         @click.stop="editorStore.closeTab(tab.id)"
-      >×</span>
+        @keydown.enter.stop="editorStore.closeTab(tab.id)"
+      >&times;</span>
     </button>
 
     <button
-      id="add-tab-btn"
-      class="tab-add"
-      aria-label="Add new query tab (⌘T)"
-      title="New tab ⌘T"
+      class="inline-flex items-center justify-center w-8 h-full bg-transparent border-none border-r border-border text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer text-base flex-shrink-0"
+      aria-label="Add new query tab (\u2318T)"
+      title="New tab \u2318T"
       @click="editorStore.addTab()"
     >+</button>
   </div>
@@ -34,93 +35,3 @@
 import { useEditorStore } from '../stores/editor'
 const editorStore = useEditorStore()
 </script>
-
-<style scoped>
-.tab-bar {
-  display: flex;
-  align-items: stretch;
-  height: 32px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  overflow-x: auto;
-  overflow-y: hidden;
-  flex-shrink: 0;
-}
-.tab-bar::-webkit-scrollbar { height: 0; }
-
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 12px;
-  height: 100%;
-  font-size: 11px;
-  font-family: 'Inter', sans-serif;
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
-  border-right: 1px solid var(--border);
-  cursor: pointer;
-  position: relative;
-  white-space: nowrap;
-  transition: color 0.1s;
-  flex-shrink: 0;
-}
-.tab:hover { color: var(--text); background: rgba(255,255,255,0.02); }
-.tab.active {
-  background: var(--bg);
-  color: var(--text);
-}
-.tab.active::after {
-  content: '';
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  height: 2px;
-  background: var(--blue);
-}
-
-.unsaved-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--amber);
-  flex-shrink: 0;
-}
-
-.tab-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-
-.tab-close {
-  width: 14px;
-  height: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  border-radius: 2px;
-  color: var(--text-dim);
-  font-size: 12px;
-  cursor: pointer;
-  line-height: 1;
-  flex-shrink: 0;
-  transition: color 0.1s;
-}
-.tab-close:hover { color: var(--red); }
-
-.tab-add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 100%;
-  background: transparent;
-  border: none;
-  border-right: 1px solid var(--border);
-  color: var(--text-dim);
-  font-size: 16px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color 0.1s, background 0.1s;
-}
-.tab-add:hover { color: var(--text); background: rgba(255,255,255,0.03); }
-</style>

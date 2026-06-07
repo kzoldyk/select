@@ -3,12 +3,11 @@ import { defineStore } from 'pinia'
 export const useUiStore = defineStore('ui', {
   state: () => ({
     sidebarOpen: true,
-    paletteOpen: false,
-    inspectorOpen: false,
-    connectionManagerOpen: false,
-    activeInspectorTable: null as string | null,
-    historyOpen: false,
-    settingsOpen: false,
+	    paletteOpen: false,
+	    inspectorOpen: false,
+	    connectionManagerOpen: false,
+	    activeInspectorTable: null as string | null,
+	    settingsOpen: false,
   }),
 
   actions: {
@@ -39,11 +38,10 @@ export const useUiStore = defineStore('ui', {
       this.connectionManagerOpen = false
     },
     closeAll() {
-      this.paletteOpen = false
-      this.inspectorOpen = false
-      this.connectionManagerOpen = false
-      this.historyOpen = false
-      this.settingsOpen = false
-    },
+	      this.paletteOpen = false
+	      this.inspectorOpen = false
+	      this.connectionManagerOpen = false
+	      this.settingsOpen = false
+	    },
   },
 })
