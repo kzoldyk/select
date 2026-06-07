@@ -3,12 +3,14 @@ import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { useResultStore } from '../stores/result'
 import { useSchemaStore } from '../stores/schema'
+import { useConnectionStore } from '../stores/connection'
 
 export function useKeyboardShortcuts(onRun?: () => void) {
   const editor = useEditorStore()
   const ui = useUiStore()
   const result = useResultStore()
   const schema = useSchemaStore()
+  const conn = useConnectionStore()
 
   function isMac() {
     return navigator.platform.toUpperCase().indexOf('MAC') >= 0
@@ -103,7 +105,7 @@ export function useKeyboardShortcuts(onRun?: () => void) {
     // ⌘R — Refresh schema
     if (meta && !shift && key === 'r') {
       e.preventDefault()
-      schema.refreshSchema()
+      schema.refreshSchema(conn.activeId ?? undefined)
       return
     }
 
@@ -137,12 +139,12 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       return
     }
 
-    // Esc — Close any open overlay
+    // Esc — Close the topmost open overlay
     if (key === 'Escape') {
+      if (editor.saveDialogOpen) { editor.saveDialogOpen = false; return }
       if (ui.connectionManagerOpen) { ui.closeConnectionManager(); return }
       if (ui.inspectorOpen) { ui.closeInspector(); return }
       if (ui.paletteOpen) { ui.closePalette(); return }
-      if (editor.saveDialogOpen) { editor.saveDialogOpen = false; return }
     }
   }
 

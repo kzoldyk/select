@@ -177,12 +177,50 @@
           No messages.
         </div>
       </TabsContent>
+
+      <TabsContent value="history" class="flex-1 flex flex-col overflow-hidden min-h-0 p-0 m-0">
+        <div class="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/20 flex-shrink-0">
+          <span class="text-[10px] text-muted-foreground">Recent queries</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="text-[10px] h-6 px-2"
+            @click="resultStore.loadHistory()"
+          >Refresh</Button>
+        </div>
+        <ScrollArea class="flex-1 min-h-0">
+          <div v-if="resultStore.history.length === 0" class="py-8 text-center text-xs text-muted-foreground">
+            No query history yet.
+          </div>
+          <div
+            v-for="item in resultStore.history"
+            :key="item.id"
+            class="flex items-start gap-2 px-3 py-2 border-b border-border hover:bg-accent/30 cursor-pointer transition-colors"
+            @click="restoreHistorySql(item.sql)"
+          >
+            <span
+              class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
+              :class="item.error ? 'bg-red-500' : 'bg-emerald-500'"
+            ></span>
+            <div class="flex-1 min-w-0">
+              <div class="text-[11px] font-mono text-foreground truncate" :title="item.sql">{{ item.sql }}</div>
+              <div class="flex items-center gap-2 text-[9px] text-muted-foreground mt-0.5">
+                <span>{{ formatTime(item.executed_at) }}</span>
+                <span>&middot;</span>
+                <span>{{ item.duration_ms }}ms</span>
+                <span v-if="item.row_count > 0">&middot; {{ item.row_count }} rows</span>
+                <span v-if="item.error" class="text-red-400 truncate" :title="item.error">Error</span>
+              </div>
+            </div>
+          </div>
+        </ScrollArea>
+      </TabsContent>
     </Tabs>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -195,6 +233,7 @@ import {
 } from '@/components/ui/table'
 import { Download } from '@lucide/vue'
 import { useResultStore, type ResultView, type Column, type CellValue, type ResultRow } from '../stores/result'
+import { useEditorStore } from '../stores/editor'
 
 const resultStore = useResultStore()
 
@@ -203,6 +242,7 @@ const VIEWS = [
   { id: 'json',     label: 'JSON' },
   { id: 'plan',     label: 'Execution Plan' },
   { id: 'messages', label: 'Messages' },
+  { id: 'history',  label: 'History' },
 ] as const
 
 const rawSearch = ref('')
@@ -214,6 +254,8 @@ function onSearch() {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => { searchQuery.value = rawSearch.value }, 150)
 }
+
+onMounted(() => resultStore.loadHistory())
 
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -312,5 +354,19 @@ const highlightedJson = computed(() => {
 
 function copyJson() {
   navigator.clipboard.writeText(JSON.stringify(resultStore.rows, null, 2))
+}
+
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso)
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch { return iso }
+}
+
+function restoreHistorySql(sql: string) {
+  const editorStore = useEditorStore()
+  if (editorStore.activeTabId) {
+    editorStore.updateSql(editorStore.activeTabId, sql)
+  }
 }
 </script>

@@ -28,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, shallowRef } from 'vue'
+import { ref, onMounted, onUnmounted, watch, shallowRef, nextTick } from 'vue'
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { sql, MySQL, StandardSQL } from '@codemirror/lang-sql'
@@ -85,9 +85,9 @@ function selectedSql(editorView: EditorView): string {
 
 function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) => void) {
   const activeConn = connStore.activeConnection
-	  const dialect = activeConn?.dbType === 'mysql' || activeConn?.dbType === 'mariadb'
-	    ? MySQL
-	    : StandardSQL
+  const dialect = activeConn?.dbType === 'mysql' || activeConn?.dbType === 'mariadb'
+    ? MySQL
+    : StandardSQL
 
   return [
     history(),
@@ -106,8 +106,8 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
       ...historyKeymap,
       ...searchKeymap,
       indentWithTab,
-	      { key: 'Mod-Shift-Enter', run: (editorView) => { onRun(selectedSql(editorView)); return true } },
-	      { key: 'Mod-Enter', run: () => { onRun(); return true } },
+      { key: 'Mod-Shift-Enter', run: (editorView) => { onRun(selectedSql(editorView)); return true } },
+      { key: 'Mod-Enter', run: () => { onRun(); return true } },
       { key: 'Mod-s', run: () => { if (editorStore.activeTabId) { editorStore.saveTab(editorStore.activeTabId); return true } return false } },
     ]),
     EditorView.updateListener.of((update) => {
@@ -121,8 +121,9 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
   ]
 }
 
-function initEditor() {
+function mountEditor() {
   if (!editorContainer.value) return
+  view.value?.destroy()
   const activeTab = editorStore.activeTab
   const initialSql = activeTab?.sql ?? ''
 
@@ -130,7 +131,7 @@ function initEditor() {
     doc: initialSql,
     extensions: buildExtensions(
       (sql) => { if (editorStore.activeTabId) editorStore.updateSql(editorStore.activeTabId, sql) },
-      () => emit('run')
+      (sql?: string) => emit('run', sql)
     ),
   })
   view.value = new EditorView({ state, parent: editorContainer.value })
@@ -147,16 +148,11 @@ function formatSql() {
   }
 }
 
-watch(() => editorStore.activeTabId, (newId) => {
-  const tab = editorStore.tabs.find(t => t.id === newId)
-  if (!tab || !view.value) return
-  const currentDoc = view.value.state.doc.toString()
-  if (currentDoc !== tab.sql) {
-    view.value.dispatch({ changes: { from: 0, to: view.value.state.doc.length, insert: tab.sql } })
-  }
+watch(() => editorStore.activeTabId, () => {
+  nextTick(mountEditor)
 })
 
-onMounted(initEditor)
+onMounted(mountEditor)
 onUnmounted(() => view.value?.destroy())
 
 defineExpose({ formatSql })

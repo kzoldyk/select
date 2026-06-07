@@ -14,7 +14,7 @@
           :value="connStore.activeConnection?.database"
           @change="async (e) => {
             await connStore.changeDatabase((e.target as HTMLSelectElement).value)
-            await schemaStore.refreshSchema()
+            await schemaStore.refreshSchema(connStore.activeId ?? undefined)
           }"
         >
           <option value="" disabled>Select Database...</option>
@@ -331,9 +331,8 @@ function ctxAction(action: string) {
 }
 
 function onDocClick(e: MouseEvent) {
-  if (ctxMenu.visible) {
-    const el = document.querySelector('.sidebar + div > div')
-    if (el && !el.contains(e.target as Node)) closeCtxMenu()
+  if (ctxMenu.visible && !(e.target as HTMLElement)?.closest('.sidebar')) {
+    closeCtxMenu()
   }
 }
 

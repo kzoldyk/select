@@ -1,10 +1,14 @@
 use crate::AppState;
+use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, Key, KeyInit, Nonce};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chrono::Utc;
 use mysql_async::prelude::*;
 use mysql_async::{params, Conn, Opts, Pool};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{Manager, State};
@@ -325,10 +329,10 @@ fn has_single_statement(sql: &str) -> bool {
 fn validate_read_only_query(sql: &str) -> Result<(), String> {
     let tokens = sql_tokens_outside_literals(sql);
     let first = tokens.first().ok_or("Query is empty.")?;
-    let allowed = ["SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH"];
+    let allowed = ["SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH", "TABLE", "VALUES"];
     if !allowed.contains(&first.as_str()) {
 	    return Err(
-	        "Only read-only queries (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH) are allowed."
+	        "Only read-only queries (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH, TABLE, VALUES) are allowed."
 	            .into(),
 	    );
 	}
@@ -338,8 +342,11 @@ fn validate_read_only_query(sql: &str) -> Result<(), String> {
     }
 
     let blocked = [
-        "ALTER", "CREATE", "DELETE", "DROP", "GRANT", "INSERT", "LOAD", "LOCK", "RENAME",
-        "REPLACE", "REVOKE", "TRUNCATE", "UPDATE", "CALL", "MERGE",
+        "ALTER", "ANALYZE", "BEGIN", "CALL", "CHECK", "COMMIT", "CREATE", "DEALLOCATE",
+        "DELETE", "DROP", "EXECUTE", "FLUSH", "GRANT", "IMPORT", "INSERT", "INSTALL",
+        "KILL", "LOAD", "LOCK", "MERGE", "OPTIMIZE", "PREPARE", "PURGE", "RENAME",
+        "REPAIR", "REPLACE", "RESET", "REVOKE", "ROLLBACK", "SAVEPOINT", "SET",
+        "START", "STOP", "TRUNCATE", "UNINSTALL", "UPDATE",
     ];
     if let Some(token) = tokens
         .iter()
@@ -467,8 +474,10 @@ pub async fn run_query(
     }
 
     let pool = {
-        let guard = state.pool.lock().await;
-        guard.as_ref().ok_or("No active connection")?.clone()
+        let pools = state.pools.lock().await;
+        let active_id = state.active_connection_id.lock().await;
+        let id = active_id.as_ref().ok_or("No active connection")?;
+        pools.get(id).cloned().ok_or("No active connection")?
     };
 
     let query_future = async {
@@ -597,6 +606,7 @@ pub async fn run_query(
 
 #[tauri::command]
 pub async fn connect(
+    id: String,
     config: ConnectionConfig,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -607,15 +617,19 @@ pub async fn connect(
 
     pool.get_conn().await.map_err(|e| safe_error(&e))?;
 
-    *state.pool.lock().await = Some(pool);
-    Ok(format!("conn-{}", config.name))
+    state.pools.lock().await.insert(id.clone(), pool);
+    *state.active_connection_id.lock().await = Some(id.clone());
+    Ok(id)
 }
 
 #[tauri::command]
 pub async fn disconnect(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let _ = id;
-    if let Some(pool) = state.pool.lock().await.take() {
+    if let Some(pool) = state.pools.lock().await.remove(&id) {
         pool.disconnect().await.map_err(|e| safe_error(&e))?;
+    }
+    let mut active_id = state.active_connection_id.lock().await;
+    if active_id.as_deref() == Some(&id) {
+        *active_id = None;
     }
     Ok(())
 }
@@ -638,8 +652,10 @@ pub async fn change_database(database: String, state: State<'_, AppState>) -> Re
     }
 
     let pool = {
-        let guard = state.pool.lock().await;
-        guard.as_ref().ok_or("No active connection")?.clone()
+        let pools = state.pools.lock().await;
+        let active_id = state.active_connection_id.lock().await;
+        let id = active_id.as_ref().ok_or("No active connection")?;
+        pools.get(id).cloned().ok_or("No active connection")?
     };
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -651,8 +667,10 @@ pub async fn change_database(database: String, state: State<'_, AppState>) -> Re
 #[tauri::command]
 pub async fn set_autocommit(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
     let pool = {
-        let guard = state.pool.lock().await;
-        guard.as_ref().ok_or("No active connection")?.clone()
+        let pools = state.pools.lock().await;
+        let active_id = state.active_connection_id.lock().await;
+        let id = active_id.as_ref().ok_or("No active connection")?;
+        pools.get(id).cloned().ok_or("No active connection")?
     };
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -664,8 +682,10 @@ pub async fn set_autocommit(enabled: bool, state: State<'_, AppState>) -> Result
 #[tauri::command]
 pub async fn fetch_databases(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let pool = {
-        let guard = state.pool.lock().await;
-        guard.as_ref().ok_or("No active connection")?.clone()
+        let pools = state.pools.lock().await;
+        let active_id = state.active_connection_id.lock().await;
+        let id = active_id.as_ref().ok_or("No active connection")?;
+        pools.get(id).cloned().ok_or("No active connection")?
     };
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -681,10 +701,9 @@ pub async fn fetch_schema(
     id: String,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
-    let _ = id;
     let pool = {
-        let guard = state.pool.lock().await;
-        guard.as_ref().ok_or("No active connection")?.clone()
+        let pools = state.pools.lock().await;
+        pools.get(&id).cloned().ok_or("No active connection")?
     };
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -801,8 +820,10 @@ pub async fn fetch_table_details(
     state: State<'_, AppState>,
 ) -> Result<TableDetails, String> {
     let pool = {
-        let guard = state.pool.lock().await;
-        guard.as_ref().ok_or("No active connection")?.clone()
+        let pools = state.pools.lock().await;
+        let active_id = state.active_connection_id.lock().await;
+        let id = active_id.as_ref().ok_or("No active connection")?;
+        pools.get(id).cloned().ok_or("No active connection")?
     };
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -1032,6 +1053,78 @@ pub async fn export_csv(result: QueryResult) -> Result<String, String> {
     Ok(format!("\u{FEFF}{}\n{}", header, rows.join("\n")))
 }
 
+// ── Password Encryption ──────────────────────────────────────────────────────
+
+fn encryption_key_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    path.push(".select-key");
+    Ok(path)
+}
+
+fn get_or_create_encryption_key(app: &tauri::AppHandle) -> Result<Vec<u8>, String> {
+    let path = encryption_key_path(app)?;
+    if path.exists() {
+        let content = std::fs::read(&path).map_err(|e| e.to_string())?;
+        if content.len() == 32 {
+            return Ok(content);
+        }
+    }
+    let mut key = vec![0u8; 32];
+    OsRng.fill_bytes(&mut key);
+    let hash = Sha256::digest(&key);
+    let obfuscated = hash.as_slice().to_vec();
+    std::fs::write(&path, &obfuscated).map_err(|e| e.to_string())?;
+    Ok(obfuscated)
+}
+
+fn encrypt_with_key(key_bytes: &[u8], plaintext: &str) -> Result<String, String> {
+    let key = Key::<Aes256Gcm>::from_slice(key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce_bytes = Aes256Gcm::generate_nonce(&mut OsRng);
+    let ciphertext = cipher
+        .encrypt(&nonce_bytes, plaintext.as_bytes())
+        .map_err(|e| format!("Encryption failed: {}", e))?;
+    let mut combined = nonce_bytes.to_vec();
+    combined.extend_from_slice(&ciphertext);
+    Ok(BASE64.encode(&combined))
+}
+
+fn decrypt_with_key(key_bytes: &[u8], ciphertext_b64: &str) -> Result<String, String> {
+    let key = Key::<Aes256Gcm>::from_slice(key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let combined = BASE64
+        .decode(ciphertext_b64)
+        .map_err(|e| format!("Invalid base64: {}", e))?;
+    if combined.len() < 12 {
+        return Err("Invalid ciphertext".into());
+    }
+    let (nonce_bytes, ct) = combined.split_at(12);
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let plaintext = cipher
+        .decrypt(nonce, ct)
+        .map_err(|e| format!("Decryption failed: {}", e))?;
+    String::from_utf8(plaintext).map_err(|e| format!("Invalid UTF-8: {}", e))
+}
+
+#[tauri::command]
+pub async fn encrypt_password(
+    app: tauri::AppHandle,
+    plaintext: String,
+) -> Result<String, String> {
+    let key_bytes = get_or_create_encryption_key(&app)?;
+    encrypt_with_key(&key_bytes, &plaintext)
+}
+
+#[tauri::command]
+pub async fn decrypt_password(
+    app: tauri::AppHandle,
+    ciphertext_b64: String,
+) -> Result<String, String> {
+    let key_bytes = get_or_create_encryption_key(&app)?;
+    decrypt_with_key(&key_bytes, &ciphertext_b64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1058,6 +1151,32 @@ mod tests {
     }
 
     #[test]
+    fn read_only_validation_allows_new_mysql_features() {
+        assert!(validate_read_only_query("TABLE users").is_ok());
+        assert!(validate_read_only_query("VALUES ROW(1, 2, 3)").is_ok());
+    }
+
+    #[test]
+    fn read_only_validation_rejects_set_statement() {
+        assert!(validate_read_only_query("SET @var = 1").is_err());
+        assert!(validate_read_only_query("SET NAMES utf8").is_err());
+    }
+
+    #[test]
+    fn read_only_validation_rejects_transaction_control() {
+        assert!(validate_read_only_query("BEGIN").is_err());
+        assert!(validate_read_only_query("COMMIT").is_err());
+        assert!(validate_read_only_query("ROLLBACK").is_err());
+    }
+
+    #[test]
+    fn read_only_validation_rejects_prepared_statements() {
+        assert!(validate_read_only_query("PREPARE stmt FROM 'SELECT 1'").is_err());
+        assert!(validate_read_only_query("EXECUTE stmt").is_err());
+        assert!(validate_read_only_query("DEALLOCATE PREPARE stmt").is_err());
+    }
+
+    #[test]
     fn connection_url_encodes_credentials() {
         let config = ConnectionConfig {
             name: "test".into(),
@@ -1074,5 +1193,32 @@ mod tests {
         assert!(url.contains("root%40example"));
         assert!(url.contains("p%40ss%3Aword%2Fwith%20space"));
         assert!(url.ends_with("/my%20db"));
+    }
+
+    #[test]
+    fn password_encryption_roundtrip() {
+        let key = [0x42u8; 32];
+        let plaintext = "MyS3cret!P@ssw0rd#123";
+        let encrypted = encrypt_with_key(&key, plaintext).unwrap();
+        assert_ne!(encrypted, plaintext);
+        let decrypted = decrypt_with_key(&key, &encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn password_encryption_produces_different_outputs() {
+        let key = [0x42u8; 32];
+        let plaintext = "password123";
+        let a = encrypt_with_key(&key, plaintext).unwrap();
+        let b = encrypt_with_key(&key, plaintext).unwrap();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn password_encryption_rejects_wrong_key() {
+        let key_a = [0x42u8; 32];
+        let key_b = [0x99u8; 32];
+        let encrypted = encrypt_with_key(&key_a, "secret").unwrap();
+        assert!(decrypt_with_key(&key_b, &encrypted).is_err());
     }
 }

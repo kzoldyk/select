@@ -1,18 +1,21 @@
 mod commands;
 
 use mysql_async::Pool;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct AppState {
-    pub pool: Arc<Mutex<Option<Pool>>>,
+    pub pools: Arc<Mutex<HashMap<String, Pool>>>,
+    pub active_connection_id: Arc<Mutex<Option<String>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState {
-            pool: Arc::new(Mutex::new(None)),
+            pools: Arc::new(Mutex::new(HashMap::new())),
+            active_connection_id: Arc::new(Mutex::new(None)),
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -32,6 +35,8 @@ pub fn run() {
             commands::rename_query,
             commands::delete_query,
             commands::export_csv,
+            commands::encrypt_password,
+            commands::decrypt_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

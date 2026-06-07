@@ -54,7 +54,7 @@ export const useConnectionStore = defineStore('connection', {
       
       const saved = await loadConnections()
       if (saved && saved.length > 0) {
-        this.connections = saved as Connection[]
+        this.connections = await decryptConnections(saved as Connection[])
       } else {
         this.connections = [{
           id: 'conn-1',
@@ -94,7 +94,7 @@ export const useConnectionStore = defineStore('connection', {
         createdAt: new Date().toISOString(),
       }
       this.connections.push(newConn)
-      await saveConnections(this.connections)
+      await saveConnections(await encryptConnections(this.connections))
       return newConn.id
     },
 
@@ -102,7 +102,7 @@ export const useConnectionStore = defineStore('connection', {
       const idx = this.connections.findIndex(c => c.id === id)
       if (idx !== -1) {
         this.connections[idx] = { ...this.connections[idx], ...updates }
-        await saveConnections(this.connections)
+        await saveConnections(await encryptConnections(this.connections))
       }
     },
 
@@ -112,7 +112,7 @@ export const useConnectionStore = defineStore('connection', {
         this.activeId = this.connections[0]?.id ?? null
         await saveActiveConnectionId(this.activeId)
       }
-      await saveConnections(this.connections)
+      await saveConnections(await encryptConnections(this.connections))
     },
     async testConnection(conn: Partial<Connection>): Promise<{ ok: boolean; latency?: number; error?: string }> {
       try {
@@ -185,4 +185,36 @@ function validateConnection(conn: Partial<Connection>): string | null {
     return 'Only MySQL and MariaDB connections are currently supported.'
   }
   return null
+}
+
+async function encryptConnections(connections: Connection[]): Promise<Connection[]> {
+  if (!connections.length) return connections
+  try {
+    const encrypted = await Promise.all(connections.map(async (c) => {
+      if (!c.password) return c
+      const encPw = await invoke<string>('encrypt_password', { plaintext: c.password })
+      return { ...c, password: encPw }
+    }))
+    return encrypted
+  } catch (e) {
+    console.warn('Password encryption failed, storing in plaintext:', e)
+    return connections
+  }
+}
+
+async function decryptConnections(connections: Connection[]): Promise<Connection[]> {
+  if (!connections.length) return connections
+  try {
+    const decrypted = await Promise.all(connections.map(async (c) => {
+      if (!c.password || c.password.startsWith('enc:')) return c
+      const isEncrypted = c.password.length > 40 && /^[A-Za-z0-9+/=]+$/.test(c.password)
+      if (!isEncrypted) return c
+      const decPw = await invoke<string>('decrypt_password', { ciphertextB64: c.password })
+      return { ...c, password: decPw }
+    }))
+    return decrypted
+  } catch (e) {
+    console.warn('Password decryption failed, using stored value:', e)
+    return connections
+  }
 }

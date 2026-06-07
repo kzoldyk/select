@@ -146,7 +146,7 @@ export const useSchemaStore = defineStore('schema', {
         console.error("Failed to fetch databases", e)
       }
     },
-	    async refreshSchema() {
+	    async refreshSchema(connectionId?: string) {
 	      this.isLoading = true
 	      this.tables = []
 	      this.views = []
@@ -159,7 +159,7 @@ export const useSchemaStore = defineStore('schema', {
 	      this.detailsByTable = {}
 	      this.detailsError = null
 	      try {
-	        const data = await invoke<any>('fetch_schema', { id: 'default' })
+	        const data = await invoke<any>('fetch_schema', { id: connectionId ?? 'default' })
         if (data.tables) {
           this.tables = data.tables.map((t: string | { name: string; rowCount?: number }) => ({
             name: objectName(t),

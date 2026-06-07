@@ -56,6 +56,7 @@ import CommandPalette from './components/CommandPalette.vue'
 import ConnectionManager from './components/ConnectionManager.vue'
 import SchemaInspector from './components/SchemaInspector.vue'
 import { Toaster } from '@/components/ui/sonner'
+import { toast } from 'vue-sonner'
 import SaveQueryDialog from './components/SaveQueryDialog.vue'
 
 import { useConnectionStore } from './stores/connection'
@@ -74,7 +75,10 @@ onMounted(async () => {
   await connStore.load()
   editorStore.loadSplitRatio()
   if (connStore.activeId) {
-    await connStore.connect(connStore.activeId)
+    const connected = await connStore.connect(connStore.activeId)
+    if (!connected && connStore.lastError) {
+      toast.error('Connection failed', { description: connStore.lastError })
+    }
   }
 })
 
@@ -109,16 +113,18 @@ const resultPaneHeight = computed(() =>
 )
 
 function startResize(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  el.setPointerCapture(e.pointerId)
   isResizing = true
   startY = e.clientY
   startRatio = editorStore.splitRatio
-  document.addEventListener('mousemove', onResize)
-  document.addEventListener('mouseup', stopResize)
+  el.addEventListener('pointermove', onResize)
+  el.addEventListener('pointerup', stopResize)
   document.body.style.cursor = 'row-resize'
   document.body.style.userSelect = 'none'
 }
 
-function onResize(e: MouseEvent) {
+function onResize(e: PointerEvent) {
   if (!isResizing || !mainRef.value) return
   const mainH = mainRef.value.clientHeight
   const delta = e.clientY - startY
@@ -126,10 +132,11 @@ function onResize(e: MouseEvent) {
   editorStore.setSplitRatio(newRatio)
 }
 
-function stopResize() {
+function stopResize(e: PointerEvent) {
+  const el = e.currentTarget as HTMLElement
+  el.removeEventListener('pointermove', onResize)
+  el.removeEventListener('pointerup', stopResize)
   isResizing = false
-  document.removeEventListener('mousemove', onResize)
-  document.removeEventListener('mouseup', stopResize)
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }

@@ -20,6 +20,7 @@ export interface SavedQuery {
   updatedAt: string
 }
 
+const MAX_TABS = 20
 const DEFAULT_SQL = ``
 
 let tabCounter = 1
@@ -52,6 +53,7 @@ export const useEditorStore = defineStore('editor', {
 
   actions: {
     addTab() {
+      if (this.tabs.length >= MAX_TABS) return ''
       tabCounter++
       const tab: Tab = {
         id: `tab-${Date.now()}`,
@@ -68,8 +70,13 @@ export const useEditorStore = defineStore('editor', {
       return tab.id
     },
     closeTab(id: string) {
-      const idx = this.tabs.findIndex(t => t.id === id)
-      if (idx === -1) return
+      const tab = this.tabs.find(t => t.id === id)
+      if (!tab) return
+      if (tab.isUnsaved && tab.sql.trim()) {
+        const confirmed = window.confirm(`"${tab.name}" has unsaved changes. Close anyway?`)
+        if (!confirmed) return
+      }
+      const idx = this.tabs.indexOf(tab)
       this.tabs.splice(idx, 1)
       if (this.activeTabId === id) {
         this.activeTabId = this.tabs[Math.max(0, idx - 1)]?.id ?? ''

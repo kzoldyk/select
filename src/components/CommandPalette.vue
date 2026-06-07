@@ -36,12 +36,14 @@ import { useUiStore } from '../stores/ui'
 import { useEditorStore } from '../stores/editor'
 import { useResultStore } from '../stores/result'
 import { useSchemaStore } from '../stores/schema'
+import { useConnectionStore } from '../stores/connection'
 import { computed } from 'vue'
 
 const uiStore = useUiStore()
 const editorStore = useEditorStore()
 const resultStore = useResultStore()
 const schemaStore = useSchemaStore()
+const connStore = useConnectionStore()
 
 	const emit = defineEmits<{ run: [] }>()
 	
@@ -118,7 +120,7 @@ const allGroups = computed<Group[]>(() => {
         icon: '\u27F3',
         label: 'Refresh schema',
         shortcut: '\u2318R',
-        action: () => { schemaStore.refreshSchema(); uiStore.closePalette() },
+        action: () => { schemaStore.refreshSchema(connStore.activeId ?? undefined); uiStore.closePalette() },
       },
     ],
   },
@@ -147,6 +149,17 @@ const allGroups = computed<Group[]>(() => {
         action: () => {
           const tableName = schemaStore.activeTable ?? firstTable?.name
           if (tableName) uiStore.openInspector(tableName)
+          uiStore.closePalette()
+        },
+      },
+      {
+        id: 'view-history',
+        icon: '\u29D6',
+        label: 'View query history',
+        shortcut: '',
+        action: () => {
+          resultStore.setActiveView('history')
+          resultStore.loadHistory()
           uiStore.closePalette()
         },
       },

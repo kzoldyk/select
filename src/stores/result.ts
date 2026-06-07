@@ -18,7 +18,16 @@ export type CellValue = string | number | boolean | null
 export type ResultRow = Record<string, CellValue>
 
 export type ResultStatus = 'idle' | 'running' | 'success' | 'error'
-export type ResultView = 'table' | 'json' | 'plan' | 'messages'
+export type ResultView = 'table' | 'json' | 'plan' | 'messages' | 'history'
+
+export interface QueryHistoryItem {
+  id: string
+  sql: string
+  executed_at: string
+  duration_ms: number
+  row_count: number
+  error: string | null
+}
 
 export const useResultStore = defineStore('result', {
   state: () => ({
@@ -33,6 +42,7 @@ export const useResultStore = defineStore('result', {
 	    selectedRows: new Set<string>(),
 	    messages: [] as string[],
 	    requestId: 0,
+	    history: [] as QueryHistoryItem[],
 	  }),
 
   getters: {
@@ -68,6 +78,7 @@ export const useResultStore = defineStore('result', {
         this.messages = [`Error: ${String(err)}`]
         this.activeView = 'messages'
       }
+      this.loadHistory()
     },
 	    async explainQuery(sql: string) {
 	      const requestId = ++this.requestId
@@ -113,7 +124,14 @@ export const useResultStore = defineStore('result', {
     clearSelection() {
       this.selectedRows = new Set()
     },
-    clearResults() {
+	    async loadHistory() {
+	      try {
+	        this.history = await invoke<QueryHistoryItem[]>('get_history')
+	      } catch (e) {
+	        console.error('Failed to load history:', e)
+	      }
+	    },
+	    clearResults() {
       this.rows = []
       this.columns = []
       this.planRows = []
@@ -126,11 +144,6 @@ export const useResultStore = defineStore('result', {
 	      this.activeView = 'table'
 	      this.requestId++
 	    },
-    deleteSelected() {
-      const indices = Array.from(this.selectedRows).map(Number)
-      this.rows = this.rows.filter((_, i) => !indices.includes(i))
-      this.selectedRows = new Set()
-    },
 	    exportCsv() {
 	      if (!this.columns.length) return
 	      const csvEscape = (value: string) => {
