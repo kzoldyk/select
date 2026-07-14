@@ -157,6 +157,7 @@
                     />
                   </div>
                 </TableHead>
+                <TableHead class="w-[48px] text-center text-[10px] font-semibold text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/50 select-none">#</TableHead>
                 <TableHead
                   v-for="col in resultStore.columns"
                   :key="col.name"
@@ -198,6 +199,7 @@
                     />
                   </div>
                 </TableCell>
+                <TableCell class="text-center p-1.5 px-2 w-[48px] border-r border-border/50 text-[10px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
                 <TableCell
                   v-for="col in resultStore.columns"
                   :key="col.name"

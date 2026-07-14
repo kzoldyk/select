@@ -1,10 +1,13 @@
 <template>
   <header class="flex items-center justify-between h-12 px-3 border-b border-border bg-background flex-shrink-0">
     <div class="flex items-center gap-2 min-w-0 flex-1">
+      <Button variant="ghost" size="icon" class="text-muted-foreground hover:text-foreground h-8 w-8 transition-colors ease-premium duration-normal rounded-lg ml-1" aria-label="Toggle sidebar" @click="$emit('toggleSidebar')">
+        <PanelLeft class="w-4.5 h-4.5 opacity-80" />
+      </Button>
       <img
         src="@/assets/select-logo.png"
         alt=""
-        class="h-6 w-6 rounded-sm object-contain flex-shrink-0"
+        class="h-5 w-5 rounded-sm object-contain flex-shrink-0 opacity-80 mix-blend-screen"
         aria-hidden="true"
       />
 
@@ -58,7 +61,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Kbd } from '@/components/ui/kbd'
 import {
-	  Database, ChevronDown, Search, Settings, Play
+	  Database, ChevronDown, Search, Settings, Play, PanelLeft
 	} from '@lucide/vue'
 
 const props = defineProps<{
@@ -68,10 +71,11 @@ const props = defineProps<{
 
 defineEmits<{
   run: []
-	  openPalette: []
-	  openConnManager: []
-	  openSettings: []
-	}>()
+  openPalette: []
+  openConnManager: []
+  openSettings: []
+  toggleSidebar: []
+}>()
 
 const envBadgeClass = computed(() => ({
   'bg-red-950 text-red-400': props.env === 'PROD',

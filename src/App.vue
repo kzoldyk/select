@@ -1,17 +1,19 @@
 <template>
   <div class="app dark" :style="appGridStyle">
     <Toolbar
+      class="app-header"
       :connection-name="connStore.activeConnection?.name ?? 'No connection'"
       :env="connStore.env"
       @run="runQuery"
       @open-palette="uiStore.openPalette()"
       @open-conn-manager="uiStore.openConnectionManager()"
       @open-settings="uiStore.openConnectionManager()"
+      @toggle-sidebar="uiStore.toggleSidebar()"
     />
 
-    <Sidebar />
+    <Sidebar class="app-sidebar" />
 
-    <main class="main-content" ref="mainRef">
+    <main class="main-content app-main" ref="mainRef">
       <div
         class="editor-pane"
         :style="{ height: editorPaneHeight }"
@@ -20,20 +22,26 @@
       </div>
 
       <div
-        class="resize-handle"
+        class="resize-handle group"
         role="separator"
         aria-label="Resize editor and result panels"
         aria-orientation="horizontal"
         @pointerdown="startResize"
         @dblclick="resetSplit"
-      ></div>
+      >
+        <div class="resize-handle-icon group-hover:opacity-100 group-active:opacity-100 flex items-center justify-center gap-0.5 px-2 h-3.5 bg-muted/80 border border-border/80 rounded-full opacity-0 shadow-sm transition-all absolute pointer-events-none">
+          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+        </div>
+      </div>
 
       <div class="result-pane" :style="{ height: resultPaneHeight }">
         <ResultPanel />
       </div>
     </main>
 
-    <StatusBar />
+    <StatusBar class="app-footer" />
 
     <div class="overlays">
       <CommandPalette @run="runQuery" />
@@ -91,7 +99,7 @@ onMounted(async () => {
 useKeyboardShortcuts(runQuery)
 
 const appGridStyle = computed(() => ({
-  gridTemplateColumns: uiStore.sidebarOpen ? '220px 1fr' : '0 1fr',
+  gridTemplateColumns: uiStore.sidebarOpen ? '260px 1fr' : '0 1fr',
 }))
 
 async function runQuery(sqlOverride?: string) {
@@ -158,14 +166,20 @@ function resetSplit() {
 .app {
   display: grid;
   grid-template-rows: 48px 1fr 32px;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 260px 1fr;
+  grid-template-areas:
+    "header header"
+    "sidebar main"
+    "footer footer";
   height: 100vh;
   overflow: hidden;
   transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.app > :first-child { grid-column: 1 / -1; }
-.app > :last-child  { grid-column: 1 / -1; }
+.app-header { grid-area: header; z-index: 20; }
+.app-sidebar { grid-area: sidebar; border-right: 1px solid hsl(var(--border)); overflow: hidden; }
+.app-main { grid-area: main; z-index: 10; }
+.app-footer { grid-area: footer; z-index: 20; }
 
 .main-content {
   display: flex;

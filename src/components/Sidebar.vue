@@ -5,11 +5,11 @@
     role="navigation"
     aria-label="Schema browser"
   >
-    <div class="p-2 border-b border-border flex flex-col gap-1.5 flex-shrink-0">
+    <div class="px-3 py-3 border-b border-border flex flex-col gap-2.5 flex-shrink-0 bg-background/50 backdrop-blur-sm z-10">
       <template v-if="connStore.status === 'connected'">
         <select
           v-if="schemaStore.databases.length"
-          class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all shadow-sm"
           aria-label="Select database"
           :value="connStore.activeConnection?.database"
           @change="async (e) => {
@@ -21,23 +21,19 @@
           <option v-for="db in schemaStore.databases" :key="db" :value="db">{{ db }}</option>
         </select>
 
-        <select
-          v-if="schemaStore.databases.length"
-          class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          aria-label="Select schema"
-          :disabled="connStore.activeConnection?.dbType === 'mysql'"
-        >
-          <option v-if="connStore.activeConnection?.dbType === 'mysql'" value="def">MySQL (Schema = DB)</option>
-          <option v-else value="public">public</option>
-        </select>
-
-        <div class="flex items-center gap-1">
-          <div v-if="!schemaStore.databases.length" class="text-[10px] text-muted-foreground text-center py-1 flex-1">
-            Loading databases...
-          </div>
+        <div class="flex items-center gap-1.5">
+          <select
+            v-if="schemaStore.databases.length"
+            class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shadow-sm"
+            aria-label="Select schema"
+            :disabled="connStore.activeConnection?.dbType === 'mysql'"
+          >
+            <option v-if="connStore.activeConnection?.dbType === 'mysql'" value="def">MySQL (Schema = DB)</option>
+            <option v-else value="public">public</option>
+          </select>
           <button
             v-if="connStore.status === 'connected'"
-            class="flex items-center justify-center w-6 h-6 rounded hover:bg-accent text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer flex-shrink-0"
+            class="flex items-center justify-center w-7 h-7 rounded hover:bg-accent text-muted-foreground hover:text-foreground bg-background border border-input cursor-pointer flex-shrink-0 shadow-sm transition-colors"
             title="Refresh schema"
             :disabled="schemaStore.isLoading"
             @click="schemaStore.refreshSchema(connStore.activeId ?? undefined)"
@@ -49,18 +45,18 @@
         </div>
       </template>
 
-      <div v-else-if="connStore.status === 'connecting'" class="text-[10px] text-muted-foreground text-center py-1">
+      <div v-else-if="connStore.status === 'connecting'" class="text-[10px] text-muted-foreground text-center py-2">
         Connecting...
       </div>
-      <div v-else-if="connStore.status === 'error'" class="text-[10px] text-red-500 text-center py-1">
+      <div v-else-if="connStore.status === 'error'" class="text-[10px] text-red-500 text-center py-2">
         Connection error
       </div>
-      <div v-else class="text-[10px] text-muted-foreground text-center py-1">
+      <div v-else class="text-[10px] text-muted-foreground text-center py-2">
         No active connection
       </div>
 
       <input
-        class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        class="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-[12px] ring-offset-background placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all shadow-sm mt-1"
         type="text"
         placeholder="Search tables…"
         aria-label="Search tables"
@@ -361,9 +357,8 @@ onUnmounted(() => {
 
 <style scoped>
 .sidebar {
-  width: 240px;
-  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
   flex-shrink: 0;
 }
-.sidebar.w-0 { width: 0; border-right: none; overflow: hidden; }
+.sidebar.w-0 { opacity: 0; border-right: none; pointer-events: none; }
 </style>
