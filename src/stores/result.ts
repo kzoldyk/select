@@ -208,7 +208,7 @@ export const useResultStore = defineStore('result', {
         this.columns = result.columns
         this.planRows = []
         this.planColumns = []
-        this.duration = result.duration_ms
+        this.duration = (result as any).durationMs ?? result.duration_ms
         this.hasMore = result.has_more
         this.pageOffset = result.row_count
         this.status = 'success'
@@ -259,12 +259,12 @@ export const useResultStore = defineStore('result', {
         } else if (first && first.columns) {
           this.rows = first.rows as ResultRow[]
           this.columns = first.columns
-          this.duration = first.duration_ms
+          this.duration = (first as any).durationMs ?? first.duration_ms
           this.status = 'success'
           const total = results.reduce((s, r) => s + (r.row_count ?? r.affected_rows ?? 0), 0)
           this.messages = results.length > 1
             ? [`Multi-query returned ${results.length} results, ${total} total rows.`]
-            : [`Query completed successfully. ${first.row_count} rows returned in ${first.duration_ms}ms.`]
+            : [`Query completed successfully. ${first.row_count} rows returned in ${this.duration}ms.`]
           this.activeView = 'table'
         } else if (first && first.affected_rows !== null) {
           this.lastAffectedRows = first.affected_rows
@@ -293,7 +293,7 @@ export const useResultStore = defineStore('result', {
       } else if (result.columns) {
         this.rows = result.rows as ResultRow[]
         this.columns = result.columns
-        this.duration = result.duration_ms
+        this.duration = (result as any).durationMs ?? result.duration_ms
         this.status = 'success'
         this.activeView = 'table'
       } else if (result.affected_rows !== null) {
@@ -324,7 +324,7 @@ export const useResultStore = defineStore('result', {
         this.rows.push(...newRows)
         this.hasMore = result.has_more
         this.pageOffset += newRows.length
-        this.duration += result.duration_ms
+        this.duration += (result as any).durationMs ?? result.duration_ms
         this.messages = [
           `Query completed successfully. ${this.rows.length} rows returned.${this.hasMore ? ' (scrolled for more)' : ''}`
         ]
@@ -430,7 +430,7 @@ export const useResultStore = defineStore('result', {
         this.multiResults = []
         this.planRows = []
         this.planColumns = []
-        this.duration = result.duration_ms
+        this.duration = (result as any).durationMs ?? result.duration_ms
         this.status = 'success'
         const msg = `Query executed successfully. ${result.affected_rows} rows affected in ${this.duration}ms.`
         this.messages = result.warning ? [msg, `Warning: ${result.warning}`] : [msg]
@@ -461,7 +461,7 @@ export const useResultStore = defineStore('result', {
 	        if (requestId !== this.requestId) return
 	        this.planRows = result.rows
         this.planColumns = result.columns
-        this.duration = result.duration_ms
+        this.duration = (result as any).durationMs ?? result.duration_ms
         this.status = 'success'
         this.messages = [`Execution plan returned ${result.row_count} rows in ${this.duration}ms.`]
         this.activeView = 'plan'

@@ -425,16 +425,33 @@ const isProcesslist = computed(() => {
 })
 
 function detectTableFromSql(sql: string): string | null {
+  console.log('[detectTableFromSql] original sql:', sql)
   if (!sql) return null
-  const clean = sql.trim().replace(/;+$/, '')
-  if (/^SELECT/i.test(clean)) {
-    const fromMatch = clean.match(/\bFROM\s+([a-zA-Z0-9_."`]+)/i)
+  
+  // Strip comments to safely check the first real keyword
+  const noComments = sql
+    .replace(/--.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim()
+    
+  const clean = noComments.replace(/;+$/, '')
+  console.log('[detectTableFromSql] clean sql:', clean)
+  
+  // Only process if it's a SELECT query (ignoring any potential zero-width chars at start)
+  if (/\bSELECT\b/i.test(clean)) {
+    // Match FROM followed by any valid table name characters (including hyphens and $ which some DBs use)
+    const fromMatch = clean.match(/\bFROM\s+([a-zA-Z0-9_."`$-]+)/i)
+    console.log('[detectTableFromSql] fromMatch:', fromMatch)
     if (fromMatch) {
       let tableName = fromMatch[1]
+      console.log('[detectTableFromSql] raw tableName:', tableName)
       if (tableName.includes('.')) {
         tableName = tableName.split('.').pop() || tableName
+        console.log('[detectTableFromSql] after dot split:', tableName)
       }
-      return tableName.replace(/[`"']/g, '')
+      const finalName = tableName.replace(/[`"']/g, '')
+      console.log('[detectTableFromSql] final name:', finalName)
+      return finalName
     }
   }
   return null
@@ -446,22 +463,34 @@ const editableTableName = computed(() => {
 
 const pkColumns = computed<string[]>(() => {
   const tableName = editableTableName.value
+  console.log('[pkColumns] editableTableName:', tableName)
   if (!tableName) return []
   const tableKey = Object.keys(schemaStore.detailsByTable).find(k => k.toLowerCase() === tableName.toLowerCase())
-  if (!tableKey) return []
+  console.log('[pkColumns] found tableKey:', tableKey)
+  if (!tableKey) {
+    console.log('[pkColumns] detailsByTable keys:', Object.keys(schemaStore.detailsByTable))
+    return []
+  }
   const details = schemaStore.detailsByTable[tableKey]
   if (!details) return []
-  return details.columns.filter(c => c.pk).map(c => c.name)
+  const pks = details.columns.filter(c => c.pk).map(c => c.name)
+  console.log('[pkColumns] final primary keys:', pks)
+  return pks
 })
 
 const hasDirtyEdits = computed(() => Object.keys(resultStore.dirtyCells).length > 0)
 
 function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) {
+  console.log('[startEditCell] Clicked cell. lastSql is:', resultStore.lastSql)
+  const manualDetect = detectTableFromSql(resultStore.lastSql)
+  console.log('[startEditCell] manualDetect returned:', manualDetect)
+  
   if (!editableTableName.value) {
-    toast.error('Cannot edit data', { description: 'Could not detect the table name from the query.' })
+    toast.error('Cannot edit data', { description: `Could not detect the table name from the query. Regex detected: ${manualDetect}` })
     return
   }
   const pkCols = pkColumns.value
+  console.log('[startEditCell] pkCols:', pkCols)
   if (pkCols.length === 0) {
     toast.error('Cannot edit data', { description: 'The table must have at least one primary key column.' })
     return
