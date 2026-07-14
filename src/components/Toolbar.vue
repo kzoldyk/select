@@ -5,9 +5,9 @@
         <PanelLeft class="w-4.5 h-4.5 opacity-80" />
       </Button>
       <img
-        src="@/assets/select-logo.png"
-        alt=""
-        class="h-5 w-5 rounded-sm object-contain flex-shrink-0 opacity-80 mix-blend-screen"
+        src="@/assets/select-logo.svg"
+        alt="Select Logo"
+        class="h-5 w-5 object-contain flex-shrink-0 ml-1.5"
         aria-hidden="true"
       />
 
