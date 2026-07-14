@@ -404,6 +404,7 @@ import { useResultStore, type ResultView, type Column, type CellValue, type Resu
 import { useEditorStore } from '../stores/editor'
 import { useSchemaStore } from '../stores/schema'
 import { useUiStore } from '../stores/ui'
+import { toast } from 'vue-sonner'
 
 const resultStore = useResultStore()
 const schemaStore = useSchemaStore()
@@ -448,14 +449,32 @@ const pkColumns = computed<string[]>(() => {
 const hasDirtyEdits = computed(() => Object.keys(resultStore.dirtyCells).length > 0)
 
 function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) {
+  if (!editableTableName.value) {
+    toast.error('Cannot edit data', { description: 'Could not detect the table name from the query.' })
+    return
+  }
   const pkCols = pkColumns.value
-  if (pkCols.length === 0) return
+  if (pkCols.length === 0) {
+    toast.error('Cannot edit data', { description: 'The table must have at least one primary key column.' })
+    return
+  }
   resultStore.startEditing(rowIndex, colName)
   nextTick(() => editInputRef.value?.focus())
 }
 
-function commitEditCell(rowIndex: number, colName: string) {
+async function commitEditCell(rowIndex: number, colName: string) {
+  if (resultStore.editingCell?.rowIndex !== rowIndex || resultStore.editingCell?.colName !== colName) {
+    return
+  }
+  
+  const row = resultStore.rows[rowIndex]
+  if (row && String(row[colName] ?? '') === resultStore.editValue) {
+    resultStore.cancelEditing()
+    return
+  }
+
   resultStore.commitEdit(rowIndex, colName, resultStore.editValue)
+  await saveEdits()
 }
 
 async function saveEdits() {
