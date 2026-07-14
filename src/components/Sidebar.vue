@@ -31,8 +31,21 @@
           <option v-else value="public">public</option>
         </select>
 
-        <div v-if="!schemaStore.databases.length" class="text-[10px] text-muted-foreground text-center py-1">
-          Loading databases...
+        <div class="flex items-center gap-1">
+          <div v-if="!schemaStore.databases.length" class="text-[10px] text-muted-foreground text-center py-1 flex-1">
+            Loading databases...
+          </div>
+          <button
+            v-if="connStore.status === 'connected'"
+            class="flex items-center justify-center w-6 h-6 rounded hover:bg-accent text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer flex-shrink-0"
+            title="Refresh schema"
+            :disabled="schemaStore.isLoading"
+            @click="schemaStore.refreshSchema(connStore.activeId ?? undefined)"
+          >
+            <svg class="w-3.5 h-3.5" :class="{ 'animate-spin': schemaStore.isLoading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+            </svg>
+          </button>
         </div>
       </template>
 
@@ -49,7 +62,7 @@
       <input
         class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         type="text"
-        placeholder="Search tables\u2026"
+        placeholder="Search tables…"
         aria-label="Search tables"
         :value="schemaStore.searchQuery"
         @input="onSearch"
@@ -57,98 +70,99 @@
     </div>
 
     <ScrollArea class="flex-1">
-      <div class="py-1">
-        <div v-if="schemaStore.filteredTables.length" class="mb-0.5">
+      <div class="py-2">
+        <div v-if="schemaStore.filteredTables.length" class="mb-1">
           <button
-            class="w-full flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer"
+            class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors"
             @click="toggle('tables')"
           >
-            <ChevronRight class="w-3 h-3 transition-transform" :class="{ 'rotate-90': sectionsOpen.tables }" />
+            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal" :class="{ 'rotate-90': sectionsOpen.tables }" />
             <span class="flex-1 text-left">Tables</span>
-            <span class="text-[9px] text-muted-foreground">{{ schemaStore.tables.length }}</span>
+            <span class="text-[10px] font-mono font-medium text-muted-foreground/70">{{ schemaStore.tables.length }}</span>
           </button>
-          <template v-if="sectionsOpen.tables">
+          <div v-show="sectionsOpen.tables" class="overflow-hidden transition-all ease-premium duration-normal">
             <button
               v-for="table in schemaStore.filteredTables"
               :key="table.name"
-              class="w-full flex items-center gap-1.5 px-2 py-0.5 pl-7 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent border-l-2 border-transparent transition-colors bg-transparent border-none cursor-pointer text-left"
-              :class="{ 'text-foreground bg-accent border-l-primary': schemaStore.activeTable === table.name }"
+              class="w-full flex items-center gap-2 px-3 py-1 pl-8 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors bg-transparent border-none cursor-pointer text-left relative"
+              :class="{ 'text-primary bg-primary/10 font-medium': schemaStore.activeTable === table.name }"
               :title="table.name"
               @click="selectTable(table.name)"
               @contextmenu.prevent="(e) => openCtxMenu(e, table.name)"
             >
-              <svg class="w-3 h-3 flex-shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
+              <div v-if="schemaStore.activeTable === table.name" class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-primary rounded-r-full shadow-[0_0_8px_var(--primary)]"></div>
+              <svg class="w-3.5 h-3.5 flex-shrink-0 opacity-70" :class="{ 'text-primary opacity-100': schemaStore.activeTable === table.name }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ table.name }}</span>
-              <span class="text-[9px] text-muted-foreground bg-muted border border-border rounded px-1 font-mono flex-shrink-0">{{ formatCount(table.rowCount) }}</span>
+              <span class="text-[9px] text-muted-foreground/70 font-mono flex-shrink-0">{{ formatCount(table.rowCount) }}</span>
             </button>
-          </template>
+          </div>
         </div>
 
-        <div v-if="schemaStore.filteredViews.length" class="mb-0.5">
+        <div v-if="schemaStore.filteredViews.length" class="mb-1">
           <button
-            class="w-full flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer"
+            class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors"
             @click="toggle('views')"
           >
-            <ChevronRight class="w-3 h-3 transition-transform" :class="{ 'rotate-90': sectionsOpen.views }" />
+            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal" :class="{ 'rotate-90': sectionsOpen.views }" />
             <span class="flex-1 text-left">Views</span>
-            <span class="text-[9px] text-muted-foreground">{{ schemaStore.views.length }}</span>
+            <span class="text-[10px] font-mono font-medium text-muted-foreground/70">{{ schemaStore.views.length }}</span>
           </button>
-          <template v-if="sectionsOpen.views">
+          <div v-show="sectionsOpen.views" class="overflow-hidden transition-all ease-premium duration-normal">
             <button
               v-for="view in schemaStore.filteredViews"
               :key="view.name"
-              class="w-full flex items-center gap-1.5 px-2 py-0.5 pl-7 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left"
+              class="w-full flex items-center gap-2 px-3 py-1 pl-8 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors bg-transparent border-none cursor-pointer text-left relative"
               :title="view.name"
               @click="selectTable(view.name)"
               @contextmenu.prevent="(e) => openCtxMenu(e, view.name)"
             >
-              <svg class="w-3 h-3 text-amber-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="w-3.5 h-3.5 text-amber-500/80 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ view.name }}</span>
             </button>
-          </template>
+          </div>
         </div>
 
-        <div v-if="schemaStore.filteredFunctions.length" class="mb-0.5">
-          <button class="w-full flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer" @click="toggle('functions')">
-            <ChevronRight class="w-3 h-3 transition-transform" :class="{ 'rotate-90': sectionsOpen.functions }" />
+        <div v-if="schemaStore.filteredFunctions.length" class="mb-1">
+          <button class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors" @click="toggle('functions')">
+            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal" :class="{ 'rotate-90': sectionsOpen.functions }" />
             <span class="flex-1 text-left">Functions</span>
-            <span class="text-[9px] text-muted-foreground">{{ schemaStore.functions.length }}</span>
+            <span class="text-[10px] font-mono font-medium text-muted-foreground/70">{{ schemaStore.functions.length }}</span>
           </button>
         </div>
 
-        <div v-if="schemaStore.filteredIndexes.length" class="mb-0.5">
-          <button class="w-full flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer" @click="toggle('indexes')">
-            <ChevronRight class="w-3 h-3 transition-transform" :class="{ 'rotate-90': sectionsOpen.indexes }" />
+        <div v-if="schemaStore.filteredIndexes.length" class="mb-1">
+          <button class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors" @click="toggle('indexes')">
+            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal" :class="{ 'rotate-90': sectionsOpen.indexes }" />
             <span class="flex-1 text-left">Indexes</span>
-            <span class="text-[9px] text-muted-foreground">{{ schemaStore.indexes.length }}</span>
+            <span class="text-[10px] font-mono font-medium text-muted-foreground/70">{{ schemaStore.indexes.length }}</span>
           </button>
         </div>
 
-        <div class="mb-0.5">
+        <div class="mb-1">
           <button
-            class="w-full flex items-center gap-1 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer"
+            class="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer transition-colors"
             @click="toggle('saved')"
           >
-            <ChevronRight class="w-3 h-3 transition-transform" :class="{ 'rotate-90': sectionsOpen.saved }" />
+            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal" :class="{ 'rotate-90': sectionsOpen.saved }" />
             <span class="flex-1 text-left">Saved Queries</span>
-            <span class="text-[9px] text-muted-foreground">{{ editorStore.savedQueries.length }}</span>
+            <span class="text-[10px] font-mono font-medium text-muted-foreground/70">{{ editorStore.savedQueries.length }}</span>
           </button>
-          <template v-if="sectionsOpen.saved">
+          <div v-show="sectionsOpen.saved" class="overflow-hidden transition-all ease-premium duration-normal">
             <button
               v-for="sq in editorStore.savedQueries"
               :key="sq.id"
-              class="w-full flex items-center gap-1.5 px-2 py-0.5 pl-7 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left border-l-2 border-transparent transition-colors"
+              class="w-full flex items-center gap-2 px-3 py-1 pl-8 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors bg-transparent border-none cursor-pointer text-left relative"
               :title="sq.name"
               @click="editorStore.openSavedQuery(sq)"
               @contextmenu.prevent="(e) => openSQCtxMenu(e, sq)"
             >
-              <FileText class="w-3 h-3 flex-shrink-0 text-primary/70" />
+              <FileText class="w-3.5 h-3.5 flex-shrink-0 opacity-70" />
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ sq.name }}</span>
             </button>
-            <div v-if="!editorStore.savedQueries.length" class="px-7 py-1 text-[10px] text-muted-foreground">
+            <div v-if="!editorStore.savedQueries.length" class="px-8 py-2 text-[11px] text-muted-foreground/50">
               No saved queries
             </div>
-          </template>
+          </div>
         </div>
       </div>
     </ScrollArea>
@@ -227,10 +241,12 @@ watch(() => connStore.status, async (status) => {
   if (status === 'connected') {
     await schemaStore.fetchDatabases()
     await schemaStore.refreshSchema()
+    schemaStore.fetchAllTableDetails()
   }
 }, { immediate: true })
 
 onMounted(() => {
+  editorStore.restoreTabState()
   editorStore.loadSavedQueries()
 })
 
@@ -345,8 +361,8 @@ onUnmounted(() => {
 
 <style scoped>
 .sidebar {
-  width: 220px;
-  transition: width 0.15s ease;
+  width: 240px;
+  transition: width 180ms cubic-bezier(0.16, 1, 0.3, 1);
   flex-shrink: 0;
 }
 .sidebar.w-0 { width: 0; border-right: none; overflow: hidden; }

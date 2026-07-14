@@ -1,12 +1,12 @@
 /* ─── SQL Syntax Colors (for CodeMirror) ────────────────────────────────────── */
 :root {
-  --syn-keyword: #93C5FD;
-  --syn-fn:      #34D399;
-  --syn-string:  #FCD34D;
-  --syn-number:  #FCA5A5;
-  --syn-op:      #F9A8D4;
-  --syn-comment: #4B5563;
-  --syn-type:    #C4B5FD;
-  --syn-schema:  #67E8F9;
-  --syn-ident:   #E5E7EB;
+  --syn-keyword: #569CD6;
+  --syn-fn:      #DCDCAA;
+  --syn-string:  #CE9178;
+  --syn-number:  #B5CEA8;
+  --syn-op:      #D4D4D4;
+  --syn-comment: #6A9955;
+  --syn-type:    #4EC9B0;
+  --syn-schema:  #9CDCFE;
+  --syn-ident:   #9CDCFE;
 }

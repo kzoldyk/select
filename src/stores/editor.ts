@@ -52,6 +52,38 @@ export const useEditorStore = defineStore('editor', {
   },
 
   actions: {
+    saveTabState() {
+      const data = this.tabs.map(t => ({
+        name: t.name, sql: t.sql, savedQueryId: t.savedQueryId,
+        cursorLine: t.cursorLine, cursorCol: t.cursorCol,
+      }))
+      localStorage.setItem('tabState', JSON.stringify(data))
+      localStorage.setItem('activeTabId', this.activeTabId)
+    },
+    restoreTabState() {
+      const raw = localStorage.getItem('tabState')
+      if (!raw) return
+      try {
+        const data = JSON.parse(raw) as { name: string; sql: string; savedQueryId: string | null; cursorLine: number; cursorCol: number }[]
+        if (!data.length) return
+        this.tabs = data.map((d, i) => ({
+          id: `tab-${Date.now()}-${i}`,
+          name: d.name,
+          sql: d.sql,
+          connectionId: null,
+          isUnsaved: false,
+          savedQueryId: d.savedQueryId,
+          cursorLine: d.cursorLine,
+          cursorCol: d.cursorCol,
+        }))
+        const activeId = localStorage.getItem('activeTabId')
+        if (activeId && this.tabs.some(t => t.id === activeId)) {
+          this.activeTabId = activeId
+        } else {
+          this.activeTabId = this.tabs[0]?.id ?? this.activeTabId
+        }
+      } catch {}
+    },
     addTab() {
       if (this.tabs.length >= MAX_TABS) return ''
       tabCounter++
@@ -67,6 +99,7 @@ export const useEditorStore = defineStore('editor', {
       }
       this.tabs.push(tab)
       this.activeTabId = tab.id
+      this.saveTabState()
       return tab.id
     },
     closeTab(id: string) {
@@ -82,6 +115,7 @@ export const useEditorStore = defineStore('editor', {
         this.activeTabId = this.tabs[Math.max(0, idx - 1)]?.id ?? ''
         if (this.tabs.length === 0) this.addTab()
       }
+      this.saveTabState()
     },
     selectTab(id: string) {
       if (this.tabs.find(t => t.id === id)) {
@@ -118,6 +152,7 @@ export const useEditorStore = defineStore('editor', {
         tab.isUnsaved = false
         this.saveDialogOpen = false
         this.saveDialogTabId = null
+        this.saveTabState()
         await this._refreshSavedQueries()
       } catch (e) {
         console.error('Failed to save query:', e)

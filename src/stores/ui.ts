@@ -8,6 +8,9 @@ export const useUiStore = defineStore('ui', {
 	    connectionManagerOpen: false,
 	    activeInspectorTable: null as string | null,
 	    settingsOpen: false,
+	    shortcutsOpen: false,
+	    exportOpen: false,
+	    theme: 'dark' as 'dark' | 'light',
   }),
 
   actions: {
@@ -37,11 +40,29 @@ export const useUiStore = defineStore('ui', {
     closeConnectionManager() {
       this.connectionManagerOpen = false
     },
+    openShortcuts() {
+      this.shortcutsOpen = true
+    },
+    closeShortcuts() {
+      this.shortcutsOpen = false
+    },
+    openExport() {
+      this.exportOpen = true
+    },
+    closeExport() {
+      this.exportOpen = false
+    },
+    toggleTheme() {
+      this.theme = this.theme === 'dark' ? 'light' : 'dark'
+      document.documentElement.classList.toggle('dark', this.theme === 'dark')
+    },
     closeAll() {
 	      this.paletteOpen = false
 	      this.inspectorOpen = false
 	      this.connectionManagerOpen = false
 	      this.settingsOpen = false
+	      this.shortcutsOpen = false
+	      this.exportOpen = false
 	    },
   },
 })

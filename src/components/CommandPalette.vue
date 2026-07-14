@@ -64,33 +64,67 @@ interface Group {
   commands: Command[]
 }
 
+function openTableInTab(name: string) {
+  schemaStore.setActiveTable(name)
+  const id = editorStore.addTab()
+  const tab = editorStore.tabs.find(t => t.id === id)
+  if (tab) {
+    tab.name = name
+    tab.sql = `SELECT * FROM ${quoteSqlIdentifier(name)} LIMIT 100;`
+    emit('run')
+  }
+  uiStore.closePalette()
+}
+
 const allGroups = computed<Group[]>(() => {
   const firstTable = schemaStore.filteredTables[0] ?? schemaStore.tables[0]
-  const recentCommands: Command[] = firstTable ? [
-    {
-      id: `open-${firstTable.name}`,
-      icon: '\u229E',
-      label: `Open table: ${firstTable.name}`,
-      shortcut: '\u23CE',
-      action: () => {
-	        schemaStore.setActiveTable(firstTable.name)
-	        const id = editorStore.addTab()
-	        const tab = editorStore.tabs.find(t => t.id === id)
-	        if (tab) {
-	          tab.name = firstTable.name
-	          tab.sql = `SELECT * FROM ${quoteSqlIdentifier(firstTable.name)} LIMIT 100;`
-	          emit('run')
-	        }
-	        uiStore.closePalette()
-	      },
+
+  const tableCommands: Command[] = schemaStore.tables.slice(0, 10).map(t => ({
+    id: `open-${t.name}`,
+    icon: '\u229E',
+    label: `Open table: ${t.name}`,
+    action: () => openTableInTab(t.name),
+  }))
+
+  const savedQueryCommands: Command[] = editorStore.savedQueries.slice(0, 10).map(sq => ({
+    id: `saved-${sq.id}`,
+    icon: '\uD83D\uDCC4',
+    label: `Open saved: ${sq.name}`,
+    action: () => {
+      const id = editorStore.addTab()
+      const tab = editorStore.tabs.find(t => t.id === id)
+      if (tab) {
+        tab.name = sq.name
+        tab.sql = sq.sql
+        editorStore.updateSql(id, sq.sql)
+      }
+      uiStore.closePalette()
     },
-  ] : []
+  }))
+
+  const connectionCommands: Command[] = connStore.connections.map(conn => ({
+    id: `conn-${conn.id}`,
+    icon: conn.id === connStore.activeId ? '\u25C9' : '\u25CB',
+    label: `Switch to: ${conn.name} (${conn.host}:${conn.port})`,
+    action: () => {
+      connStore.connect(conn.id)
+      uiStore.closePalette()
+    },
+  }))
 
   return [
-  {
-    label: 'Recent',
-    commands: recentCommands,
-  },
+  ...(tableCommands.length ? [{
+    label: 'Tables',
+    commands: tableCommands,
+  }] : []),
+  ...(savedQueryCommands.length ? [{
+    label: 'Saved Queries',
+    commands: savedQueryCommands,
+  }] : []),
+  ...(connectionCommands.length ? [{
+    label: 'Connections',
+    commands: connectionCommands,
+  }] : []),
   {
     label: 'Actions',
     commands: [
@@ -109,11 +143,11 @@ const allGroups = computed<Group[]>(() => {
         action: () => { editorStore.addTab(); uiStore.closePalette() },
       },
       {
-        id: 'export-csv',
+        id: 'export',
         icon: '\u21D3',
-        label: 'Export CSV',
-        shortcut: '\u2318E',
-        action: () => { resultStore.exportCsv(); uiStore.closePalette() },
+        label: 'Export results',
+        shortcut: '\u2318\u21E7E',
+        action: () => { uiStore.openExport(); uiStore.closePalette() },
       },
       {
         id: 'refresh-schema',
@@ -140,6 +174,13 @@ const allGroups = computed<Group[]>(() => {
         label: 'Toggle sidebar',
         shortcut: '\u2318B',
         action: () => { uiStore.toggleSidebar(); uiStore.closePalette() },
+      },
+      {
+        id: 'shortcuts',
+        icon: '\u2318',
+        label: 'Keyboard shortcuts',
+        shortcut: '\u2318\u21E7/',
+        action: () => { uiStore.openShortcuts(); uiStore.closePalette() },
       },
       {
         id: 'schema-inspector',

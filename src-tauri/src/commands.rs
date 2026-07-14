@@ -15,6 +15,7 @@ use tauri::{Manager, State};
 use uuid::Uuid;
 
 const MAX_RESULT_ROWS: usize = 10_000;
+const MAX_PAGE_SIZE: usize = 500;
 const QUERY_TIMEOUT_SECS: u64 = 30;
 
 fn queries_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -112,6 +113,18 @@ pub struct QueryResult {
     pub rows: Vec<serde_json::Value>,
     pub duration_ms: u64,
     pub row_count: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SingleQueryResult {
+    pub sql: String,
+    pub columns: Option<Vec<Column>>,
+    pub rows: Option<Vec<serde_json::Value>>,
+    pub row_count: Option<u64>,
+    pub affected_rows: Option<u64>,
+    pub duration_ms: u64,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -448,12 +461,34 @@ pub struct SavedQuery {
     pub updated_at: String,
 }
 
+async fn resolve_connection(
+    state: &AppState,
+    id: Option<String>,
+) -> Result<(String, Pool), String> {
+    let pools = state.pools.lock().await;
+    let conn_id = match id {
+        Some(cid) => cid,
+        None => state
+            .active_connection_id
+            .lock()
+            .await
+            .clone()
+            .ok_or("No active connection")?,
+    };
+    let pool = pools
+        .get(&conn_id)
+        .cloned()
+        .ok_or("No active connection")?;
+    Ok((conn_id, pool))
+}
+
 // ── Tauri Commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn run_query(
     app: tauri::AppHandle,
     sql: String,
+    id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<QueryResult, String> {
     let start = std::time::Instant::now();
@@ -473,12 +508,15 @@ pub async fn run_query(
         return Err(err);
     }
 
-    let pool = {
-        let pools = state.pools.lock().await;
-        let active_id = state.active_connection_id.lock().await;
-        let id = active_id.as_ref().ok_or("No active connection")?;
-        pools.get(id).cloned().ok_or("No active connection")?
-    };
+    let (conn_id, pool) = resolve_connection(&state, id).await?;
+
+    if let Ok(mut c) = pool.get_conn().await {
+        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+            if let Some(t) = tid {
+                state.thread_ids.lock().await.insert(conn_id, t);
+            }
+        }
+    }
 
     let query_future = async {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -604,6 +642,548 @@ pub async fn run_query(
     })
 }
 
+// ── Multi-Query (semicolon-separated) ──────────────────────────────────────
+
+fn split_statements(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_backtick = false;
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\'' if !in_double_quote && !in_backtick => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote && !in_backtick => in_double_quote = !in_double_quote,
+            '`' => in_backtick = !in_backtick,
+            ';' if !in_single_quote && !in_double_quote && !in_backtick => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    statements.push(trimmed);
+                }
+                current.clear();
+                continue;
+            }
+            _ => {}
+        }
+        current.push(ch);
+    }
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        statements.push(trimmed);
+    }
+    statements
+}
+
+#[tauri::command]
+pub async fn run_multi_query(
+    app: tauri::AppHandle,
+    sql: String,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<SingleQueryResult>, String> {
+    let statements = split_statements(&sql);
+    if statements.is_empty() {
+        return Err("No statements to execute.".into());
+    }
+
+    let (conn_id, pool) = resolve_connection(&state, id).await?;
+
+    if let Ok(mut c) = pool.get_conn().await {
+        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+            if let Some(t) = tid {
+                state.thread_ids.lock().await.insert(conn_id, t);
+            }
+        }
+    }
+
+    let mut results = Vec::new();
+    for stmt in &statements {
+        let stmt_start = std::time::Instant::now();
+        let is_mutating = validate_read_only_query(stmt).is_err();
+
+        let result = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
+            let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+
+            if is_mutating {
+                conn.query_iter(stmt).await.map_err(|e| safe_error(&e))?;
+                let affected = conn.affected_rows();
+                Ok::<SingleQueryResult, String>(SingleQueryResult {
+                    sql: stmt.clone(),
+                    columns: None,
+                    rows: None,
+                    row_count: None,
+                    affected_rows: Some(affected),
+                    duration_ms: stmt_start.elapsed().as_millis() as u64,
+                    error: None,
+                })
+            } else {
+                let mut result = conn.query_iter(stmt).await.map_err(|e| safe_error(&e))?;
+                let mut columns = Vec::new();
+                for col in result.columns_ref() {
+                    let type_str = format!("{:?}", col.column_type());
+                    columns.push(Column {
+                        name: col.name_str().into_owned(),
+                        r#type: map_column_type(&type_str),
+                    });
+                }
+
+                let column_refs: Vec<(String, String)> = columns
+                    .iter()
+                    .map(|c| (c.name.clone(), c.r#type.clone()))
+                    .collect();
+                let mut json_rows = Vec::new();
+
+                while let Some(row) = result.next().await.map_err(|e| safe_error(&e))? {
+                    if json_rows.len() >= MAX_RESULT_ROWS {
+                        break;
+                    }
+                    let mut map = serde_json::Map::new();
+                    for (col_name, col_type) in &column_refs {
+                        let val = row.get_opt::<mysql_async::Value, _>(col_name.as_str());
+                        let json_val = match val {
+                            Some(Ok(v)) => match v {
+                                mysql_async::Value::NULL => Value::Null,
+                                mysql_async::Value::Bytes(b) => {
+                                    if col_type == "binary" {
+                                        Value::String(format!("[binary {} bytes]", b.len()))
+                                    } else {
+                                        Value::String(String::from_utf8_lossy(&b).to_string())
+                                    }
+                                }
+                                mysql_async::Value::Int(i) => json!(i),
+                                mysql_async::Value::UInt(u) => json!(u),
+                                mysql_async::Value::Float(f) => json!(f),
+                                mysql_async::Value::Double(d) => json!(d),
+                                mysql_async::Value::Date(y, m, d, h, mi, s, micro) => {
+                                    Value::String(format!(
+                                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
+                                        y, m, d, h, mi, s, micro
+                                    ))
+                                }
+                                mysql_async::Value::Time(neg, d, h, m, s, micro) => {
+                                    let sign = if neg { "-" } else { "" };
+                                    Value::String(format!(
+                                        "{}{:02}:{:02}:{:02}.{:06}",
+                                        sign,
+                                        d * 24 + h as u32,
+                                        m,
+                                        s,
+                                        micro
+                                    ))
+                                }
+                            },
+                            _ => Value::Null,
+                        };
+                        map.insert(col_name.clone(), json_val);
+                    }
+                    json_rows.push(Value::Object(map));
+                }
+
+                result.drop_result().await.map_err(|e| safe_error(&e))?;
+
+                let row_count = json_rows.len() as u64;
+                Ok(SingleQueryResult {
+                    sql: stmt.clone(),
+                    columns: Some(columns),
+                    rows: Some(json_rows),
+                    row_count: Some(row_count),
+                    affected_rows: None,
+                    duration_ms: stmt_start.elapsed().as_millis() as u64,
+                    error: None,
+                })
+            }
+        })
+        .await
+        .map_err(|_| format!("Query timed out after {} seconds.", QUERY_TIMEOUT_SECS))
+        .and_then(|r| r);
+
+        match result {
+            Ok(res) => {
+                let _ = append_history(
+                    &app,
+                    QueryHistoryItem {
+                        id: format!("qh-{}", Uuid::new_v4()),
+                        sql: stmt.clone(),
+                        executed_at: now_iso(),
+                        duration_ms: res.duration_ms,
+                        row_count: res.row_count.unwrap_or(res.affected_rows.unwrap_or(0)),
+                        error: None,
+                    },
+                );
+                results.push(res);
+            }
+            Err(e) => {
+                let _ = append_history(
+                    &app,
+                    QueryHistoryItem {
+                        id: format!("qh-{}", Uuid::new_v4()),
+                        sql: stmt.clone(),
+                        executed_at: now_iso(),
+                        duration_ms: stmt_start.elapsed().as_millis() as u64,
+                        row_count: 0,
+                        error: Some(e.clone()),
+                    },
+                );
+                results.push(SingleQueryResult {
+                    sql: stmt.clone(),
+                    columns: None,
+                    rows: None,
+                    row_count: None,
+                    affected_rows: None,
+                    duration_ms: stmt_start.elapsed().as_millis() as u64,
+                    error: Some(e),
+                });
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+// ── Paged Query ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PagedQueryResult {
+    pub columns: Vec<Column>,
+    pub rows: Vec<Value>,
+    pub row_count: usize,
+    pub duration_ms: u64,
+    pub has_more: bool,
+    pub offset: usize,
+    pub limit: usize,
+}
+
+#[tauri::command]
+pub async fn run_query_paged(
+    app: tauri::AppHandle,
+    sql: String,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<PagedQueryResult, String> {
+    let page_size = limit.unwrap_or(100).min(MAX_PAGE_SIZE);
+    let page_offset = offset.unwrap_or(0);
+    let start = std::time::Instant::now();
+
+    if let Err(err) = validate_read_only_query(&sql) {
+        let _ = append_history(
+            &app,
+            QueryHistoryItem {
+                id: format!("qh-{}", Uuid::new_v4()),
+                sql,
+                executed_at: now_iso(),
+                duration_ms: start.elapsed().as_millis() as u64,
+                row_count: 0,
+                error: Some(err.clone()),
+            },
+        );
+        return Err(err);
+    }
+
+    let (conn_id, pool) = resolve_connection(&state, id).await?;
+
+    if let Ok(mut c) = pool.get_conn().await {
+        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+            if let Some(t) = tid {
+                state.thread_ids.lock().await.insert(conn_id, t);
+            }
+        }
+    }
+
+    let fetch_limit = page_size + 1;
+    let clean_sql = sql.trim().trim_end_matches(';');
+    let paged_sql = format!("SELECT * FROM ({}) AS _paged LIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
+
+    let query_future = async {
+        let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+        let mut result = conn.query_iter(&paged_sql).await.map_err(|e| safe_error(&e))?;
+        let mut columns = Vec::new();
+        for col in result.columns_ref() {
+            let type_str = format!("{:?}", col.column_type());
+            columns.push(Column {
+                name: col.name_str().into_owned(),
+                r#type: map_column_type(&type_str),
+            });
+        }
+
+        let column_refs: Vec<(String, String)> = columns
+            .iter()
+            .map(|c| (c.name.clone(), c.r#type.clone()))
+            .collect();
+        let mut json_rows = Vec::new();
+
+        while let Some(row) = result.next().await.map_err(|e| safe_error(&e))? {
+            if json_rows.len() >= fetch_limit {
+                break;
+            }
+            let mut map = serde_json::Map::new();
+            for (col_name, col_type) in &column_refs {
+                let val = row.get_opt::<mysql_async::Value, _>(col_name.as_str());
+                let json_val = match val {
+                    Some(Ok(v)) => match v {
+                        mysql_async::Value::NULL => Value::Null,
+                        mysql_async::Value::Bytes(b) => {
+                            if col_type == "binary" {
+                                Value::String(format!("[binary {} bytes]", b.len()))
+                            } else {
+                                Value::String(String::from_utf8_lossy(&b).to_string())
+                            }
+                        }
+                        mysql_async::Value::Int(i) => json!(i),
+                        mysql_async::Value::UInt(u) => json!(u),
+                        mysql_async::Value::Float(f) => json!(f),
+                        mysql_async::Value::Double(d) => json!(d),
+                        mysql_async::Value::Date(y, m, d, h, mi, s, micro) => {
+                            Value::String(format!(
+                                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
+                                y, m, d, h, mi, s, micro
+                            ))
+                        }
+                        mysql_async::Value::Time(neg, d, h, m, s, micro) => {
+                            let sign = if neg { "-" } else { "" };
+                            Value::String(format!(
+                                "{}{:02}:{:02}:{:02}.{:06}",
+                                sign,
+                                d * 24 + h as u32,
+                                m,
+                                s,
+                                micro
+                            ))
+                        }
+                    },
+                    _ => Value::Null,
+                };
+                map.insert(col_name.clone(), json_val);
+            }
+            json_rows.push(Value::Object(map));
+        }
+
+        result.drop_result().await.map_err(|e| safe_error(&e))?;
+
+        Ok::<(Vec<Column>, Vec<Value>), String>((columns, json_rows))
+    };
+
+    let query_result = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), query_future)
+        .await
+        .map_err(|_| format!("Query timed out after {} seconds.", QUERY_TIMEOUT_SECS))
+        .and_then(|r| r)?;
+
+    let (columns, json_rows) = query_result;
+    let has_more = json_rows.len() > page_size;
+    let rows: Vec<Value> = if has_more {
+        json_rows.into_iter().take(page_size).collect()
+    } else {
+        json_rows
+    };
+    let row_count = rows.len();
+    let duration = start.elapsed().as_millis() as u64;
+
+    let _ = append_history(
+        &app,
+        QueryHistoryItem {
+            id: format!("qh-{}", Uuid::new_v4()),
+            sql,
+            executed_at: now_iso(),
+            duration_ms: duration,
+            row_count: row_count as u64,
+            error: None,
+        },
+    );
+
+    Ok(PagedQueryResult {
+        columns,
+        rows,
+        row_count,
+        duration_ms: duration,
+        has_more,
+        offset: page_offset,
+        limit: page_size,
+    })
+}
+
+fn is_mutating_query(sql: &str) -> bool {
+    let tokens = sql_tokens_outside_literals(sql);
+    let mutating = [
+        "ALTER", "CREATE", "DELETE", "DROP", "GRANT", "INSERT", "LOAD", "LOCK",
+        "RENAME", "REPLACE", "REVOKE", "TRUNCATE", "UPDATE", "CALL",
+    ];
+    let first = match tokens.first() {
+        Some(t) => t.as_str(),
+        None => return false,
+    };
+    if mutating.contains(&first) {
+        return true;
+    }
+    tokens.iter().any(|t| mutating.contains(&t.as_str()))
+}
+
+fn has_where_clause(sql: &str) -> bool {
+    let tokens = sql_tokens_outside_literals(sql);
+    tokens.iter().any(|t| t == "WHERE")
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WriteQueryResult {
+    pub affected_rows: u64,
+    pub duration_ms: u64,
+    pub warning: Option<String>,
+}
+
+#[tauri::command]
+pub async fn run_write_query(
+    app: tauri::AppHandle,
+    sql: String,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<WriteQueryResult, String> {
+    let start = std::time::Instant::now();
+
+    if !is_mutating_query(&sql) {
+        return Err("Not a mutating query. Use run_query for read-only queries.".into());
+    }
+
+    let (conn_id, pool) = resolve_connection(&state, id).await?;
+
+    if let Ok(mut c) = pool.get_conn().await {
+        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+            if let Some(t) = tid {
+                state.thread_ids.lock().await.insert(conn_id, t);
+            }
+        }
+    }
+
+    let mut warning = None;
+    if !has_where_clause(&sql) {
+        let first_word = sql_tokens_outside_literals(&sql)
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        warning = Some(format!(
+            "This query has no WHERE clause and may affect many rows. ({})",
+            first_word
+        ));
+    }
+
+    let mut conn = pool
+        .get_conn()
+        .await
+        .map_err(|e| safe_error(&e))?;
+
+    let result = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
+        conn.query_iter(&sql).await.map_err(|e| safe_error(&e))
+    })
+    .await
+    .map_err(|_| format!("Query timed out after {} seconds.", QUERY_TIMEOUT_SECS))
+    .and_then(|r| r)?;
+
+    let affected = result.affected_rows();
+    let duration = start.elapsed().as_millis() as u64;
+
+    let _ = append_history(
+        &app,
+        QueryHistoryItem {
+            id: format!("qh-{}", Uuid::new_v4()),
+            sql,
+            executed_at: now_iso(),
+            duration_ms: duration,
+            row_count: affected,
+            error: warning.clone(),
+        },
+    );
+
+    Ok(WriteQueryResult {
+        affected_rows: affected,
+        duration_ms: duration,
+        warning,
+    })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateCell {
+    pub column: String,
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PkValue {
+    pub column: String,
+    pub value: serde_json::Value,
+}
+
+#[tauri::command]
+pub async fn update_rows(
+    table: String,
+    updates: Vec<UpdateCell>,
+    pks: Vec<PkValue>,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<WriteQueryResult, String> {
+    let start = std::time::Instant::now();
+
+    if updates.is_empty() || pks.is_empty() {
+        return Err("No updates or primary key values provided.".into());
+    }
+
+    let (conn_id, pool) = resolve_connection(&state, id).await?;
+
+    if let Ok(mut c) = pool.get_conn().await {
+        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+            if let Some(t) = tid {
+                state.thread_ids.lock().await.insert(conn_id, t);
+            }
+        }
+    }
+
+    fn json_to_sql(val: &serde_json::Value, _col: &str) -> String {
+        match val {
+            serde_json::Value::Null => "NULL".into(),
+            serde_json::Value::Bool(b) => if *b { "1".into() } else { "0".into() },
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "\\'")),
+            _ => format!("'{}'", val.to_string().replace('\'', "\\'")),
+        }
+    }
+
+    fn escape_identifier(s: &str) -> String {
+        format!("`{}`", s.replace('`', "``"))
+    }
+
+    let set_clause: Vec<String> = updates.iter().map(|u| {
+        format!("{} = {}", escape_identifier(&u.column), json_to_sql(&u.value, &u.column))
+    }).collect();
+
+    let where_clause: Vec<String> = pks.iter().map(|pk| {
+        format!("{} = {}", escape_identifier(&pk.column), json_to_sql(&pk.value, &pk.column))
+    }).collect();
+
+    let sql = format!(
+        "UPDATE {} SET {} WHERE {}",
+        escape_identifier(&table),
+        set_clause.join(", "),
+        where_clause.join(" AND ")
+    );
+
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+
+    let result = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
+        conn.query_iter(&sql).await.map_err(|e| safe_error(&e))
+    })
+    .await
+    .map_err(|_| format!("Query timed out after {} seconds.", QUERY_TIMEOUT_SECS))
+    .and_then(|r| r)?;
+
+    let affected = result.affected_rows();
+    let duration = start.elapsed().as_millis() as u64;
+
+    Ok(WriteQueryResult {
+        affected_rows: affected,
+        duration_ms: duration,
+        warning: None,
+    })
+}
+
 #[tauri::command]
 pub async fn connect(
     id: String,
@@ -615,7 +1195,16 @@ pub async fn connect(
     let opts = Opts::from_url(&url).map_err(|e| safe_error(&e))?;
     let pool = Pool::new(opts);
 
-    pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    {
+        let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+        let thread_id: u32 = conn
+            .query_first("SELECT CONNECTION_ID()")
+            .await
+            .map_err(|e| safe_error(&e))?
+            .unwrap_or(0);
+        state.connection_urls.lock().await.insert(id.clone(), url);
+        state.thread_ids.lock().await.insert(id.clone(), thread_id);
+    }
 
     state.pools.lock().await.insert(id.clone(), pool);
     *state.active_connection_id.lock().await = Some(id.clone());
@@ -623,10 +1212,58 @@ pub async fn connect(
 }
 
 #[tauri::command]
+pub async fn refresh_thread_id(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let pool = {
+        let pools = state.pools.lock().await;
+        pools.get(&id).cloned().ok_or("No active connection")?
+    };
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    let thread_id: u32 = conn
+        .query_first("SELECT CONNECTION_ID()")
+        .await
+        .map_err(|e| safe_error(&e))?
+        .unwrap_or(0);
+    state.thread_ids.lock().await.insert(id, thread_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_query(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (url, thread_id) = {
+        let active_id = state.active_connection_id.lock().await;
+        let id = active_id.as_ref().ok_or("No active connection")?.clone();
+        let urls = state.connection_urls.lock().await;
+        let url = urls.get(&id).cloned().ok_or("Connection URL not found")?;
+        let threads = state.thread_ids.lock().await;
+        let tid = threads.get(&id).copied().ok_or("Thread ID not found")?;
+        (url, tid)
+    };
+
+    let opts = Opts::from_url(&url).map_err(|e| safe_error(&e))?;
+    let kill_pool = Pool::new(opts);
+    let mut kill_conn = kill_pool.get_conn().await.map_err(|e| safe_error(&e))?;
+
+    kill_conn
+        .query_drop(format!("KILL QUERY {}", thread_id))
+        .await
+        .map_err(|e| safe_error(&e))?;
+
+    kill_pool.disconnect().await.map_err(|e| safe_error(&e))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn disconnect(id: String, state: State<'_, AppState>) -> Result<(), String> {
     if let Some(pool) = state.pools.lock().await.remove(&id) {
         pool.disconnect().await.map_err(|e| safe_error(&e))?;
     }
+    state.connection_urls.lock().await.remove(&id);
+    state.thread_ids.lock().await.remove(&id);
     let mut active_id = state.active_connection_id.lock().await;
     if active_id.as_deref() == Some(&id) {
         *active_id = None;
@@ -646,17 +1283,16 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<u64, String> {
 }
 
 #[tauri::command]
-pub async fn change_database(database: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn change_database(
+    database: String,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     if database.trim().is_empty() {
         return Err("Database name is required.".into());
     }
 
-    let pool = {
-        let pools = state.pools.lock().await;
-        let active_id = state.active_connection_id.lock().await;
-        let id = active_id.as_ref().ok_or("No active connection")?;
-        pools.get(id).cloned().ok_or("No active connection")?
-    };
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
     conn.query_drop(format!("USE {}", quote_identifier(&database)))
@@ -665,13 +1301,12 @@ pub async fn change_database(database: String, state: State<'_, AppState>) -> Re
 }
 
 #[tauri::command]
-pub async fn set_autocommit(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
-    let pool = {
-        let pools = state.pools.lock().await;
-        let active_id = state.active_connection_id.lock().await;
-        let id = active_id.as_ref().ok_or("No active connection")?;
-        pools.get(id).cloned().ok_or("No active connection")?
-    };
+pub async fn set_autocommit(
+    enabled: bool,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
     conn.query_drop(format!("SET AUTOCOMMIT={}", if enabled { 1 } else { 0 }))
@@ -680,13 +1315,11 @@ pub async fn set_autocommit(enabled: bool, state: State<'_, AppState>) -> Result
 }
 
 #[tauri::command]
-pub async fn fetch_databases(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let pool = {
-        let pools = state.pools.lock().await;
-        let active_id = state.active_connection_id.lock().await;
-        let id = active_id.as_ref().ok_or("No active connection")?;
-        pools.get(id).cloned().ok_or("No active connection")?
-    };
+pub async fn fetch_databases(
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
     let dbs: Vec<String> = conn
@@ -817,14 +1450,10 @@ pub async fn fetch_schema(
 #[tauri::command]
 pub async fn fetch_table_details(
     table: String,
+    id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<TableDetails, String> {
-    let pool = {
-        let pools = state.pools.lock().await;
-        let active_id = state.active_connection_id.lock().await;
-        let id = active_id.as_ref().ok_or("No active connection")?;
-        pools.get(id).cloned().ok_or("No active connection")?
-    };
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
 
@@ -1053,6 +1682,20 @@ pub async fn export_csv(result: QueryResult) -> Result<String, String> {
     Ok(format!("\u{FEFF}{}\n{}", header, rows.join("\n")))
 }
 
+#[tauri::command]
+pub async fn kill_session(
+    thread_id: u32,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    conn.query_iter(format!("KILL CONNECTION {}", thread_id))
+        .await
+        .map_err(|e| safe_error(&e))?;
+    Ok(format!("Killed session {}", thread_id))
+}
+
 // ── Password Encryption ──────────────────────────────────────────────────────
 
 fn encryption_key_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -1220,5 +1863,43 @@ mod tests {
         let key_b = [0x99u8; 32];
         let encrypted = encrypt_with_key(&key_a, "secret").unwrap();
         assert!(decrypt_with_key(&key_b, &encrypted).is_err());
+    }
+
+    #[test]
+    fn is_mutating_query_detects_mutations() {
+        assert!(is_mutating_query("INSERT INTO users (name) VALUES ('foo')"));
+        assert!(is_mutating_query("UPDATE users SET name = 'bar'"));
+        assert!(is_mutating_query("DELETE FROM users"));
+        assert!(is_mutating_query("CREATE TABLE foo (id INT)"));
+        assert!(is_mutating_query("DROP TABLE users"));
+        assert!(is_mutating_query("ALTER TABLE users ADD COLUMN x INT"));
+        assert!(is_mutating_query("TRUNCATE TABLE users"));
+        assert!(is_mutating_query("REPLACE INTO users (id) VALUES (1)"));
+    }
+
+    #[test]
+    fn is_mutating_query_rejects_reads() {
+        assert!(!is_mutating_query("SELECT * FROM users"));
+        assert!(!is_mutating_query("SHOW TABLES"));
+        assert!(!is_mutating_query("DESCRIBE users"));
+        assert!(!is_mutating_query("EXPLAIN SELECT 1"));
+        assert!(!is_mutating_query("WITH cte AS (SELECT 1) SELECT * FROM cte"));
+    }
+
+    #[test]
+    fn has_where_clause_detects_where() {
+        assert!(has_where_clause("SELECT * FROM users WHERE id = 1"));
+        assert!(has_where_clause("UPDATE users SET name = 'x' WHERE id = 1"));
+        assert!(has_where_clause("DELETE FROM users WHERE id = 1"));
+        assert!(!has_where_clause("SELECT * FROM users"));
+        assert!(!has_where_clause("UPDATE users SET name = 'x'"));
+        assert!(!has_where_clause("DELETE FROM users"));
+        assert!(!has_where_clause("INSERT INTO users (name) VALUES ('foo')"));
+    }
+
+    #[test]
+    fn is_mutating_query_ignores_keywords_in_literals() {
+        assert!(!is_mutating_query("SELECT 'DROP TABLE users' AS warning"));
+        assert!(!is_mutating_query("SELECT `DELETE` FROM t"));
     }
 }

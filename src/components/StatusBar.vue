@@ -1,36 +1,55 @@
 <template>
-  <footer class="flex items-center h-7 px-3 border-t bg-background text-[10px] text-muted-foreground overflow-hidden flex-shrink-0 gap-0">
-    <span class="w-2 h-2 rounded-full flex-shrink-0 mr-1.5" :class="dotClass"></span>
-    <span class="whitespace-nowrap text-[10px]">{{ connStore.status === 'connected' ? 'Connected' : connStore.status }}</span>
+  <footer class="flex items-center justify-between h-8 px-3 border-t border-border/60 bg-background text-[11px] font-medium text-muted-foreground overflow-hidden flex-shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-1.5 cursor-default" :title="activeConnLabel">
+        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 shadow-[0_0_8px_currentColor]" :class="dotClass"></span>
+        <span class="text-foreground tracking-wide capitalize">{{ connStore.status === 'connected' ? 'Connected' : connStore.status }}</span>
+      </div>
 
-    <Separator orientation="vertical" class="mx-1.5 h-3" />
-    <span class="whitespace-nowrap text-[10px]">{{ activeConnLabel }}</span>
+      <div v-if="connStore.activeConnection" class="flex items-center gap-1.5 text-muted-foreground/80">
+        <span>{{ connStore.activeConnection.name }}</span>
+        <span>&middot;</span>
+        <span class="max-w-[120px] truncate">{{ connStore.activeConnection.database || 'No DB' }}</span>
+      </div>
+      
+      <div v-if="resultStore.status !== 'idle'" class="flex items-center gap-1.5" :class="runStatusClass">
+        <span class="w-px h-3 bg-border mx-1"></span>
+        <span class="font-mono tabular-nums">{{ runStatusText }}</span>
+      </div>
+    </div>
 
-    <Separator orientation="vertical" class="mx-1.5 h-3" />
-    <span class="whitespace-nowrap text-[10px]" :class="runStatusClass">{{ runStatusText }}</span>
-
-    <Separator orientation="vertical" class="mx-1.5 h-3" />
-    <span class="whitespace-nowrap text-[10px]">{{ queryStatusLabel }}</span>
-
-    <span class="mx-1.5 text-muted-foreground">&rarr;</span>
-
-    <span class="whitespace-nowrap text-[10px]">Ln {{ editorStore.activeTab?.cursorLine ?? 1 }}, Col {{ editorStore.activeTab?.cursorCol ?? 1 }}</span>
-
-	    <Separator orientation="vertical" class="mx-1.5 h-3" />
-	    <span class="whitespace-nowrap text-[10px]">UTF-8 &middot; SQL</span>
-	  </footer>
+    <div class="flex items-center gap-3 text-muted-foreground/80 cursor-default">
+      <span class="font-mono text-[10px]">Ln {{ editorStore.activeTab?.cursorLine ?? 1 }}, Col {{ editorStore.activeTab?.cursorCol ?? 1 }}</span>
+      <span class="w-px h-3 bg-border"></span>
+      <span>UTF-8</span>
+      <span class="w-px h-3 bg-border"></span>
+      <span>SQL</span>
+      <span class="w-px h-3 bg-border"></span>
+      <button
+        class="flex items-center justify-center hover:text-foreground transition-colors cursor-pointer"
+        @click="uiStore.toggleTheme()"
+        title="Toggle Theme"
+      >
+        <Sun v-if="uiStore.theme === 'dark'" class="w-3.5 h-3.5" />
+        <Moon v-else class="w-3.5 h-3.5" />
+      </button>
+    </div>
+  </footer>
 </template>
 
 <script setup lang="ts">
 	import { computed } from 'vue'
 	import { Separator } from '@/components/ui/separator'
+import { Sun, Moon } from '@lucide/vue'
 import { useConnectionStore } from '../stores/connection'
 import { useResultStore } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
+import { useUiStore } from '../stores/ui'
 
 const connStore = useConnectionStore()
 const resultStore = useResultStore()
 const editorStore = useEditorStore()
+const uiStore = useUiStore()
 
 	const dotClass = computed(() => {
   switch (connStore.status) {

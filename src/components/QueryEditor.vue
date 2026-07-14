@@ -2,24 +2,32 @@
   <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1">
     <TabBar />
 
-    <div class="flex items-center justify-between h-7 px-2 bg-muted/30 border-b border-border flex-shrink-0">
+    <div class="flex items-center justify-between h-9 px-3 bg-background border-b border-border flex-shrink-0">
       <div class="flex gap-1">
-        <Button variant="ghost" size="sm" class="text-[10px] h-5 px-2 gap-1" @click="formatSql">
-          <FileText class="w-3 h-3" /> Format
+        <Button variant="ghost" size="sm" class="text-[11px] h-6 px-2.5 gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors" @click="formatSql">
+          <FileText class="w-3.5 h-3.5 opacity-70" /> Format
         </Button>
-        <Button variant="ghost" size="sm" class="text-[10px] h-5 px-2 gap-1" @click="$emit('explain')">
-          <Search class="w-3 h-3" /> Explain
+        <Button variant="ghost" size="sm" class="text-[11px] h-6 px-2.5 gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors" @click="$emit('explain')">
+          <Search class="w-3.5 h-3.5 opacity-70" /> Explain
         </Button>
       </div>
-      <div class="flex items-center gap-1.5">
-        <Kbd class="text-[9px]">&#8984;&#8629;</Kbd>
-        <span class="text-[9px] text-muted-foreground">Run</span>
-        <Kbd class="text-[9px]">&#8984;S</Kbd>
-        <span class="text-[9px] text-muted-foreground">Save</span>
-        <Kbd class="text-[9px]">&#8984;/</Kbd>
-        <span class="text-[9px] text-muted-foreground">Comment</span>
-        <Kbd class="text-[9px]">&#8984;&#8679;F</Kbd>
-        <span class="text-[9px] text-muted-foreground">Format</span>
+      <div class="flex items-center gap-4 opacity-50">
+        <div class="flex items-center gap-1">
+          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⌘↵</Kbd>
+          <span class="text-[10px] font-medium text-muted-foreground">Run</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⌘S</Kbd>
+          <span class="text-[10px] font-medium text-muted-foreground">Save</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⌘/</Kbd>
+          <span class="text-[10px] font-medium text-muted-foreground">Comment</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⇧⌘F</Kbd>
+          <span class="text-[10px] font-medium text-muted-foreground">Format</span>
+        </div>
       </div>
     </div>
 
@@ -41,9 +49,11 @@ import { darkTheme, sqlHighlight } from '../editor/sqlTheme'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { FileText, Search } from '@lucide/vue'
+import { format } from 'sql-formatter'
 import { useEditorStore } from '../stores/editor'
 import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
+import { useUiStore } from '../stores/ui'
 import TabBar from './TabBar.vue'
 
 const emit = defineEmits<{ explain: []; run: [sql?: string] }>()
@@ -51,11 +61,37 @@ const emit = defineEmits<{ explain: []; run: [sql?: string] }>()
 const editorStore = useEditorStore()
 const connStore = useConnectionStore()
 const schemaStore = useSchemaStore()
+const uiStore = useUiStore()
 const editorContainer = ref<HTMLDivElement | null>(null)
 const view = shallowRef<EditorView | null>(null)
 
+function collectColumns(): { name: string; table: string; type: string }[] {
+  const result: { name: string; table: string; type: string }[] = []
+  for (const [tableName, details] of Object.entries(schemaStore.detailsByTable)) {
+    for (const col of details.columns) {
+      result.push({ name: col.name, table: tableName, type: col.columnType })
+    }
+  }
+  return result
+}
+
+function getContext(sql: string, pos: number): { afterFrom: boolean; afterJoin: boolean; afterDot: boolean; dotPrefix: string } {
+  const before = sql.slice(0, pos)
+  const words = before.split(/[\s\n\r,()]+/).filter(Boolean)
+  const lastWord = words[words.length - 1]?.toUpperCase() ?? ''
+  const secondLast = words[words.length - 2]?.toUpperCase() ?? ''
+
+  const afterFrom = ['FROM', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS', 'FULL', 'NATURAL', 'COMMA'].includes(lastWord)
+  const afterJoin = lastWord === 'ON' || lastWord === 'USING'
+
+  const delimiter = lastWord.endsWith('.')
+  const dotPrefix = delimiter ? lastWord.slice(0, -1) : ''
+
+  return { afterFrom, afterJoin, afterDot: delimiter, dotPrefix }
+}
+
 function getSqlAutocomplete() {
-  const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'SHOW', 'DESCRIBE', 'EXPLAIN', 'WITH', 'COUNT', 'SUM', 'MAX', 'MIN', 'AVG', 'COALESCE', 'DISTINCT', 'AS', 'ON', 'AND', 'OR', 'NOT', 'IN', 'IS NULL', 'IS NOT NULL', 'LIKE', 'BETWEEN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END']
+  const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'RIGHT JOIN', 'FULL JOIN', 'CROSS JOIN', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'SHOW', 'DESCRIBE', 'EXPLAIN', 'WITH', 'COUNT', 'SUM', 'MAX', 'MIN', 'AVG', 'COALESCE', 'DISTINCT', 'AS', 'ON', 'AND', 'OR', 'NOT', 'IN', 'IS NULL', 'IS NOT NULL', 'LIKE', 'BETWEEN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'TABLE', 'CREATE', 'ALTER', 'DROP', 'INDEX', 'KEY', 'PRIMARY', 'FOREIGN', 'REFERENCES', 'CASCADE', 'UNIQUE', 'CHECK', 'DEFAULT', 'NULL', 'NOT NULL', 'AUTO_INCREMENT', 'ENGINE']
 
   return autocompletion({
     override: [
@@ -63,17 +99,63 @@ function getSqlAutocomplete() {
         const word = context.matchBefore(/\w+/)
         if (!word || (word.from === word.to && !context.explicit)) return null
         const q = word.text.toLowerCase()
+
+        const doc = context.state.doc.toString()
+        const ctx = getContext(doc, context.pos)
+
+        if (ctx.afterDot) {
+          const allCols = collectColumns()
+          let matched: { name: string; table: string; type: string }[] = []
+          for (const col of allCols) {
+            if (col.table.toLowerCase() === ctx.dotPrefix.toLowerCase() || col.table.toLowerCase() === ctx.dotPrefix.toLowerCase()) {
+              matched.push(col)
+            }
+          }
+          if (matched.length === 0) {
+            matched = allCols.filter(c => c.name.toLowerCase().startsWith(q))
+          }
+          return {
+            from: word.from,
+            options: matched.map(col => ({
+              label: col.name,
+              type: 'property',
+              detail: `${col.type}  ·  ${col.table}`,
+            })).slice(0, 20),
+          }
+        }
+
+        const allCols = collectColumns()
         const tables = [...schemaStore.tables, ...schemaStore.views].map(item => item.name)
-        const columns = schemaStore.tableDetails?.columns.map(col => col.name) ?? []
-        const options = [
-          ...tables.filter(t => t.toLowerCase().startsWith(q)).map(t => ({ label: t, type: 'type', detail: 'table' })),
-          ...columns.filter(c => c.toLowerCase().startsWith(q)).map(c => ({ label: c, type: 'property', detail: 'column' })),
-          ...keywords.filter(k => k.toLowerCase().startsWith(q)).map(k => ({ label: k, type: 'keyword', apply: `${k} ` })),
-        ]
-        return { from: word.from, options: options.slice(0, 8) }
+
+        const options: { label: string; type: string; detail: string; apply?: string }[] = []
+
+        if (ctx.afterFrom || ctx.afterJoin) {
+          options.push(...tables.filter(t => t.toLowerCase().startsWith(q)).map(t => ({
+            label: t, type: 'type', detail: 'table', apply: `${t} `,
+          })))
+        } else {
+          options.push(...tables.filter(t => t.toLowerCase().startsWith(q)).map(t => ({
+            label: t, type: 'type', detail: 'table', apply: `${t} `,
+          })))
+
+          const seen = new Set<string>()
+          for (const col of allCols) {
+            if (col.name.toLowerCase().startsWith(q) && !seen.has(col.name)) {
+              seen.add(col.name)
+              options.push({ label: col.name, type: 'property', detail: `${col.type}  ·  ${col.table}` })
+            }
+          }
+        }
+
+        options.push(...keywords.filter(k => k.toLowerCase().startsWith(q)).map(k => ({
+          label: k, type: 'keyword', apply: `${k} `,
+        })))
+
+        return { from: word.from, options: options.slice(0, 20) }
       },
     ],
     activateOnTyping: true,
+    maxRenderedOptions: 20,
   })
 }
 
@@ -93,7 +175,7 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
     history(),
     sql({ dialect }),
     syntaxHighlighting(sqlHighlight),
-    darkTheme,
+    uiStore.theme === 'dark' ? darkTheme : [],
     lineNumbers(),
     highlightActiveLine(),
     bracketMatching(),
@@ -107,7 +189,6 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
       ...searchKeymap,
       indentWithTab,
       { key: 'Mod-Shift-Enter', run: (editorView) => { onRun(selectedSql(editorView)); return true } },
-      { key: 'Mod-Enter', run: () => { onRun(); return true } },
       { key: 'Mod-s', run: () => { if (editorStore.activeTabId) { editorStore.saveTab(editorStore.activeTabId); return true } return false } },
     ]),
     EditorView.updateListener.of((update) => {
@@ -139,16 +220,27 @@ function mountEditor() {
 
 function formatSql() {
   const current = view.value?.state.doc.toString() ?? ''
-  const keywords = ['SELECT', 'FROM', 'LEFT JOIN', 'INNER JOIN', 'RIGHT JOIN', 'JOIN', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT', 'OFFSET', 'AND', 'OR']
-  let formatted = current
-  keywords.forEach(kw => { formatted = formatted.replace(new RegExp(`\\b${kw}\\b`, 'gi'), `\n${kw}`) })
-  formatted = formatted.trim()
-  if (view.value) {
-    view.value.dispatch({ changes: { from: 0, to: view.value.state.doc.length, insert: formatted } })
+  if (!current.trim()) return
+  try {
+    const formatted = format(current, {
+      language: 'mysql',
+      tabWidth: 2,
+      keywordCase: 'upper',
+      linesBetweenQueries: 2,
+    })
+    if (view.value) {
+      view.value.dispatch({ changes: { from: 0, to: view.value.state.doc.length, insert: formatted } })
+    }
+  } catch {
+    // fallback: no formatting
   }
 }
 
 watch(() => editorStore.activeTabId, () => {
+  nextTick(mountEditor)
+})
+
+watch(() => uiStore.theme, () => {
   nextTick(mountEditor)
 })
 

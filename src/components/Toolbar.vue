@@ -1,6 +1,6 @@
 <template>
-  <header class="flex items-center justify-between h-10 px-3 border-b bg-background flex-shrink-0">
-    <div class="flex items-center gap-2 min-w-0">
+  <header class="flex items-center justify-between h-12 px-3 border-b border-border bg-background flex-shrink-0">
+    <div class="flex items-center gap-2 min-w-0 flex-1">
       <img
         src="@/assets/select-logo.png"
         alt=""
@@ -9,43 +9,42 @@
       />
 
       <button
-        class="inline-flex items-center gap-1.5 border border-border rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-background"
+        class="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-all ease-premium duration-normal bg-transparent"
         aria-label="Open connection manager"
         @click="$emit('openConnManager')"
       >
-        <span class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
-        <Database class="w-3.5 h-3.5" />
-        <span class="text-foreground text-xs">{{ connectionName }}</span>
-        <ChevronDown class="w-3 h-3 text-muted-foreground" />
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
+        <span class="text-foreground">{{ connectionName }}</span>
+        <ChevronDown class="w-3.5 h-3.5 opacity-50" />
       </button>
 
       <span
         v-if="env"
-        class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none select-none"
+        class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase leading-none select-none"
         :class="envBadgeClass"
       >{{ env }}</span>
     </div>
 
-    <div class="flex-1 flex justify-center">
+    <div class="flex-1 flex justify-center max-w-md">
       <button
-        class="inline-flex items-center gap-2 border border-border bg-muted rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:border-ring hover:text-foreground transition-colors w-60"
+        class="flex items-center gap-2 border border-border bg-muted/40 rounded-lg px-3 h-8 text-[13px] text-muted-foreground hover:border-border/80 hover:bg-muted/80 transition-all ease-premium duration-normal w-full max-w-[320px] shadow-sm"
         aria-label="Open command palette (⌘K)"
         @click="$emit('openPalette')"
       >
-        <Search class="w-3.5 h-3.5" />
-        <span class="text-muted-foreground">Search commands…</span>
-        <Kbd class="ml-auto text-[10px]">⌘K</Kbd>
+        <Search class="w-3.5 h-3.5 opacity-70" />
+        <span class="flex-1 text-left">Search commands…</span>
+        <Kbd class="text-[10px] bg-background/50 border-border/50">⌘K</Kbd>
       </button>
     </div>
 
-    <div class="flex items-center gap-1.5">
-	      <Button variant="ghost" size="sm" class="text-xs h-7 gap-1.5" aria-label="Open settings" @click="$emit('openSettings')">
-	        <Settings class="w-3.5 h-3.5" />
-	      </Button>
+    <div class="flex items-center justify-end gap-1.5 flex-1">
+      <Button variant="ghost" size="icon" class="text-muted-foreground hover:text-foreground h-8 w-8 transition-colors ease-premium duration-normal rounded-lg" aria-label="Open settings" @click="$emit('openSettings')">
+        <Settings class="w-4 h-4" />
+      </Button>
 
-      <Separator orientation="vertical" class="h-5 mx-1" />
+      <Separator orientation="vertical" class="h-4 mx-1 opacity-50" />
 
-      <Button size="sm" class="text-xs h-7 gap-1.5" @click="$emit('run')">
+      <Button class="text-[13px] h-8 px-4 gap-1.5 shadow-sm rounded-lg font-medium transition-all ease-premium duration-normal active:scale-[0.97]" @click="$emit('run')">
         <Play class="w-3.5 h-3.5 fill-current" />
         Run
       </Button>

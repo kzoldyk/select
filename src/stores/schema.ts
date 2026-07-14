@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
+import { useConnectionStore } from './connection'
 
 export interface SchemaTable {
   name: string
@@ -138,9 +139,9 @@ export const useSchemaStore = defineStore('schema', {
       this.detailsByTable = {}
       this.detailsError = null
     },
-    async fetchDatabases() {
+    async fetchDatabases(connectionId?: string) {
       try {
-        const dbs = await invoke<string[]>('fetch_databases')
+        const dbs = await invoke<string[]>('fetch_databases', { id: connectionId ?? null })
         this.databases = dbs
       } catch (e) {
         console.error("Failed to fetch databases", e)
@@ -203,6 +204,14 @@ export const useSchemaStore = defineStore('schema', {
         this.isLoading = false
       }
     },
+    async fetchAllTableDetails() {
+      this.tables.forEach(t => {
+        if (!this.detailsByTable[t.name]) {
+          this.fetchTableDetails(t.name)
+        }
+      })
+    },
+
     async fetchTableDetails(tableName: string, force = false) {
       if (!force && this.detailsByTable[tableName]) {
         this.tableDetails = this.detailsByTable[tableName]
@@ -212,7 +221,8 @@ export const useSchemaStore = defineStore('schema', {
       this.isDetailsLoading = true
       this.detailsError = null
       try {
-        const details = await invoke<TableDetails>('fetch_table_details', { table: tableName })
+        const connId = useConnectionStore().activeId
+        const details = await invoke<TableDetails>('fetch_table_details', { table: tableName, id: connId })
         this.detailsByTable[tableName] = details
         if (this.activeTable === tableName) this.tableDetails = details
         return details

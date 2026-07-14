@@ -24,7 +24,7 @@
         role="separator"
         aria-label="Resize editor and result panels"
         aria-orientation="horizontal"
-        @mousedown="startResize"
+        @pointerdown="startResize"
         @dblclick="resetSplit"
       ></div>
 
@@ -40,6 +40,9 @@
       <ConnectionManager />
       <SchemaInspector />
       <SaveQueryDialog />
+      <DestructiveQueryDialog />
+      <KeyboardShortcuts />
+      <ExportDialog />
       <Toaster />
     </div>
   </div>
@@ -58,6 +61,9 @@ import SchemaInspector from './components/SchemaInspector.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'vue-sonner'
 import SaveQueryDialog from './components/SaveQueryDialog.vue'
+import DestructiveQueryDialog from './components/DestructiveQueryDialog.vue'
+import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
+import ExportDialog from './components/ExportDialog.vue'
 
 import { useConnectionStore } from './stores/connection'
 import { useEditorStore } from './stores/editor'
@@ -71,7 +77,7 @@ const resultStore = useResultStore()
 const uiStore = useUiStore()
 
 onMounted(async () => {
-  document.documentElement.classList.add('dark')
+  document.documentElement.classList.toggle('dark', uiStore.theme === 'dark')
   await connStore.load()
   editorStore.loadSplitRatio()
   if (connStore.activeId) {
@@ -112,7 +118,7 @@ const resultPaneHeight = computed(() =>
   `calc(${(1 - editorStore.splitRatio) * 100}% - 2px)`
 )
 
-function startResize(e: MouseEvent) {
+function startResize(e: PointerEvent) {
   const el = e.currentTarget as HTMLElement
   el.setPointerCapture(e.pointerId)
   isResizing = true
@@ -151,11 +157,11 @@ function resetSplit() {
 
 .app {
   display: grid;
-  grid-template-rows: 40px 1fr 28px;
-  grid-template-columns: 220px 1fr;
+  grid-template-rows: 48px 1fr 32px;
+  grid-template-columns: 240px 1fr;
   height: 100vh;
   overflow: hidden;
-  transition: grid-template-columns 0.15s ease;
+  transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app > :first-child { grid-column: 1 / -1; }
@@ -183,14 +189,26 @@ function resetSplit() {
 }
 
 .resize-handle {
-  height: 4px;
-  background: hsl(var(--border));
+  height: 8px;
+  background: transparent;
   cursor: row-resize;
   flex-shrink: 0;
-  transition: background 0.15s;
+  transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+.resize-handle::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: hsl(var(--border));
+  transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.resize-handle:hover::after { background: hsl(var(--ring)); }
 .resize-handle:hover { background: hsl(var(--ring)); }
 
 .overlays {

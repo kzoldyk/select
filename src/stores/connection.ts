@@ -14,6 +14,7 @@ export interface Connection {
   password: string
 	  dbType: 'mysql' | 'mariadb'
   ssl: boolean
+  readOnly: boolean
   sshTunnel: boolean
   sshHost?: string
   sshPort?: number
@@ -132,7 +133,7 @@ export const useConnectionStore = defineStore('connection', {
 	        if (!conn) throw new Error("Connection not found")
 	        const validationError = validateConnection(conn)
 	        if (validationError) throw new Error(validationError)
-	        await invoke('connect', { config: conn })
+	        await invoke('connect', { id: conn.id, config: conn })
 	        this.activeId = id
 	        this.status = 'connected'
 	        await saveActiveConnectionId(id)
@@ -149,7 +150,7 @@ export const useConnectionStore = defineStore('connection', {
       if (!this.activeId) return
       this.lastError = null
       try {
-        await invoke('change_database', { database: dbName })
+        await invoke('change_database', { database: dbName, id: this.activeId })
         await this.updateConnection(this.activeId, { database: dbName })
         useResultStore().clearResults()
         useSchemaStore().clearSchema()

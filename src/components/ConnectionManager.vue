@@ -85,6 +85,16 @@
             </div>
           </div>
 
+          <div class="flex items-center gap-2">
+            <Label for="f-readonly" class="text-xs text-muted-foreground uppercase tracking-wider">Read-only</Label>
+            <input
+              id="f-readonly"
+              type="checkbox"
+              v-model="form.readOnly"
+              class="size-3.5 accent-foreground"
+            />
+          </div>
+
 	          <div class="grid gap-2">
             <span class="text-xs text-muted-foreground uppercase tracking-wider">Color tag</span>
             <div class="flex gap-1.5">
@@ -169,6 +179,7 @@ const form = ref<FormData | null>(null)
 	      username: conn.username,
 	      password: conn.password,
 	      dbType: conn.dbType,
+      readOnly: conn.readOnly,
 	      ssl: conn.ssl,
 	      sshTunnel: conn.sshTunnel,
 	      sshHost: conn.sshHost,
@@ -191,6 +202,7 @@ function newConnection() {
     username: 'root',
     password: '',
     dbType: 'mysql',
+    readOnly: false,
     ssl: false,
     sshTunnel: false,
     color: '#3B82F6',

@@ -35,7 +35,7 @@
               <TableRow v-else-if="!columns.length">
                 <TableCell colspan="5" class="text-xs text-muted-foreground text-center py-6">No columns found</TableCell>
               </TableRow>
-              <TableRow v-for="col in columns" v-else :key="col.name" :class="{ 'border-l-2 border-l-purple-500': col.pk }">
+              <TableRow v-for="col in columns" v-else :key="col.name" :class="{ 'border-l-2 border-l-purple-500': col.pk }" @contextmenu.prevent="copyColumnName(col.name)">
                 <TableCell class="font-medium text-xs">{{ col.name }}</TableCell>
                 <TableCell class="text-xs text-purple-500">{{ col.columnType }}</TableCell>
                 <TableCell class="text-xs">
@@ -173,5 +173,9 @@ const highlightedDdl = computed(() => {
 
 function copyDdl() {
   navigator.clipboard.writeText(ddl.value)
+}
+
+function copyColumnName(name: string) {
+  navigator.clipboard.writeText(name)
 }
 </script>

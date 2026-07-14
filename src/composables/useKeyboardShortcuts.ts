@@ -25,7 +25,7 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
       target instanceof HTMLSelectElement ||
-      target?.isContentEditable
+      (target?.isContentEditable && !target?.closest('.cm-editor'))
 
     if (isTyping && key !== 'Escape') return
 
@@ -125,6 +125,13 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       return
     }
 
+    // ⌘⇧E — Export dialog
+    if (meta && shift && key === 'E') {
+      e.preventDefault()
+      if (result.columns.length) ui.openExport()
+      return
+    }
+
     // ⌘⇧C — Connection manager
     if (meta && shift && key === 'C') {
       e.preventDefault()
@@ -139,9 +146,17 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       return
     }
 
+    // ⌘⇧/ — Keyboard shortcuts
+    if (meta && shift && key === '/') {
+      e.preventDefault()
+      ui.openShortcuts()
+      return
+    }
+
     // Esc — Close the topmost open overlay
     if (key === 'Escape') {
       if (editor.saveDialogOpen) { editor.saveDialogOpen = false; return }
+      if (ui.shortcutsOpen) { ui.closeShortcuts(); return }
       if (ui.connectionManagerOpen) { ui.closeConnectionManager(); return }
       if (ui.inspectorOpen) { ui.closeInspector(); return }
       if (ui.paletteOpen) { ui.closePalette(); return }
