@@ -426,10 +426,16 @@ const isProcesslist = computed(() => {
 
 function detectTableFromSql(sql: string): string | null {
   if (!sql) return null
-  const clean = sql.trim().replace(/;+$/, '').toUpperCase()
-  if (clean.startsWith('SELECT')) {
-    const fromMatch = clean.match(/\bFROM\s+`?(\w+)`?/i)
-    return fromMatch ? fromMatch[1] : null
+  const clean = sql.trim().replace(/;+$/, '')
+  if (/^SELECT/i.test(clean)) {
+    const fromMatch = clean.match(/\bFROM\s+([a-zA-Z0-9_."`]+)/i)
+    if (fromMatch) {
+      let tableName = fromMatch[1]
+      if (tableName.includes('.')) {
+        tableName = tableName.split('.').pop() || tableName
+      }
+      return tableName.replace(/[`"']/g, '')
+    }
   }
   return null
 }
@@ -441,7 +447,9 @@ const editableTableName = computed(() => {
 const pkColumns = computed<string[]>(() => {
   const tableName = editableTableName.value
   if (!tableName) return []
-  const details = schemaStore.detailsByTable[tableName]
+  const tableKey = Object.keys(schemaStore.detailsByTable).find(k => k.toLowerCase() === tableName.toLowerCase())
+  if (!tableKey) return []
+  const details = schemaStore.detailsByTable[tableKey]
   if (!details) return []
   return details.columns.filter(c => c.pk).map(c => c.name)
 })
