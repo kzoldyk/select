@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "select",
         "width": 1200,
         "height": 800,
@@ -20,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; font-src 'self' data:; connect-src 'self' ws://localhost:*;"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' asset: data:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws://localhost:*;"
     }
   },
   "bundle": {
