@@ -483,9 +483,13 @@ function detectTableFromSql(sql: string): string | null {
     if (fromMatch) {
       let tableName = fromMatch[1]
       console.log('[detectTableFromSql] raw tableName:', tableName)
-      console.log('[detectTableFromSql] raw tableName:', tableName)
       const finalName = tableName.replace(/[`"\[\]']/g, '').trim()
       console.log('[detectTableFromSql] final name:', finalName)
+      
+      // If the query does not specify a schema (no dot) and we have a lastDatabase, attach the selected schema!
+      if (!finalName.includes('.') && resultStore.lastDatabase) {
+        return `${resultStore.lastDatabase}.${finalName}`
+      }
       return finalName
     }
   }
@@ -607,9 +611,11 @@ async function saveEdits() {
     
     const whereClauses: string[] = []
     for (const pk of pks) {
-      const colDef = resultStore.columns.find(c => 
-        (c.orgName || c.name) === pk && (!c.orgTable || c.orgTable === tableName)
-      )
+      const colDef = resultStore.columns.find(c => {
+        const bareOrgTable = c.orgTable ? (c.orgTable.includes('.') ? c.orgTable.split('.').pop() : c.orgTable) : '';
+        const bareTableName = tableName.includes('.') ? tableName.split('.').pop() : tableName;
+        return (c.orgName || c.name) === pk && (!c.orgTable || bareOrgTable?.toLowerCase() === bareTableName?.toLowerCase());
+      })
       const pkType = colDef ? colDef.type : 'string'
       const gridColName = colDef ? colDef.name : pk
       const pkVal = row[gridColName]
@@ -674,9 +680,14 @@ function copyUpdateQueries() {
     
     const whereClauses: string[] = []
     for (const pk of pks) {
-      const pkDef = resultStore.columns.find(c => c.name === pk)
-      const pkType = pkDef ? pkDef.type : 'string'
-      const pkVal = row[pk]
+      const colDef = resultStore.columns.find(c => {
+        const bareOrgTable = c.orgTable ? (c.orgTable.includes('.') ? c.orgTable.split('.').pop() : c.orgTable) : '';
+        const bareTableName = tableName.includes('.') ? tableName.split('.').pop() : tableName;
+        return (c.orgName || c.name) === pk && (!c.orgTable || bareOrgTable?.toLowerCase() === bareTableName?.toLowerCase());
+      })
+      const pkType = colDef ? colDef.type : 'string'
+      const gridColName = colDef ? colDef.name : pk
+      const pkVal = row[gridColName]
       if (pkVal === null || pkVal === undefined) {
          whereClauses.push(`${escapeId(pk)} IS NULL`)
       } else {
@@ -696,6 +707,11 @@ function copyUpdateQueries() {
 }
 
 function escapeId(id: string): string {
+  if (id.includes('.')) {
+    return id.split('.')
+      .map(part => '`' + part.replace(/`/g, '``') + '`')
+      .join('.')
+  }
   return '`' + id.replace(/`/g, '``') + '`'
 }
 

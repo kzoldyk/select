@@ -5,6 +5,8 @@ import { useConnectionStore } from './connection'
 export interface Column {
   name: string
   type: string
+  orgName?: string
+  orgTable?: string
 }
 
 export interface DbError {
@@ -109,6 +111,7 @@ export const useResultStore = defineStore('result', {
     history: [] as QueryHistoryItem[],
     pendingWriteQuery: null as PendingWriteQuery | null,
     lastSql: '',
+    lastDatabase: '',
     lastAffectedRows: 0,
     pageSize: 100,
     pageOffset: 0,
@@ -180,6 +183,7 @@ export const useResultStore = defineStore('result', {
       this.error = null
       this.selectedRows = new Set()
       this.lastSql = _sql
+      this.lastDatabase = connStore.activeConnection?.database ?? ''
       this.pageOffset = 0
       this.hasMore = false
       this.loadingMore = false
