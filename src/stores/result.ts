@@ -61,17 +61,22 @@ function hasMultipleStatements(sql: string): boolean {
   let inSingle = false
   let inDouble = false
   let inBacktick = false
-  let foundStatement = false
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i]
+  let statementCount = 0
+  const trimmed = sql.trim()
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i]
     if (ch === '\'' && !inDouble && !inBacktick) { inSingle = !inSingle; continue }
     if (ch === '"' && !inSingle && !inBacktick) { inDouble = !inDouble; continue }
     if (ch === '`') { inBacktick = !inBacktick; continue }
     if (ch === ';' && !inSingle && !inDouble && !inBacktick) {
-      foundStatement = true
+      // Only count if there is non-whitespace content after this semicolon
+      const rest = trimmed.slice(i + 1).trim()
+      if (rest.length > 0) {
+        statementCount++
+      }
     }
   }
-  return foundStatement
+  return statementCount >= 1
 }
 
 function stripSqlLiterals(sql: string): string {
@@ -246,14 +251,17 @@ export const useResultStore = defineStore('result', {
         return
       }
       _sql = fixBacktickedIdentifiers(_sql)
+      const connStore = useConnectionStore()
       const requestId = ++this.requestId
       this.status = 'running'
       this.error = null
       this.selectedRows = new Set()
+      this.lastSql = _sql
+      this.lastDatabase = connStore.activeConnection?.database ?? ''
       this.multiResults = []
       this.activeResultIndex = 0
       try {
-        const connId = useConnectionStore().activeId
+        const connId = connStore.activeId
         const results = await invoke<SingleQueryResult[]>('run_multi_query', {
           sql: _sql,
           id: connId,

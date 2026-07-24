@@ -32,6 +32,7 @@ const shortcutGroups = [
     label: 'Query Execution',
     items: [
       { keys: '⌘ ↵', label: 'Run current query' },
+      { keys: '⌘ R', label: 'Run current query' },
       { keys: '⌘ ⇧ ↵', label: 'Run selected SQL' },
       { keys: '⌘ ⇧ F', label: 'Format SQL' },
     ],
@@ -52,6 +53,7 @@ const shortcutGroups = [
       { keys: '⌘ K', label: 'Command palette' },
       { keys: '⌘ ⇧ /', label: 'Keyboard shortcuts' },
       { keys: '⌘ B', label: 'Toggle sidebar' },
+      { keys: '⌘ ⇧ R', label: 'Refresh schema' },
     ],
   },
   {

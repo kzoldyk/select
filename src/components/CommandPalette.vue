@@ -153,7 +153,7 @@ const allGroups = computed<Group[]>(() => {
         id: 'refresh-schema',
         icon: '\u27F3',
         label: 'Refresh schema',
-        shortcut: '\u2318R',
+        shortcut: '\u2318\u21E7R',
         action: () => { schemaStore.refreshSchema(connStore.activeId ?? undefined); uiStore.closePalette() },
       },
     ],

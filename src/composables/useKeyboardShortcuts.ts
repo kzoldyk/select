@@ -102,8 +102,15 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       return
     }
 
-    // ⌘R — Refresh schema
+    // ⌘R — Run query
     if (meta && !shift && key === 'r') {
+      e.preventDefault()
+      onRun?.()
+      return
+    }
+
+    // ⌘⇧R — Refresh schema
+    if (meta && shift && key === 'R') {
       e.preventDefault()
       schema.refreshSchema(conn.activeId ?? undefined)
       return
