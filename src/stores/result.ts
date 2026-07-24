@@ -109,6 +109,7 @@ export interface PendingWriteQuery {
 export const useResultStore = defineStore('result', {
   state: () => ({
     rows: [] as ResultRow[],
+    originalRows: [] as ResultRow[],
     columns: [] as Column[],
     planColumns: [] as Column[],
     planRows: [] as ResultRow[],
@@ -210,6 +211,7 @@ export const useResultStore = defineStore('result', {
         })
         if (requestId !== this.requestId) return
         this.rows = result.rows as ResultRow[]
+        this.originalRows = JSON.parse(JSON.stringify(result.rows))
         this.columns = result.columns
         this.planRows = []
         this.planColumns = []
@@ -271,6 +273,7 @@ export const useResultStore = defineStore('result', {
           }
         } else if (first && first.columns) {
           this.rows = first.rows as ResultRow[]
+          this.originalRows = JSON.parse(JSON.stringify(first.rows))
           this.columns = first.columns
           this.duration = (first as any).durationMs ?? first.duration_ms
           this.status = 'success'
@@ -335,6 +338,7 @@ export const useResultStore = defineStore('result', {
         })
         const newRows = result.rows as ResultRow[]
         this.rows.push(...newRows)
+        this.originalRows.push(...JSON.parse(JSON.stringify(newRows)))
         this.hasMore = result.has_more
         this.pageOffset += newRows.length
         this.duration += (result as any).durationMs ?? result.duration_ms
@@ -381,9 +385,15 @@ export const useResultStore = defineStore('result', {
           delete this.dirtyCells[key]
         }
       }
+      const originalRow = this.originalRows[rowIndex]
+      const currentRow = this.rows[rowIndex]
+      if (originalRow && currentRow) {
+        currentRow[colName] = originalRow[colName]
+      }
     },
 
     revertAllEdits() {
+      this.rows = JSON.parse(JSON.stringify(this.originalRows))
       this.dirtyCells = {}
     },
 
@@ -420,6 +430,7 @@ export const useResultStore = defineStore('result', {
           }
         }
         this.dirtyCells = {}
+        this.originalRows = JSON.parse(JSON.stringify(this.rows))
         this.messages.push('Edits saved successfully.')
         this.activeView = 'messages'
       } catch (err) {
@@ -530,6 +541,7 @@ export const useResultStore = defineStore('result', {
 	    },
     clearResults() {
       this.rows = []
+      this.originalRows = []
       this.columns = []
       this.planRows = []
       this.planColumns = []
