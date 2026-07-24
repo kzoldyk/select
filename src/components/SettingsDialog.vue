@@ -1,0 +1,63 @@
+<template>
+  <Dialog :open="uiStore.settingsOpen" @update:open="uiStore.closeSettings()">
+    <DialogContent class="sm:max-w-[420px]">
+      <DialogHeader>
+        <DialogTitle class="text-sm font-semibold">Settings</DialogTitle>
+        <DialogDescription class="text-xs text-muted-foreground">
+          Customize your experience in Select.
+        </DialogDescription>
+      </DialogHeader>
+
+      <div class="py-4 space-y-6">
+        <!-- Appearance section -->
+        <div class="space-y-3">
+          <Label class="text-xs font-medium text-foreground">Theme</Label>
+          <div class="grid grid-cols-3 gap-2">
+            <button
+              v-for="opt in themeOptions"
+              :key="opt.value"
+              class="flex flex-col items-center justify-center gap-2 p-3.5 rounded-lg border text-xs transition-all duration-200 cursor-pointer text-center bg-transparent group"
+              :class="uiStore.theme === opt.value 
+                ? 'border-primary bg-primary/5 text-primary font-medium shadow-[0_0_12px_rgba(225,29,72,0.15)]' 
+                : 'border-border/80 text-muted-foreground hover:text-foreground hover:bg-accent/50 hover:border-border'"
+              @click="uiStore.setTheme(opt.value)"
+              type="button"
+            >
+              <component :is="opt.icon" class="w-4 h-4" />
+              <span>{{ opt.label }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <DialogFooter class="border-t border-border/40 pt-4 flex justify-end">
+        <Button size="sm" class="text-xs" @click="uiStore.closeSettings()">
+          Close
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+</template>
+
+<script setup lang="ts">
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
+import { Sun, Moon, Monitor } from '@lucide/vue'
+import { useUiStore, type Theme } from '../stores/ui'
+
+const uiStore = useUiStore()
+
+const themeOptions = [
+  { value: 'light' as Theme, label: 'Light', icon: Sun },
+  { value: 'dark' as Theme, label: 'Dark', icon: Moon },
+  { value: 'system' as Theme, label: 'System', icon: Monitor },
+]
+</script>

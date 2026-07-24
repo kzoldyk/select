@@ -1,17 +1,29 @@
 import { defineStore } from 'pinia'
 
+export type Theme = 'dark' | 'light' | 'system'
+
 export const useUiStore = defineStore('ui', {
   state: () => ({
     sidebarOpen: true,
-	    paletteOpen: false,
-	    inspectorOpen: false,
-	    connectionManagerOpen: false,
-	    activeInspectorTable: null as string | null,
-	    settingsOpen: false,
-	    shortcutsOpen: false,
-	    exportOpen: false,
-	    theme: 'dark' as 'dark' | 'light',
+    paletteOpen: false,
+    inspectorOpen: false,
+    connectionManagerOpen: false,
+    activeInspectorTable: null as string | null,
+    settingsOpen: false,
+    shortcutsOpen: false,
+    exportOpen: false,
+    theme: ((typeof window !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'system',
+    systemIsDark: false,
   }),
+
+  getters: {
+    isDark(state): boolean {
+      if (state.theme === 'system') {
+        return state.systemIsDark
+      }
+      return state.theme === 'dark'
+    },
+  },
 
   actions: {
     toggleSidebar() {
@@ -52,17 +64,43 @@ export const useUiStore = defineStore('ui', {
     closeExport() {
       this.exportOpen = false
     },
+    openSettings() {
+      this.settingsOpen = true
+    },
+    closeSettings() {
+      this.settingsOpen = false
+    },
+    setTheme(theme: Theme) {
+      this.theme = theme
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('theme', theme)
+      }
+      this.applyTheme()
+    },
     toggleTheme() {
-      this.theme = this.theme === 'dark' ? 'light' : 'dark'
-      document.documentElement.classList.toggle('dark', this.theme === 'dark')
+      const cycle: Record<Theme, Theme> = {
+        'system': 'light',
+        'light': 'dark',
+        'dark': 'system',
+      }
+      this.setTheme(cycle[this.theme])
+    },
+    updateSystemTheme(isDark: boolean) {
+      this.systemIsDark = isDark
+      this.applyTheme()
+    },
+    applyTheme() {
+      if (typeof window !== 'undefined') {
+        document.documentElement.classList.toggle('dark', this.isDark)
+      }
     },
     closeAll() {
-	      this.paletteOpen = false
-	      this.inspectorOpen = false
-	      this.connectionManagerOpen = false
-	      this.settingsOpen = false
-	      this.shortcutsOpen = false
-	      this.exportOpen = false
-	    },
+      this.paletteOpen = false
+      this.inspectorOpen = false
+      this.connectionManagerOpen = false
+      this.settingsOpen = false
+      this.shortcutsOpen = false
+      this.exportOpen = false
+    },
   },
 })

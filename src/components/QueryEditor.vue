@@ -298,7 +298,7 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
     history(),
     sql({ dialect }),
     syntaxHighlighting(sqlHighlight),
-    uiStore.theme === 'dark' ? darkTheme : [],
+    uiStore.isDark ? darkTheme : [],
     lineNumbers(),
     highlightActiveLine(),
     bracketMatching(),
@@ -369,7 +369,7 @@ watch(() => editorStore.activeTabId, () => {
   nextTick(mountEditor)
 })
 
-watch(() => uiStore.theme, () => {
+watch(() => uiStore.isDark, () => {
   nextTick(mountEditor)
 })
 

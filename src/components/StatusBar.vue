@@ -34,10 +34,11 @@
       <button
         class="flex items-center justify-center hover:text-foreground transition-colors cursor-pointer"
         @click="uiStore.toggleTheme()"
-        title="Toggle Theme"
+        :title="`Theme: ${uiStore.theme.charAt(0).toUpperCase() + uiStore.theme.slice(1)}`"
       >
-        <Sun v-if="uiStore.theme === 'dark'" class="w-3.5 h-3.5" />
-        <Moon v-else class="w-3.5 h-3.5" />
+        <Sun v-if="uiStore.theme === 'light'" class="w-3.5 h-3.5" />
+        <Moon v-else-if="uiStore.theme === 'dark'" class="w-3.5 h-3.5" />
+        <Monitor v-else class="w-3.5 h-3.5" />
       </button>
     </div>
   </footer>
@@ -46,7 +47,7 @@
 <script setup lang="ts">
 	import { computed } from 'vue'
 	import { Separator } from '@/components/ui/separator'
-import { Sun, Moon } from '@lucide/vue'
+import { Sun, Moon, Monitor } from '@lucide/vue'
 import { useConnectionStore } from '../stores/connection'
 import { useResultStore } from '../stores/result'
 import { useEditorStore } from '../stores/editor'

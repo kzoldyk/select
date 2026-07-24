@@ -1,12 +1,12 @@
 <template>
-  <div class="app dark" :style="appGridStyle">
+  <div class="app" :style="appGridStyle">
     <Toolbar
       class="app-header"
       :connection="connStore.activeConnection"
       @run="runQuery"
       @open-palette="uiStore.openPalette()"
       @open-conn-manager="uiStore.openConnectionManager()"
-      @open-settings="uiStore.openConnectionManager()"
+      @open-settings="uiStore.openSettings()"
       @toggle-sidebar="uiStore.toggleSidebar()"
     />
 
@@ -50,13 +50,14 @@
       <DestructiveQueryDialog />
       <KeyboardShortcuts />
       <ExportDialog />
+      <SettingsDialog />
       <Toaster />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import Toolbar from './components/Toolbar.vue'
 import Sidebar from './components/Sidebar.vue'
 import QueryEditor from './components/QueryEditor.vue'
@@ -65,6 +66,7 @@ import StatusBar from './components/StatusBar.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ConnectionManager from './components/ConnectionManager.vue'
 import SchemaInspector from './components/SchemaInspector.vue'
+import SettingsDialog from './components/SettingsDialog.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'vue-sonner'
 import SaveQueryDialog from './components/SaveQueryDialog.vue'
@@ -84,8 +86,20 @@ const resultStore = useResultStore()
 const uiStore = useUiStore()
 const queryEditorRef = ref<InstanceType<typeof QueryEditor> | null>(null)
 
+let mediaQueryList: MediaQueryList | null = null
+
+const handleSystemThemeChange = (e: MediaQueryListEvent) => {
+  uiStore.updateSystemTheme(e.matches)
+}
+
 onMounted(async () => {
-  document.documentElement.classList.toggle('dark', uiStore.theme === 'dark')
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    mediaQueryList = window.matchMedia('(prefers-color-scheme: dark)')
+    uiStore.updateSystemTheme(mediaQueryList.matches)
+    mediaQueryList.addEventListener('change', handleSystemThemeChange)
+  }
+
+  uiStore.applyTheme()
   await connStore.load()
   editorStore.loadSplitRatio()
   if (connStore.activeId) {
@@ -93,6 +107,12 @@ onMounted(async () => {
     if (!connected && connStore.lastError) {
       toast.error('Connection failed', { description: connStore.lastError })
     }
+  }
+})
+
+onUnmounted(() => {
+  if (mediaQueryList) {
+    mediaQueryList.removeEventListener('change', handleSystemThemeChange)
   }
 })
 
