@@ -311,8 +311,6 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
       ...historyKeymap,
       ...searchKeymap,
       indentWithTab,
-      { key: 'Mod-Shift-Enter', run: (editorView) => { onRun(selectedSql(editorView)); return true } },
-      { key: 'Mod-r', run: (editorView) => { onRun(selectedSql(editorView)); return true } },
       { key: 'Mod-s', run: () => { if (editorStore.activeTabId) { editorStore.saveTab(editorStore.activeTabId); return true } return false } },
     ]),
     EditorView.updateListener.of((update) => {
