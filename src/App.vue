@@ -199,7 +199,7 @@ function resetSplit() {
 }
 
 .app-header { grid-area: header; z-index: 20; }
-.app-sidebar { grid-area: sidebar; border-right: 1px solid hsl(var(--border)); overflow: hidden; }
+.app-sidebar { grid-area: sidebar; border-right: 1px solid var(--border); overflow: hidden; }
 .app-main { grid-area: main; z-index: 10; }
 .app-footer { grid-area: footer; z-index: 20; }
 
@@ -241,11 +241,11 @@ function resetSplit() {
   display: block;
   width: 100%;
   height: 1px;
-  background: hsl(var(--border));
+  background: var(--border);
   transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.resize-handle:hover::after { background: hsl(var(--ring)); }
-.resize-handle:hover { background: hsl(var(--ring)); }
+.resize-handle:hover::after { background: var(--ring); }
+.resize-handle:hover { background: var(--ring); }
 
 .overlays {
   position: fixed;
@@ -260,6 +260,6 @@ function resetSplit() {
 /* Scrollbar styling */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: hsl(var(--muted)); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
 </style>

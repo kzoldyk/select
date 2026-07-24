@@ -137,7 +137,7 @@
 
         <ScrollArea class="flex-1 min-h-0 bg-background" ref="scrollAreaRef">
           <Table class="relative w-full text-left border-collapse">
-            <TableHeader class="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_hsl(var(--border))]">
+            <TableHeader class="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--border)]">
               <TableRow class="hover:bg-transparent border-none">
                 <TableHead class="w-[36px] text-center p-0 border-r border-border/50 bg-muted/80 backdrop-blur-md">
                   <div class="flex items-center justify-center w-full h-full">

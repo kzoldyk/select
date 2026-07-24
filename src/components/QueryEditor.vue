@@ -45,7 +45,7 @@ import { syntaxHighlighting } from '@codemirror/language'
 import { autocompletion, closeBrackets, startCompletion } from '@codemirror/autocomplete'
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { bracketMatching, indentOnInput } from '@codemirror/language'
-import { darkTheme, sqlHighlight } from '../editor/sqlTheme'
+import { darkTheme, lightTheme, darkHighlight, lightHighlight } from '../editor/sqlTheme'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { FileText, Search } from '@lucide/vue'
@@ -297,8 +297,8 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
   return [
     history(),
     sql({ dialect }),
-    syntaxHighlighting(sqlHighlight),
-    uiStore.isDark ? darkTheme : [],
+    syntaxHighlighting(uiStore.isDark ? darkHighlight : lightHighlight),
+    uiStore.isDark ? darkTheme : lightTheme,
     lineNumbers(),
     highlightActiveLine(),
     bracketMatching(),

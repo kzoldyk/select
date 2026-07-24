@@ -68,7 +68,7 @@
        <ScrollArea class="flex-1">
       <div class="py-2 flex flex-col gap-1.5 px-2">
         <!-- Tables -->
-        <div v-if="schemaStore.filteredTables.length" class="flex flex-col">
+        <div v-if="connStore.status === 'connected' || schemaStore.tables.length || schemaStore.isLoading" class="flex flex-col">
           <button
             class="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
             @click="toggle('tables')"
@@ -87,7 +87,7 @@
                 <div class="h-3 bg-muted rounded w-5/6 animate-pulse"></div>
                 <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
               </div>
-              <template v-else>
+              <template v-else-if="schemaStore.filteredTables.length">
                 <button
                   v-for="table in schemaStore.filteredTables"
                   :key="table.name"
@@ -103,6 +103,9 @@
                   <span class="text-[9px] text-muted-foreground/70 font-mono flex-shrink-0">{{ formatCount(table.rowCount) }}</span>
                 </button>
               </template>
+              <div v-else class="px-6 py-2 text-[11px] text-muted-foreground/50">
+                No matching tables
+              </div>
             </div>
           </div>
         </div>
@@ -200,7 +203,7 @@
           </div>
         </div>
       </div>
-    </ScrollArea>a>
+    </ScrollArea>
 
     <Teleport to="body">
       <div
