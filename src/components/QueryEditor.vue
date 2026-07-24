@@ -13,7 +13,7 @@
       </div>
       <div class="flex items-center gap-4 opacity-50">
         <div class="flex items-center gap-1">
-          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⌘↵</Kbd>
+          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⌘R</Kbd>
           <span class="text-[10px] font-medium text-muted-foreground">Run</span>
         </div>
         <div class="flex items-center gap-1">

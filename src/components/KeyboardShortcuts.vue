@@ -31,9 +31,7 @@ const shortcutGroups = [
   {
     label: 'Query Execution',
     items: [
-      { keys: '⌘ ↵', label: 'Run current query' },
-      { keys: '⌘ R', label: 'Run current query' },
-      { keys: '⌘ ⇧ ↵', label: 'Run selected SQL' },
+      { keys: '⌘ R', label: 'Run current query / selected SQL' },
       { keys: '⌘ ⇧ F', label: 'Format SQL' },
     ],
   },

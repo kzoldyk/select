@@ -132,7 +132,7 @@ const allGroups = computed<Group[]>(() => {
         id: 'run-query',
         icon: '\u25B6',
         label: 'Run query',
-        shortcut: '\u2318\u23CE',
+        shortcut: '\u2318R',
         action: () => { emit('run'); uiStore.closePalette() },
       },
       {
