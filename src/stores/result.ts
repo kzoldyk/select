@@ -90,6 +90,17 @@ function isDestructiveQuery(sql: string): boolean {
   return MUTATING_KEYWORDS.has(firstWord)
 }
 
+function fixBacktickedIdentifiers(sql: string): string {
+  return sql.replace(/`([^`]+)`/g, (match, content) => {
+    if (content.includes('.')) {
+      return content.split('.')
+        .map((part: string) => `\`${part}\``)
+        .join('.')
+    }
+    return match
+  })
+}
+
 export interface PendingWriteQuery {
   sql: string
   resolve: (confirmed: boolean) => void
@@ -156,6 +167,7 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'messages'
         return
       }
+      _sql = fixBacktickedIdentifiers(_sql)
       const connStore = useConnectionStore()
       if (isDestructiveQuery(_sql)) {
         if (connStore.activeConnection?.readOnly) {
@@ -231,6 +243,7 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'messages'
         return
       }
+      _sql = fixBacktickedIdentifiers(_sql)
       const requestId = ++this.requestId
       this.status = 'running'
       this.error = null
@@ -423,6 +436,7 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'messages'
         return
       }
+      _sql = fixBacktickedIdentifiers(_sql)
       const requestId = ++this.requestId
       this.status = 'running'
       this.error = null
@@ -462,6 +476,7 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'messages'
         return
       }
+      sql = fixBacktickedIdentifiers(sql)
       const requestId = ++this.requestId
       this.status = 'running'
       this.error = null

@@ -96,6 +96,16 @@ describe("result store", () => {
     });
   });
 
+  it("fixes backticked schema-table identifiers in queries", async () => {
+    mockInvoke.mockResolvedValue({ columns: [], rows: [], duration_ms: 5, row_count: 0 });
+    const store = useResultStore();
+    await store.explainQuery("SELECT * FROM `orders.orderitem`");
+    expect(mockInvoke).toHaveBeenCalledWith("run_query", {
+      sql: "EXPLAIN SELECT * FROM `orders`.`orderitem`",
+      id: null,
+    });
+  });
+
   describe("CSV export", () => {
     it("exportCsv creates a downloadable Blob", () => {
       const store = useResultStore();
