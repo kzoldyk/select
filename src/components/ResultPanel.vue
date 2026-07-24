@@ -21,6 +21,14 @@
               @click="resultStore.revertAllEdits()"
             >Revert</Button>
             <Button
+              variant="outline"
+              size="sm"
+              class="text-[11px] h-7 px-3 gap-1.5 text-blue-500 hover:text-blue-600 hover:bg-blue-500/10 rounded-md transition-colors border-blue-500/30"
+              :disabled="resultStore.savingEdits || !editableTableName"
+              @click="copyUpdateQueries"
+              title="Copy UPDATE statements to clipboard"
+            >Copy SQL</Button>
+            <Button
               size="sm"
               class="text-[11px] h-7 px-3 gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md shadow-sm transition-colors"
               :disabled="resultStore.savingEdits || !editableTableName"
@@ -93,22 +101,7 @@
 
       <TabsContent value="table" class="flex-1 flex flex-col overflow-hidden min-h-0 p-0 m-0">
         <div class="flex items-center h-7 px-2 bg-muted/20 border-b border-border gap-1.5 flex-shrink-0">
-          <template v-if="resultStore.showMultiTabs">
-            <button
-              v-for="(r, i) in resultStore.multiResults"
-              :key="i"
-              class="text-[10px] h-5 px-2 rounded border cursor-pointer whitespace-nowrap"
-              :class="i === resultStore.activeResultIndex
-                ? 'bg-primary/10 text-primary border-primary/30 font-medium'
-                : 'bg-background text-muted-foreground border-border hover:bg-accent'"
-              @click="resultStore.selectResultTab(i)"
-            >
-              Result {{ i + 1 }}
-              <span v-if="r.row_count !== null" class="ml-1 opacity-60">({{ r.row_count }})</span>
-              <span v-else-if="r.affected_rows !== null" class="ml-1 opacity-60">({{ r.affected_rows }})</span>
-              <span v-if="r.error" class="ml-1 text-destructive" title="Error">&#x26A0;</span>
-            </button>
-          </template>
+
           <Input
             class="h-6 w-[180px] text-[11px]"
             placeholder="Search results&hellip;"
@@ -177,15 +170,26 @@
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow
-                v-for="item in filteredRows"
-                :key="item.key"
-                class="text-[12px] font-mono group transition-colors border-b border-border/40"
-                :class="[
-                  item.index % 2 === 0 ? 'bg-transparent' : 'bg-muted/10',
-                  resultStore.selectedRows.has(item.key) ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/40'
-                ]"
-              >
+              <TableRow v-if="resultStore.status === 'running' && filteredRows.length === 0" class="hover:bg-transparent">
+                <TableCell :colspan="resultStore.columns.length + (isProcesslist ? 3 : 2)" class="h-32 text-center text-muted-foreground border-b-0">
+                  <div class="flex flex-col items-center justify-center gap-3">
+                    <svg class="w-6 h-6 animate-spin text-primary opacity-80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                    </svg>
+                    <span class="text-xs font-medium">Executing query...</span>
+                  </div>
+                </TableCell>
+              </TableRow>
+              <template v-else>
+                <TableRow
+                  v-for="item in filteredRows"
+                  :key="item.key"
+                  class="text-[12px] font-mono group transition-colors border-b border-border/40"
+                  :class="[
+                    item.index % 2 === 0 ? 'bg-transparent' : 'bg-muted/10',
+                    resultStore.selectedRows.has(item.key) ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/40'
+                  ]"
+                >
                 <TableCell class="text-center p-0 w-[36px] border-r border-border/50 relative">
                   <div v-if="resultStore.selectedRows.has(item.key)" class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary"></div>
                   <div class="flex items-center justify-center w-full h-full">
@@ -244,6 +248,7 @@
                   >KILL</Button>
                 </TableCell>
               </TableRow>
+              </template>
             </TableBody>
           </Table>
           <div v-if="resultStore.hasMore && resultStore.status === 'success' && !searchQuery.value" ref="sentinelRef" class="flex items-center justify-center py-3 text-xs text-muted-foreground">
@@ -254,7 +259,7 @@
               <span>Scroll for more rows</span>
             </template>
           </div>
-          <div v-if="filteredRows.length === 0" class="py-6 text-center text-xs text-muted-foreground">
+          <div v-if="filteredRows.length === 0 && resultStore.status === 'success'" class="py-6 text-center text-xs text-muted-foreground">
             No results match your filter.
           </div>
         </ScrollArea>
@@ -384,6 +389,29 @@
         <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors" @click="copySelectedJson">Copy Selected as JSON</button>
       </div>
     </Teleport>
+    
+    <Dialog v-model:open="showUpdateModal">
+      <DialogContent class="sm:max-w-[600px] bg-background border-border">
+        <DialogHeader>
+          <DialogTitle>Confirm Update</DialogTitle>
+          <DialogDescription>
+            The following queries will be executed. Please review them carefully.
+          </DialogDescription>
+        </DialogHeader>
+        <div class="py-4">
+          <ScrollArea class="h-[200px] w-full rounded-md border border-border bg-muted/30 p-4">
+            <pre class="text-xs font-mono text-foreground whitespace-pre-wrap">{{ pendingUpdateSql }}</pre>
+          </ScrollArea>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showUpdateModal = false" :disabled="resultStore.savingEdits">Cancel</Button>
+          <Button class="bg-emerald-500 hover:bg-emerald-600 text-white" @click="confirmSaveEdits" :disabled="resultStore.savingEdits">
+            <template v-if="resultStore.savingEdits">Executing&hellip;</template>
+            <template v-else>Run Update</template>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
@@ -399,6 +427,14 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Download } from '@lucide/vue'
 import { useResultStore, type ResultView, type Column, type CellValue, type ResultRow } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
@@ -416,6 +452,8 @@ const editInputRef = ref<HTMLInputElement | null>(null)
 const showFullError = ref(false)
 const showFilters = ref(false)
 const filters = reactive<Record<string, string>>({})
+const showUpdateModal = ref(false)
+const pendingUpdateSql = ref('')
 let observer: IntersectionObserver | null = null
 
 const detectedTable = computed(() => detectTableFromSql(resultStore.lastSql))
@@ -437,19 +475,16 @@ function detectTableFromSql(sql: string): string | null {
   const clean = noComments.replace(/;+$/, '')
   console.log('[detectTableFromSql] clean sql:', clean)
   
-  // Only process if it's a SELECT query (ignoring any potential zero-width chars at start)
   if (/\bSELECT\b/i.test(clean)) {
-    // Match FROM followed by any valid table name characters (including hyphens and $ which some DBs use)
-    const fromMatch = clean.match(/\bFROM\s+([a-zA-Z0-9_."`$-]+)/i)
+    // Match FROM followed by any valid table name characters (including hyphens, spaces in quotes, and $)
+    const fromRegex = /\bFROM\s+((?:`[^`]+`|"[^"]+"|\[[^\]]+\]|[a-zA-Z0-9_.$]+)(?:\s*\.\s*(?:`[^`]+`|"[^"]+"|\[[^\]]+\]|[a-zA-Z0-9_.$]+))?)/i
+    const fromMatch = clean.match(fromRegex)
     console.log('[detectTableFromSql] fromMatch:', fromMatch)
     if (fromMatch) {
       let tableName = fromMatch[1]
       console.log('[detectTableFromSql] raw tableName:', tableName)
-      if (tableName.includes('.')) {
-        tableName = tableName.split('.').pop() || tableName
-        console.log('[detectTableFromSql] after dot split:', tableName)
-      }
-      const finalName = tableName.replace(/[`"']/g, '')
+      console.log('[detectTableFromSql] raw tableName:', tableName)
+      const finalName = tableName.replace(/[`"\[\]']/g, '').trim()
       console.log('[detectTableFromSql] final name:', finalName)
       return finalName
     }
@@ -480,15 +515,32 @@ const pkColumns = computed<string[]>(() => {
 
 const hasDirtyEdits = computed(() => Object.keys(resultStore.dirtyCells).length > 0)
 
-function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) {
+async function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) {
   console.log('[startEditCell] Clicked cell. lastSql is:', resultStore.lastSql)
   const manualDetect = detectTableFromSql(resultStore.lastSql)
   console.log('[startEditCell] manualDetect returned:', manualDetect)
   
   if (!editableTableName.value) {
-    toast.error('Cannot edit data', { description: `Could not detect the table name from the query. Regex detected: ${manualDetect}` })
+    if (!/\bSELECT\b/i.test(resultStore.lastSql)) {
+      toast.error('Cannot edit data', { description: 'Data can only be edited from a SELECT query on a physical table.' })
+    } else {
+      toast.error('Cannot edit data', { description: `Could not detect the table name from the query. Regex detected: ${manualDetect}` })
+    }
     return
   }
+
+  const tableName = editableTableName.value
+  let tableKey = Object.keys(schemaStore.detailsByTable).find(k => k.toLowerCase() === tableName.toLowerCase())
+  
+  if (!tableKey) {
+    try {
+      await schemaStore.fetchTableDetails(tableName)
+      tableKey = Object.keys(schemaStore.detailsByTable).find(k => k.toLowerCase() === tableName.toLowerCase())
+    } catch (e) {
+      console.error('Failed to fetch table details for editing:', e)
+    }
+  }
+  
   const pkCols = pkColumns.value
   console.log('[startEditCell] pkCols:', pkCols)
   if (pkCols.length === 0) {
@@ -496,7 +548,14 @@ function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) {
     return
   }
   resultStore.startEditing(rowIndex, colName)
-  nextTick(() => editInputRef.value?.focus())
+  nextTick(() => {
+    const el = editInputRef.value
+    if (Array.isArray(el)) {
+      el[0]?.focus()
+    } else {
+      el?.focus()
+    }
+  })
 }
 
 async function commitEditCell(rowIndex: number, colName: string) {
@@ -511,13 +570,129 @@ async function commitEditCell(rowIndex: number, colName: string) {
   }
 
   resultStore.commitEdit(rowIndex, colName, resultStore.editValue)
-  await saveEdits()
+  // We do not auto-save. The user must explicitly click "Save" to open the modal.
 }
 
 async function saveEdits() {
   const tableName = editableTableName.value
   if (!tableName) return
+  
+  const pks = pkColumns.value
+  if (pks.length === 0) {
+    toast.error('Cannot generate SQL', { description: 'The table must have at least one primary key column.' })
+    return
+  }
+
+  const statements: string[] = []
+  
+  for (const [rowKey, cells] of Object.entries(resultStore.dirtyCells)) {
+    const rowIndex = parseInt(rowKey)
+    const row = resultStore.rows[rowIndex]
+    if (!row) continue
+    
+    const setClauses: string[] = []
+    for (const [colName, val] of Object.entries(cells)) {
+      const colDef = resultStore.columns.find(c => c.name === colName)
+      const type = colDef ? colDef.type : 'string'
+      const updateColName = colDef?.orgName || colName
+      
+      let escapedVal = 'NULL'
+      if (val !== null) {
+         escapedVal = escapeVal(String(val), type)
+      }
+      setClauses.push(`${escapeId(updateColName)} = ${escapedVal}`)
+    }
+    
+    if (setClauses.length === 0) continue
+    
+    const whereClauses: string[] = []
+    for (const pk of pks) {
+      const colDef = resultStore.columns.find(c => 
+        (c.orgName || c.name) === pk && (!c.orgTable || c.orgTable === tableName)
+      )
+      const pkType = colDef ? colDef.type : 'string'
+      const gridColName = colDef ? colDef.name : pk
+      const pkVal = row[gridColName]
+      if (pkVal === null || pkVal === undefined) {
+         whereClauses.push(`${escapeId(pk)} IS NULL`)
+      } else {
+         whereClauses.push(`${escapeId(pk)} = ${escapeVal(String(pkVal), pkType)}`)
+      }
+    }
+    
+    const sql = `UPDATE ${escapeId(tableName)} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')};`
+    statements.push(sql)
+  }
+  
+  if (statements.length === 0) {
+    toast.info('No changes to save')
+    return
+  }
+  
+  pendingUpdateSql.value = statements.join('\n')
+  showUpdateModal.value = true
+}
+
+async function confirmSaveEdits() {
+  const tableName = editableTableName.value
+  if (!tableName) return
+  
   await resultStore.saveEdits(tableName, pkColumns.value)
+  showUpdateModal.value = false
+}
+
+function copyUpdateQueries() {
+  const tableName = editableTableName.value
+  if (!tableName) return
+  
+  const pks = pkColumns.value
+  if (pks.length === 0) {
+    toast.error('Cannot generate SQL', { description: 'The table must have at least one primary key column.' })
+    return
+  }
+
+  const statements: string[] = []
+  
+  for (const [rowKey, cells] of Object.entries(resultStore.dirtyCells)) {
+    const rowIndex = parseInt(rowKey)
+    const row = resultStore.rows[rowIndex]
+    if (!row) continue
+    
+    const setClauses: string[] = []
+    for (const [colName, val] of Object.entries(cells)) {
+      const colDef = resultStore.columns.find(c => c.name === colName)
+      const type = colDef ? colDef.type : 'string'
+      
+      let escapedVal = 'NULL'
+      if (val !== null) {
+         escapedVal = escapeVal(String(val), type)
+      }
+      setClauses.push(`${escapeId(colName)} = ${escapedVal}`)
+    }
+    
+    if (setClauses.length === 0) continue
+    
+    const whereClauses: string[] = []
+    for (const pk of pks) {
+      const pkDef = resultStore.columns.find(c => c.name === pk)
+      const pkType = pkDef ? pkDef.type : 'string'
+      const pkVal = row[pk]
+      if (pkVal === null || pkVal === undefined) {
+         whereClauses.push(`${escapeId(pk)} IS NULL`)
+      } else {
+         whereClauses.push(`${escapeId(pk)} = ${escapeVal(String(pkVal), pkType)}`)
+      }
+    }
+    
+    const sql = `UPDATE ${escapeId(tableName)} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')};`
+    statements.push(sql)
+  }
+  
+  if (statements.length > 0) {
+    navigator.clipboard.writeText(statements.join('\n'))
+  } else {
+    toast.info('No changes', { description: 'There are no edits to copy.' })
+  }
 }
 
 function escapeId(id: string): string {

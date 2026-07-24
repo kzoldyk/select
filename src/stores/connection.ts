@@ -38,15 +38,6 @@ export const useConnectionStore = defineStore('connection', {
 	  getters: {
 	    activeConnection: (state): Connection | null =>
 	      state.connections.find(c => c.id === state.activeId) ?? null,
-	    env: (state): 'PROD' | 'DEV' | 'STAGING' => {
-	      const conn = state.connections.find(c => c.id === state.activeId)
-	      if (!conn) return 'DEV'
-	      const name = conn.name.toLowerCase()
-	      const host = conn.host.toLowerCase()
-	      if (name.includes('stag') || host.includes('stag')) return 'STAGING'
-	      if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return 'DEV'
-	      return 'PROD'
-	    },
 	  },
 
   actions: {

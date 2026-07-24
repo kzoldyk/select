@@ -36,6 +36,7 @@ pub fn run() {
             commands::test_connection,
             commands::change_database,
             commands::set_autocommit,
+            commands::fetch_schema_tables,
             commands::fetch_schema,
             commands::fetch_table_details,
             commands::fetch_databases,

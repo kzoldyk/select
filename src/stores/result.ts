@@ -55,18 +55,6 @@ const MUTATING_KEYWORDS = new Set([
   'RENAME', 'REPLACE', 'REVOKE', 'TRUNCATE', 'UPDATE', 'CALL',
 ])
 
-/** Returns true if a SELECT query has no LIMIT clause (ignoring literals/comments) */
-function selectLacksLimit(sql: string): boolean {
-  const clean = stripSqlLiterals(sql).toUpperCase().trim()
-  if (!clean.startsWith('SELECT')) return false
-  return !/\bLIMIT\b/.test(clean)
-}
-
-/** Appends LIMIT n to a query, stripping any trailing semicolon first */
-function injectLimit(sql: string, limit: number): string {
-  return sql.trim().replace(/;+$/, '') + ` LIMIT ${limit}`
-}
-
 function hasMultipleStatements(sql: string): boolean {
   let inSingle = false
   let inDouble = false
@@ -158,6 +146,13 @@ export const useResultStore = defineStore('result', {
     },
 
     async runQuery(_sql: string) {
+      if (this.status === 'running') {
+        this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
+        this.status = 'error'
+        this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
+        this.activeView = 'messages'
+        return
+      }
       const connStore = useConnectionStore()
       if (isDestructiveQuery(_sql)) {
         if (connStore.activeConnection?.readOnly) {
@@ -178,19 +173,13 @@ export const useResultStore = defineStore('result', {
         return
       }
 
-      // Auto-enforce row limit for SELECT queries without LIMIT
-      let effectiveSql = _sql
-      let limitWarning = ''
-      if (selectLacksLimit(_sql)) {
-        effectiveSql = injectLimit(_sql, this.pageSize)
-        limitWarning = `⚠ No LIMIT found — capped at ${this.pageSize} rows. Change the limit using the page-size selector.`
-      }
+      // Pass the raw SQL to the backend, which now safely appends LIMIT internally
 
       const requestId = ++this.requestId
       this.status = 'running'
       this.error = null
       this.selectedRows = new Set()
-      this.lastSql = effectiveSql
+      this.lastSql = _sql
       this.pageOffset = 0
       this.hasMore = false
       this.loadingMore = false
@@ -198,7 +187,7 @@ export const useResultStore = defineStore('result', {
       try {
         const connId = useConnectionStore().activeId
         const result = await invoke<PagedQueryResult>('run_query_paged', {
-          sql: effectiveSql,
+          sql: _sql,
           limit: this.pageSize,
           offset: 0,
           id: connId,
@@ -214,7 +203,7 @@ export const useResultStore = defineStore('result', {
         this.status = 'success'
         const more = result.has_more ? ` (scrolled for more)` : ''
         const msgs = [`Query completed successfully. ${result.row_count} rows returned in ${this.duration}ms.${more}`]
-        if (limitWarning) msgs.push(limitWarning)
+
         this.messages = msgs
         this.activeView = 'table'
       } catch (err) {
@@ -231,6 +220,13 @@ export const useResultStore = defineStore('result', {
     },
 
     async runMultiQuery(_sql: string) {
+      if (this.status === 'running') {
+        this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
+        this.status = 'error'
+        this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
+        this.activeView = 'messages'
+        return
+      }
       const requestId = ++this.requestId
       this.status = 'running'
       this.error = null
@@ -416,6 +412,13 @@ export const useResultStore = defineStore('result', {
     },
 
     async runWriteQuery(_sql: string) {
+      if (this.status === 'running') {
+        this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
+        this.status = 'error'
+        this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
+        this.activeView = 'messages'
+        return
+      }
       const requestId = ++this.requestId
       this.status = 'running'
       this.error = null
@@ -447,9 +450,16 @@ export const useResultStore = defineStore('result', {
       }
       this.loadHistory()
     },
-	    async explainQuery(sql: string) {
-	      const requestId = ++this.requestId
-	      this.status = 'running'
+    async explainQuery(sql: string) {
+      if (this.status === 'running') {
+        this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
+        this.status = 'error'
+        this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
+        this.activeView = 'messages'
+        return
+      }
+      const requestId = ++this.requestId
+      this.status = 'running'
       this.error = null
       this.selectedRows = new Set()
       const cleanSql = sql.trim().replace(/;+$/, '')

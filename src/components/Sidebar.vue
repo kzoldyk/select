@@ -77,7 +77,13 @@
             <span class="text-[10px] font-mono font-medium text-muted-foreground/70">{{ schemaStore.tables.length }}</span>
           </button>
           <div v-show="sectionsOpen.tables" class="overflow-hidden transition-all ease-premium duration-normal">
-            <button
+            <div v-if="schemaStore.isLoading" class="px-5 py-2 space-y-2.5 opacity-60">
+              <div class="h-3 bg-muted rounded w-3/4 animate-pulse"></div>
+              <div class="h-3 bg-muted rounded w-5/6 animate-pulse"></div>
+              <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
+            </div>
+            <template v-else>
+              <button
               v-for="table in schemaStore.filteredTables"
               :key="table.name"
               class="w-full flex items-center gap-2 px-3 py-1 pl-8 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors bg-transparent border-none cursor-pointer text-left relative"
@@ -91,6 +97,7 @@
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ table.name }}</span>
               <span class="text-[9px] text-muted-foreground/70 font-mono flex-shrink-0">{{ formatCount(table.rowCount) }}</span>
             </button>
+            </template>
           </div>
         </div>
 
@@ -104,7 +111,12 @@
             <span class="text-[10px] font-mono font-medium text-muted-foreground/70">{{ schemaStore.views.length }}</span>
           </button>
           <div v-show="sectionsOpen.views" class="overflow-hidden transition-all ease-premium duration-normal">
-            <button
+            <div v-if="schemaStore.isLoading" class="px-5 py-2 space-y-2.5 opacity-60">
+              <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
+              <div class="h-3 bg-muted rounded w-3/4 animate-pulse"></div>
+            </div>
+            <template v-else>
+              <button
               v-for="view in schemaStore.filteredViews"
               :key="view.name"
               class="w-full flex items-center gap-2 px-3 py-1 pl-8 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors bg-transparent border-none cursor-pointer text-left relative"
@@ -115,6 +127,7 @@
               <svg class="w-3.5 h-3.5 text-amber-500/80 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ view.name }}</span>
             </button>
+            </template>
           </div>
         </div>
 

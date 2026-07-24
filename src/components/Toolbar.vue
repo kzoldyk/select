@@ -16,16 +16,20 @@
         aria-label="Open connection manager"
         @click="$emit('openConnManager')"
       >
-        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
+        <span 
+          class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          :class="{ 'shadow-[0_0_8px_currentColor]': connStore.status === 'connected' }"
+          :style="{ backgroundColor: connectionColor, color: connectionColor }"
+        ></span>
         <span class="text-foreground">{{ connectionName }}</span>
         <ChevronDown class="w-3.5 h-3.5 opacity-50" />
       </button>
 
       <span
-        v-if="env"
+        v-if="envName"
         class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase leading-none select-none"
-        :class="envBadgeClass"
-      >{{ env }}</span>
+        :style="{ backgroundColor: `${connectionColor}20`, color: connectionColor }"
+      >{{ envName }}</span>
     </div>
 
     <div class="flex-1 flex justify-center max-w-md">
@@ -61,12 +65,14 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Kbd } from '@/components/ui/kbd'
 import {
-	  Database, ChevronDown, Search, Settings, Play, PanelLeft
-	} from '@lucide/vue'
+  Database, ChevronDown, Search, Settings, Play, PanelLeft
+} from '@lucide/vue'
+import { useConnectionStore, type Connection } from '../stores/connection'
+
+const connStore = useConnectionStore()
 
 const props = defineProps<{
-  connectionName: string
-  env: 'PROD' | 'DEV' | 'STAGING'
+  connection: Connection | null
 }>()
 
 defineEmits<{
@@ -77,9 +83,18 @@ defineEmits<{
   toggleSidebar: []
 }>()
 
-const envBadgeClass = computed(() => ({
-  'bg-red-950 text-red-400': props.env === 'PROD',
-  'bg-emerald-950 text-emerald-400': props.env === 'DEV',
-  'bg-yellow-950 text-yellow-400': props.env === 'STAGING',
-}))
+const connectionName = computed(() => props.connection?.name ?? 'No connection')
+const connectionColor = computed(() => props.connection?.color ?? '#9CA3AF')
+
+const envName = computed(() => {
+  const color = props.connection?.color?.toUpperCase()
+  if (!color) return null
+  switch (color) {
+    case '#EF4444': return 'PROD'
+    case '#F59E0B': return 'STAGING'
+    case '#22C55E': return 'DEV'
+    case '#3B82F6': return 'LOCAL'
+    default: return null
+  }
+})
 </script>

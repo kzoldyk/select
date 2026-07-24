@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
 import { useResultStore } from "../result";
+import { useConnectionStore } from "../connection";
 
 const mockInvoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
@@ -113,12 +114,9 @@ describe("result store", () => {
 
   describe("runQuery", () => {
     it("rejects destructive queries in read-only mode", async () => {
-      vi.doMock("../connection", () => ({
-        useConnectionStore: () => ({
-          activeConnection: { readOnly: true },
-          activeId: null,
-        }),
-      }));
+      const connStore = useConnectionStore();
+      connStore.connections = [{ id: "conn1", readOnly: true } as any];
+      connStore.activeId = "conn1";
       const store = useResultStore();
       await store.runQuery("DROP TABLE users");
       expect(store.status).toBe("error");

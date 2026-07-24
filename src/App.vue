@@ -2,8 +2,7 @@
   <div class="app dark" :style="appGridStyle">
     <Toolbar
       class="app-header"
-      :connection-name="connStore.activeConnection?.name ?? 'No connection'"
-      :env="connStore.env"
+      :connection="connStore.activeConnection"
       @run="runQuery"
       @open-palette="uiStore.openPalette()"
       @open-conn-manager="uiStore.openConnectionManager()"
@@ -18,7 +17,7 @@
         class="editor-pane"
         :style="{ height: editorPaneHeight }"
       >
-        <QueryEditor @run="runQuery" @explain="explainQuery" />
+        <QueryEditor @run="runQuery" @explain="explainQuery" ref="queryEditorRef" />
       </div>
 
       <div
@@ -83,6 +82,7 @@ const connStore = useConnectionStore()
 const editorStore = useEditorStore()
 const resultStore = useResultStore()
 const uiStore = useUiStore()
+const queryEditorRef = ref<InstanceType<typeof QueryEditor> | null>(null)
 
 onMounted(async () => {
   document.documentElement.classList.toggle('dark', uiStore.theme === 'dark')
@@ -105,13 +105,15 @@ const appGridStyle = computed(() => ({
 async function runQuery(sqlOverride?: string) {
   const tab = editorStore.activeTab
   if (!tab) return
-  await resultStore.runQuery(sqlOverride ?? tab.sql)
+  const sql = sqlOverride ?? queryEditorRef.value?.getCurrentSql() ?? tab.sql
+  await resultStore.runQuery(sql)
 }
 
 async function explainQuery() {
   const tab = editorStore.activeTab
   if (!tab) return
-  await resultStore.explainQuery(tab.sql)
+  const sql = queryEditorRef.value?.getCurrentSql() ?? tab.sql
+  await resultStore.explainQuery(sql)
 }
 
 const mainRef = ref<HTMLDivElement | null>(null)

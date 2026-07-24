@@ -76,6 +76,7 @@ export const useSchemaStore = defineStore('schema', {
     triggers: [] as SchemaTrigger[],
     procs: [] as SchemaProc[],
     databases: [] as string[],
+    schemaTablesCache: {} as Record<string, string[]>,
     isLoading: false,
     isDetailsLoading: false,
     searchQuery: '',
@@ -147,7 +148,25 @@ export const useSchemaStore = defineStore('schema', {
         console.error("Failed to fetch databases", e)
       }
     },
-	    async refreshSchema(connectionId?: string) {
+    async fetchTablesForSchema(schema: string): Promise<string[]> {
+      const connStore = useConnectionStore()
+      const connectionId = connStore.activeConnectionId
+      
+      const cacheKey = `${connectionId}-${schema}`
+      if (this.schemaTablesCache[cacheKey]) {
+        return this.schemaTablesCache[cacheKey]
+      }
+      
+      try {
+        const tables = await invoke<string[]>('fetch_schema_tables', { schema, id: connectionId ?? null })
+        this.schemaTablesCache[cacheKey] = tables
+        return tables
+      } catch (e) {
+        console.error(`Failed to fetch tables for schema ${schema}`, e)
+        return []
+      }
+    },
+    async refreshSchema(connectionId?: string) {
 	      this.isLoading = true
 	      this.tables = []
 	      this.views = []

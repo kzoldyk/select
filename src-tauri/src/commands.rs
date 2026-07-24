@@ -102,9 +102,12 @@ pub struct ConnectionConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Column {
     pub name: String,
     pub r#type: String,
+    pub org_name: Option<String>,
+    pub org_table: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -524,9 +527,13 @@ pub async fn run_query(
         let mut columns = Vec::new();
         for col in result.columns_ref() {
             let type_str = format!("{:?}", col.column_type());
+            let org_name_str = col.org_name_str().into_owned();
+            let org_table_str = col.org_table_str().into_owned();
             columns.push(Column {
                 name: col.name_str().into_owned(),
                 r#type: map_column_type(&type_str),
+                org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
+                org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
             });
         }
 
@@ -722,9 +729,13 @@ pub async fn run_multi_query(
                 let mut columns = Vec::new();
                 for col in result.columns_ref() {
                     let type_str = format!("{:?}", col.column_type());
+                    let org_name_str = col.org_name_str().into_owned();
+                    let org_table_str = col.org_table_str().into_owned();
                     columns.push(Column {
                         name: col.name_str().into_owned(),
                         r#type: map_column_type(&type_str),
+                        org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
+                        org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
                     });
                 }
 
@@ -894,17 +905,35 @@ pub async fn run_query_paged(
 
     let fetch_limit = page_size + 1;
     let clean_sql = sql.trim().trim_end_matches(';');
-    let paged_sql = format!("SELECT * FROM ({}) AS _paged LIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
+    let paged_sql = format!("{} LIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
 
     let query_future = async {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-        let mut result = conn.query_iter(&paged_sql).await.map_err(|e| safe_error(&e))?;
+        
+        let mut result_is_fallback = false;
+        let mut result = match conn.query_iter(&paged_sql).await {
+            Ok(r) => r,
+            Err(e) => {
+                let err_msg = safe_error(&e);
+                if err_msg.to_lowercase().contains("syntax") || err_msg.to_lowercase().contains("parse") {
+                    // Fallback to original query (user might already have LIMIT)
+                    result_is_fallback = true;
+                    conn.query_iter(clean_sql).await.map_err(|e| safe_error(&e))?
+                } else {
+                    return Err(err_msg);
+                }
+            }
+        };
         let mut columns = Vec::new();
         for col in result.columns_ref() {
             let type_str = format!("{:?}", col.column_type());
+            let org_name_str = col.org_name_str().into_owned();
+            let org_table_str = col.org_table_str().into_owned();
             columns.push(Column {
                 name: col.name_str().into_owned(),
                 r#type: map_column_type(&type_str),
+                org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
+                org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
             });
         }
 
@@ -913,8 +942,13 @@ pub async fn run_query_paged(
             .map(|c| (c.name.clone(), c.r#type.clone()))
             .collect();
         let mut json_rows = Vec::new();
+        let mut skipped = 0;
 
         while let Some(row) = result.next().await.map_err(|e| safe_error(&e))? {
+            if result_is_fallback && skipped < page_offset {
+                skipped += 1;
+                continue;
+            }
             if json_rows.len() >= fetch_limit {
                 break;
             }
@@ -1147,7 +1181,14 @@ pub async fn update_rows(
     }
 
     fn escape_identifier(s: &str) -> String {
-        format!("`{}`", s.replace('`', "``"))
+        if s.contains('.') {
+            s.split('.')
+                .map(|part| format!("`{}`", part.replace('`', "``")))
+                .collect::<Vec<_>>()
+                .join(".")
+        } else {
+            format!("`{}`", s.replace('`', "``"))
+        }
     }
 
     let set_clause: Vec<String> = updates.iter().map(|u| {
@@ -1330,6 +1371,30 @@ pub async fn fetch_databases(
 }
 
 #[tauri::command]
+pub async fn fetch_schema_tables(
+    schema: String,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
+
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    let tables: Vec<String> = conn
+        .exec(
+            r#"
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = :schema
+        ORDER BY table_name
+        "#,
+            params! { "schema" => schema },
+        )
+        .await
+        .map_err(|e| safe_error(&e))?;
+    Ok(tables)
+}
+
+#[tauri::command]
 pub async fn fetch_schema(
     id: String,
     state: State<'_, AppState>,
@@ -1457,15 +1522,25 @@ pub async fn fetch_table_details(
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
 
+    let (schema_opt, table_name) = match table.split_once('.') {
+        Some((s, t)) => (Some(s.to_string()), t.to_string()),
+        None => (None, table.clone()),
+    };
+
+    let schema_param = schema_opt.as_deref().unwrap_or("");
+
     let exists: Option<u8> = conn
         .exec_first(
             r#"
         SELECT 1
         FROM information_schema.tables
-        WHERE table_schema = DATABASE() AND table_name = :table
+        WHERE (
+            (:schema = '' AND table_schema = DATABASE()) OR
+            (:schema != '' AND table_schema = :schema)
+        ) AND table_name = :table
         LIMIT 1
         "#,
-            params! { "table" => &table },
+            params! { "schema" => schema_param, "table" => &table_name },
         )
         .await
         .map_err(|e| safe_error(&e))?;
@@ -1479,10 +1554,13 @@ pub async fn fetch_table_details(
             r#"
         SELECT column_name, column_type, is_nullable, column_default, column_key, extra
         FROM information_schema.columns
-        WHERE table_schema = DATABASE() AND table_name = :table
+        WHERE (
+            (:schema = '' AND table_schema = DATABASE()) OR
+            (:schema != '' AND table_schema = :schema)
+        ) AND table_name = :table
         ORDER BY ordinal_position
         "#,
-            params! { "table" => &table },
+            params! { "schema" => schema_param, "table" => &table_name },
             |(name, column_type, is_nullable, default, column_key, extra): (
                 String,
                 String,
@@ -1511,11 +1589,14 @@ pub async fn fetch_table_details(
                GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ', ') AS columns,
                IF(MAX(non_unique) = 0, 1, 0) AS is_unique
         FROM information_schema.statistics
-        WHERE table_schema = DATABASE() AND table_name = :table
+        WHERE (
+            (:schema = '' AND table_schema = DATABASE()) OR
+            (:schema != '' AND table_schema = :schema)
+        ) AND table_name = :table
         GROUP BY index_name
         ORDER BY IF(index_name = 'PRIMARY', 0, 1), index_name
         "#,
-            params! { "table" => &table },
+            params! { "schema" => schema_param, "table" => &table_name },
             |(name, columns, unique): (String, Option<String>, u8)| TableIndexDetail {
                 name,
                 columns: columns.unwrap_or_default(),
@@ -1536,11 +1617,14 @@ pub async fn fetch_table_details(
          AND kcu.constraint_name = tc.constraint_name
          AND kcu.table_schema = tc.table_schema
          AND kcu.table_name = tc.table_name
-        WHERE tc.table_schema = DATABASE() AND tc.table_name = :table
+        WHERE (
+            (:schema = '' AND tc.table_schema = DATABASE()) OR
+            (:schema != '' AND tc.table_schema = :schema)
+        ) AND tc.table_name = :table
         GROUP BY tc.constraint_name, tc.constraint_type
         ORDER BY tc.constraint_type, tc.constraint_name
         "#,
-        params! { "table" => &table },
+        params! { "schema" => schema_param, "table" => &table_name },
         |(name, constraint_type, columns): (String, String, String)| {
             let definition = if columns.is_empty() {
                 constraint_type.clone()
@@ -1555,8 +1639,14 @@ pub async fn fetch_table_details(
         },
     ).await.map_err(|e| safe_error(&e))?;
 
+    let ddl_query = if let Some(schema) = schema_opt {
+        format!("SHOW CREATE TABLE {}.{}", quote_identifier(&schema), quote_identifier(&table_name))
+    } else {
+        format!("SHOW CREATE TABLE {}", quote_identifier(&table_name))
+    };
+
     let ddl_row: Option<mysql_async::Row> = conn
-        .query_first(format!("SHOW CREATE TABLE {}", quote_identifier(&table)))
+        .query_first(ddl_query)
         .await
         .map_err(|e| safe_error(&e))?;
     let ddl = ddl_row

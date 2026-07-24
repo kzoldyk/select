@@ -2,8 +2,14 @@
   <footer class="flex items-center justify-between h-8 px-3 border-t border-border/60 bg-background text-[11px] font-medium text-muted-foreground overflow-hidden flex-shrink-0">
     <div class="flex items-center gap-3">
       <div class="flex items-center gap-1.5 cursor-default" :title="activeConnLabel">
-        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0 shadow-[0_0_8px_currentColor]" :class="dotClass"></span>
-        <span class="text-foreground tracking-wide capitalize">{{ connStore.status === 'connected' ? 'Connected' : connStore.status }}</span>
+        <span 
+          class="w-1.5 h-1.5 rounded-full flex-shrink-0 transition-all duration-300" 
+          :class="[dotClass, { 'shadow-[0_0_8px_currentColor]': connStore.status === 'connected' }]"
+          :style="connStore.status === 'connected' && connStore.activeConnection?.color ? { backgroundColor: connStore.activeConnection.color, color: connStore.activeConnection.color } : {}"
+        ></span>
+        <span class="text-foreground tracking-wide capitalize">
+          {{ connStore.status === 'connected' ? 'Connected' : (connStore.status === 'idle' ? 'Disconnected' : connStore.status) }}
+        </span>
       </div>
 
       <div v-if="connStore.activeConnection" class="flex items-center gap-1.5 text-muted-foreground/80">
@@ -52,11 +58,14 @@ const editorStore = useEditorStore()
 const uiStore = useUiStore()
 
 	const dotClass = computed(() => {
+  if (connStore.status === 'connected' && connStore.activeConnection?.color) {
+    return '' // Using inline style for custom color
+  }
   switch (connStore.status) {
-    case 'connected':  return 'bg-emerald-500'
+    case 'connected':  return 'bg-emerald-500' // fallback
     case 'connecting': return 'bg-amber-500'
     case 'error':      return 'bg-red-500'
-    default:           return 'bg-muted-foreground'
+    default:           return 'bg-muted-foreground/60'
   }
 })
 
