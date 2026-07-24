@@ -1440,17 +1440,9 @@ pub async fn fetch_schema(
                 r#type: "view".into(),
             });
         } else {
-            let qualified_table = format!("{}.{}", quote_identifier(&db_to_query), quote_identifier(&name));
-            let exact_row_count = match conn
-                .query_first::<u64, _>(format!("SELECT COUNT(*) FROM {}", qualified_table))
-                .await
-            {
-                Ok(count) => count.or(row_count).unwrap_or(0),
-                Err(_) => row_count.unwrap_or(0),
-            };
             tables.push(SchemaTable {
                 name,
-                row_count: exact_row_count,
+                row_count: row_count.unwrap_or(0),
                 r#type: "table".into(),
             });
         }
