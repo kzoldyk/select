@@ -1397,6 +1397,7 @@ pub async fn fetch_schema_tables(
 #[tauri::command]
 pub async fn fetch_schema(
     id: String,
+    database: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
     let pool = {
@@ -1406,14 +1407,26 @@ pub async fn fetch_schema(
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
 
+    let db_to_query = match database {
+        Some(ref db) if !db.trim().is_empty() => db.clone(),
+        _ => {
+            let mut c = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+            c.query_first::<String, _>("SELECT DATABASE()")
+                .await
+                .map_err(|e| safe_error(&e))?
+                .unwrap_or_default()
+        }
+    };
+
     let table_rows: Vec<(String, Option<u64>, String)> = conn
-        .query(
+        .exec(
             r#"
         SELECT table_name, table_rows, table_type
         FROM information_schema.tables
-        WHERE table_schema = DATABASE()
+        WHERE table_schema = :db
         ORDER BY table_name
         "#,
+            params! { "db" => &db_to_query },
         )
         .await
         .map_err(|e| safe_error(&e))?;
@@ -1427,8 +1440,9 @@ pub async fn fetch_schema(
                 r#type: "view".into(),
             });
         } else {
+            let qualified_table = format!("{}.{}", quote_identifier(&db_to_query), quote_identifier(&name));
             let exact_row_count = match conn
-                .query_first::<u64, _>(format!("SELECT COUNT(*) FROM {}", quote_identifier(&name)))
+                .query_first::<u64, _>(format!("SELECT COUNT(*) FROM {}", qualified_table))
                 .await
             {
                 Ok(count) => count.or(row_count).unwrap_or(0),
@@ -1443,13 +1457,14 @@ pub async fn fetch_schema(
     }
 
     let routines: Vec<(String, String)> = conn
-        .query(
+        .exec(
             r#"
         SELECT routine_name, LOWER(routine_type)
         FROM information_schema.routines
-        WHERE routine_schema = DATABASE()
+        WHERE routine_schema = :db
         ORDER BY routine_name
         "#,
+            params! { "db" => &db_to_query },
         )
         .await
         .map_err(|e| safe_error(&e))?;
@@ -1471,14 +1486,15 @@ pub async fn fetch_schema(
     }
 
     let triggers: Vec<SchemaObject> = conn
-        .query_map(
+        .exec_map(
             r#"
         SELECT trigger_name
         FROM information_schema.triggers
-        WHERE trigger_schema = DATABASE()
+        WHERE trigger_schema = :db
         ORDER BY trigger_name
         "#,
-            |name: String| SchemaObject {
+            params! { "db" => &db_to_query },
+            |(name,): (String,)| SchemaObject {
                 name,
                 r#type: "trigger".into(),
             },
@@ -1487,13 +1503,14 @@ pub async fn fetch_schema(
         .map_err(|e| safe_error(&e))?;
 
     let indexes: Vec<SchemaObject> = conn
-        .query_map(
+        .exec_map(
             r#"
         SELECT DISTINCT index_name
         FROM information_schema.statistics
-        WHERE table_schema = DATABASE()
+        WHERE table_schema = :db
         ORDER BY index_name
         "#,
+            params! { "db" => &db_to_query },
             |name: String| SchemaObject {
                 name,
                 r#type: "index".into(),
@@ -1516,6 +1533,7 @@ pub async fn fetch_schema(
 pub async fn fetch_table_details(
     table: String,
     id: Option<String>,
+    database: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<TableDetails, String> {
     let (_conn_id, pool) = resolve_connection(&state, id).await?;
@@ -1524,7 +1542,7 @@ pub async fn fetch_table_details(
 
     let (schema_opt, table_name) = match table.split_once('.') {
         Some((s, t)) => (Some(s.to_string()), t.to_string()),
-        None => (None, table.clone()),
+        None => (database.clone(), table.clone()),
     };
 
     let schema_param = schema_opt.as_deref().unwrap_or("");

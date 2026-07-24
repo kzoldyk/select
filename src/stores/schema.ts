@@ -179,7 +179,9 @@ export const useSchemaStore = defineStore('schema', {
 	      this.detailsByTable = {}
 	      this.detailsError = null
 	      try {
-	        const data = await invoke<any>('fetch_schema', { id: connectionId ?? 'default' })
+	        const connStore = useConnectionStore()
+	        const dbName = connStore.activeConnection?.database ?? null
+	        const data = await invoke<any>('fetch_schema', { id: connectionId ?? 'default', database: dbName })
         if (data.tables) {
           this.tables = data.tables.map((t: string | { name: string; rowCount?: number }) => ({
             name: objectName(t),
@@ -240,8 +242,10 @@ export const useSchemaStore = defineStore('schema', {
       this.isDetailsLoading = true
       this.detailsError = null
       try {
-        const connId = useConnectionStore().activeId
-        const details = await invoke<TableDetails>('fetch_table_details', { table: tableName, id: connId })
+        const connStore = useConnectionStore()
+        const connId = connStore.activeId
+        const dbName = connStore.activeConnection?.database ?? null
+        const details = await invoke<TableDetails>('fetch_table_details', { table: tableName, id: connId, database: dbName })
         this.detailsByTable[tableName] = details
         if (this.activeTable === tableName) this.tableDetails = details
         return details
