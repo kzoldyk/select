@@ -46,6 +46,8 @@
   --color-link: var(--link);
   --color-tooltip-background: var(--tooltip-background);
   --color-tooltip-text: var(--tooltip-text);
+  --color-syn-number: var(--syn-number);
+  --color-syn-string: var(--syn-string);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -138,6 +140,32 @@
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+
+  /* Sleek, themed scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+    border: 2.5px solid transparent;
+    background-clip: padding-box;
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-hover);
+    border: 2.5px solid transparent;
+    background-clip: padding-box;
+  }
+
+  /* Support thin scrollbar for Firefox */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar) transparent;
   }
 }
 

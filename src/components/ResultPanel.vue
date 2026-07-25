@@ -150,16 +150,16 @@
                     />
                   </div>
                 </TableHead>
-                <TableHead class="w-[48px] text-center text-[10px] font-semibold text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/50 select-none">#</TableHead>
+                <TableHead class="w-[48px] text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/20 select-none py-2.5 px-3">#</TableHead>
                 <TableHead
                   v-for="col in resultStore.columns"
                   :key="col.name"
-                  class="text-[11px] font-semibold text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap p-1.5 px-3 border-r border-border/50 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
-                  :class="{ 'text-right': col.type === 'integer' || col.type === 'numeric' || col.type === 'decimal' || col.type === 'bigint' }"
+                  class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-2.5 px-4 border-r border-border/20 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
+                  :class="{ 'text-right': isNumericColumn(col) }"
                   :aria-sort="getSortAria(col.name)"
                   @click="sortBy(col.name)"
                 >
-                  <div class="inline-flex items-center gap-1.5" :class="{ 'flex-row-reverse': col.type === 'integer' || col.type === 'numeric' || col.type === 'decimal' || col.type === 'bigint' }">
+                  <div class="inline-flex items-center gap-1.5" :class="{ 'flex-row-reverse': isNumericColumn(col) }">
                     {{ col.name }}
                     <span v-if="sortCol === col.name" class="text-[10px] text-primary">
                       {{ sortDir === 'asc' ? '\u2191' : '\u2193' }}
@@ -190,8 +190,8 @@
                     resultStore.selectedRows.has(item.key) ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/40'
                   ]"
                 >
-                <TableCell class="text-center p-0 w-[36px] border-r border-border/50 relative">
-                  <div v-if="resultStore.selectedRows.has(item.key)" class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary"></div>
+                <TableCell class="text-center p-0 w-[36px] border-r border-border/20 relative">
+                  <div v-if="resultStore.selectedRows.has(item.key)" class="absolute left-0 top-0 bottom-0 w-[2.5px] bg-primary"></div>
                   <div class="flex items-center justify-center w-full h-full">
                     <input
                       type="checkbox"
@@ -203,14 +203,14 @@
                     />
                   </div>
                 </TableCell>
-                <TableCell class="text-center p-1.5 px-2 w-[48px] border-r border-border/50 text-[10px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
+                <TableCell class="text-center py-2 px-3 w-[48px] border-r border-border/20 text-[10px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
                 <TableCell
                   v-for="col in resultStore.columns"
                   :key="col.name"
-                  class="p-1.5 px-3 max-w-[240px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/50 last:border-r-0 cursor-cell hover:bg-muted/50"
+                  class="py-2 px-4 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/30"
                   :class="[
                     getCellClass(item.row[col.name], col),
-                    (col.type === 'integer' || col.type === 'numeric' || col.type === 'decimal' || col.type === 'bigint') ? 'text-right tabular-nums' : ''
+                    isNumericColumn(col) ? 'text-right tabular-nums' : ''
                   ]"
                   @dblclick="startEditCell(item.index, col.name, $event)"
                   @contextmenu.prevent="showContextMenu($event, item.row, item.index, col.name)"
@@ -922,10 +922,20 @@ function toggleAll() {
   else filteredRows.value.forEach(item => resultStore.selectedRows.add(item.key))
 }
 
+function isNumericColumn(col: Column): boolean {
+  const type = (col.type || '').toLowerCase()
+  return ['integer', 'numeric', 'decimal', 'bigint', 'int', 'float', 'double', 'real', 'number'].some(t => type.includes(t))
+}
+
+function isDateColumn(col: Column): boolean {
+  const type = (col.type || '').toLowerCase()
+  return ['timestamp', 'datetime', 'date', 'time'].some(t => type.includes(t))
+}
+
 function getCellClass(val: CellValue, col: Column): string {
   if (val === null) return ''
-  if (col.type === 'integer' || col.type === 'numeric') return 'text-blue-400'
-  if (col.type === 'timestamp') return 'text-yellow-500'
+  if (isNumericColumn(col)) return 'text-syn-number'
+  if (isDateColumn(col)) return 'text-syn-string font-medium'
   return ''
 }
 
