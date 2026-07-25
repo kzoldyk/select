@@ -176,7 +176,7 @@
                   :key="fn.name"
                   class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
                   :title="fn.name"
-                  @click="copyOrInsert(fn.name)"
+                  @click="selectFunction(fn.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, fn.name, 'function')"
                 >
                   <Zap class="w-3.5 h-3.5 text-purple-400/80 flex-shrink-0" />
@@ -254,7 +254,7 @@
                   :key="proc.name"
                   class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
                   :title="proc.name"
-                  @click="copyOrInsert(proc.name)"
+                  @click="selectProc(proc.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, proc.name, 'proc')"
                 >
                   <Play class="w-3.5 h-3.5 text-indigo-400/80 flex-shrink-0" />
@@ -293,7 +293,7 @@
                   :key="trig.name"
                   class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
                   :title="trig.name"
-                  @click="copyOrInsert(trig.name)"
+                  @click="selectTrigger(trig.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, trig.name, 'trigger')"
                 >
                   <Activity class="w-3.5 h-3.5 text-rose-400/80 flex-shrink-0" />
@@ -410,6 +410,8 @@
 <script setup lang="ts">
 import { reactive, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { invoke } from '@tauri-apps/api/core'
+import { toast } from 'vue-sonner'
 import {
   Dialog,
   DialogContent,
@@ -525,6 +527,141 @@ function selectTable(name: string) {
 
 function copyOrInsert(name: string) {
   navigator.clipboard.writeText(name)
+}
+
+async function selectProc(name: string) {
+  try {
+    const connId = connStore.activeId
+    const sql = `SHOW CREATE PROCEDURE ${quoteSqlIdentifier(name)};`
+    const result = await invoke<any>('run_query_paged', {
+      sql,
+      limit: 1,
+      offset: 0,
+      id: connId,
+    })
+
+    if (result && result.rows && result.rows.length > 0) {
+      const row = result.rows[0]
+      const ddlKey = Object.keys(row).find(
+        (k) =>
+          k.toLowerCase().includes('create procedure') ||
+          k.toLowerCase().includes('definition')
+      )
+      const definition = ddlKey ? row[ddlKey] : null
+
+      if (definition) {
+        const tabId = editorStore.addTab()
+        const tab = editorStore.tabs.find((t) => t.id === tabId)
+        if (tab) {
+          tab.name = name
+          tab.sql = definition
+          editorStore.selectTab(tabId)
+          toast.success(`Loaded definition for procedure "${name}"`)
+        }
+      } else {
+        openFallbackTab(name, sql)
+      }
+    } else {
+      openFallbackTab(name, sql)
+    }
+  } catch (error) {
+    console.error('Failed to fetch procedure definition:', error)
+    openFallbackTab(name, `SHOW CREATE PROCEDURE ${quoteSqlIdentifier(name)};`)
+  }
+}
+
+async function selectFunction(name: string) {
+  try {
+    const connId = connStore.activeId
+    const sql = `SHOW CREATE FUNCTION ${quoteSqlIdentifier(name)};`
+    const result = await invoke<any>('run_query_paged', {
+      sql,
+      limit: 1,
+      offset: 0,
+      id: connId,
+    })
+
+    if (result && result.rows && result.rows.length > 0) {
+      const row = result.rows[0]
+      const ddlKey = Object.keys(row).find(
+        (k) =>
+          k.toLowerCase().includes('create function') ||
+          k.toLowerCase().includes('definition')
+      )
+      const definition = ddlKey ? row[ddlKey] : null
+
+      if (definition) {
+        const tabId = editorStore.addTab()
+        const tab = editorStore.tabs.find((t) => t.id === tabId)
+        if (tab) {
+          tab.name = name
+          tab.sql = definition
+          editorStore.selectTab(tabId)
+          toast.success(`Loaded definition for function "${name}"`)
+        }
+      } else {
+        openFallbackTab(name, sql)
+      }
+    } else {
+      openFallbackTab(name, sql)
+    }
+  } catch (error) {
+    console.error('Failed to fetch function definition:', error)
+    openFallbackTab(name, `SHOW CREATE FUNCTION ${quoteSqlIdentifier(name)};`)
+  }
+}
+
+async function selectTrigger(name: string) {
+  try {
+    const connId = connStore.activeId
+    const sql = `SHOW CREATE TRIGGER ${quoteSqlIdentifier(name)};`
+    const result = await invoke<any>('run_query_paged', {
+      sql,
+      limit: 1,
+      offset: 0,
+      id: connId,
+    })
+
+    if (result && result.rows && result.rows.length > 0) {
+      const row = result.rows[0]
+      const ddlKey = Object.keys(row).find(
+        (k) =>
+          k.toLowerCase().includes('create trigger') ||
+          k.toLowerCase().includes('sql original statement') ||
+          k.toLowerCase().includes('definition')
+      )
+      const definition = ddlKey ? row[ddlKey] : null
+
+      if (definition) {
+        const tabId = editorStore.addTab()
+        const tab = editorStore.tabs.find((t) => t.id === tabId)
+        if (tab) {
+          tab.name = name
+          tab.sql = definition
+          editorStore.selectTab(tabId)
+          toast.success(`Loaded definition for trigger "${name}"`)
+        }
+      } else {
+        openFallbackTab(name, sql)
+      }
+    } else {
+      openFallbackTab(name, sql)
+    }
+  } catch (error) {
+    console.error('Failed to fetch trigger definition:', error)
+    openFallbackTab(name, `SHOW CREATE TRIGGER ${quoteSqlIdentifier(name)};`)
+  }
+}
+
+function openFallbackTab(name: string, sql: string) {
+  const tabId = editorStore.addTab()
+  const tab = editorStore.tabs.find((t) => t.id === tabId)
+  if (tab) {
+    tab.name = name
+    tab.sql = sql
+    editorStore.selectTab(tabId)
+    resultStore.runQuery(sql)
+  }
 }
 
 const ctxMenu = reactive({ visible: false, x: 0, y: 0, target: '', objectType: 'table', isSavedQuery: false, savedQueryId: '' })
