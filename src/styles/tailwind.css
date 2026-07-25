@@ -9,6 +9,8 @@
 
 @theme inline {
   --color-background: var(--background);
+  --color-background-secondary: var(--background-secondary);
+  --color-background-elevated: var(--background-elevated);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -24,8 +26,26 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-border-light: var(--border-light);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-disabled: var(--text-disabled);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-selection: var(--selection);
+  --color-scrollbar: var(--scrollbar);
+  --color-scrollbar-hover: var(--scrollbar-hover);
+  --color-focus-ring: var(--focus-ring);
+  --color-link: var(--link);
+  --color-tooltip-background: var(--tooltip-background);
+  --color-tooltip-text: var(--tooltip-text);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);

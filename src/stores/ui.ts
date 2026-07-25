@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { setTheme as setThemeFromSystem } from '../theme/manager'
 
 export type Theme = 'dark' | 'light' | 'system'
 
@@ -12,6 +13,7 @@ export const useUiStore = defineStore('ui', {
     settingsOpen: false,
     shortcutsOpen: false,
     exportOpen: false,
+    themeGalleryOpen: false,
     theme: ((typeof window !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'system',
     systemIsDark: false,
   }),
@@ -70,12 +72,31 @@ export const useUiStore = defineStore('ui', {
     closeSettings() {
       this.settingsOpen = false
     },
+    openThemeGallery() {
+      this.themeGalleryOpen = true
+    },
+    closeThemeGallery() {
+      this.themeGalleryOpen = false
+    },
+    toggleThemeGallery() {
+      this.themeGalleryOpen = !this.themeGalleryOpen
+    },
     setTheme(theme: Theme) {
       this.theme = theme
       if (typeof window !== 'undefined') {
         localStorage.setItem('theme', theme)
       }
       this.applyTheme()
+
+      // Bridge to the new theme system
+      if (theme === 'dark') {
+        setThemeFromSystem('default-dark')
+      } else if (theme === 'light') {
+        setThemeFromSystem('one-light')
+      } else if (theme === 'system') {
+        const isDark = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false
+        setThemeFromSystem(isDark ? 'default-dark' : 'one-light')
+      }
     },
     toggleTheme() {
       const cycle: Record<Theme, Theme> = {
@@ -88,6 +109,11 @@ export const useUiStore = defineStore('ui', {
     updateSystemTheme(isDark: boolean) {
       this.systemIsDark = isDark
       this.applyTheme()
+
+      // Keep dynamic theme synced if on system
+      if (this.theme === 'system') {
+        setThemeFromSystem(isDark ? 'default-dark' : 'one-light')
+      }
     },
     applyTheme() {
       if (typeof window !== 'undefined') {
@@ -101,6 +127,7 @@ export const useUiStore = defineStore('ui', {
       this.settingsOpen = false
       this.shortcutsOpen = false
       this.exportOpen = false
+      this.themeGalleryOpen = false
     },
   },
 })

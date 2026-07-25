@@ -51,6 +51,7 @@
       <KeyboardShortcuts />
       <ExportDialog />
       <SettingsDialog />
+      <ThemeGalleryDialog />
       <Toaster />
     </div>
   </div>
@@ -67,12 +68,14 @@ import CommandPalette from './components/CommandPalette.vue'
 import ConnectionManager from './components/ConnectionManager.vue'
 import SchemaInspector from './components/SchemaInspector.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import ThemeGalleryDialog from './components/ThemeGalleryDialog.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'vue-sonner'
 import SaveQueryDialog from './components/SaveQueryDialog.vue'
 import DestructiveQueryDialog from './components/DestructiveQueryDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import ExportDialog from './components/ExportDialog.vue'
+import { initThemeSystem } from './theme'
 
 import { useConnectionStore } from './stores/connection'
 import { useEditorStore } from './stores/editor'
@@ -93,6 +96,7 @@ const handleSystemThemeChange = (e: MediaQueryListEvent) => {
 }
 
 onMounted(async () => {
+  initThemeSystem()
   if (typeof window !== 'undefined' && window.matchMedia) {
     mediaQueryList = window.matchMedia('(prefers-color-scheme: dark)')
     uiStore.updateSystemTheme(mediaQueryList.matches)

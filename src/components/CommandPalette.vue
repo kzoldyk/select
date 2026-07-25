@@ -38,6 +38,8 @@ import { useResultStore } from '../stores/result'
 import { useSchemaStore } from '../stores/schema'
 import { useConnectionStore } from '../stores/connection'
 import { computed } from 'vue'
+import { toast } from 'vue-sonner'
+import { themeState, activeTheme, randomTheme, nextTheme, prevTheme, toggleFavorite } from '../theme'
 
 const uiStore = useUiStore()
 const editorStore = useEditorStore()
@@ -157,6 +159,63 @@ const allGroups = computed<Group[]>(() => {
         action: () => { schemaStore.refreshSchema(connStore.activeId ?? undefined); uiStore.closePalette() },
       },
     ],
+  },
+  {
+    label: 'Theme Management',
+    commands: [
+      {
+        id: 'theme-gallery',
+        icon: '🎨',
+        label: 'Select Theme / Browse Gallery',
+        shortcut: '⌘⌥T',
+        action: () => { uiStore.openThemeGallery(); uiStore.closePalette() },
+      },
+      {
+        id: 'theme-random',
+        icon: '🎲',
+        label: 'Apply Random Theme',
+        shortcut: '⌘⌥R',
+        action: () => {
+          const t = randomTheme()
+          if (t) toast.success(`Applied random theme: "${t.name}"`)
+          uiStore.closePalette()
+        },
+      },
+      {
+        id: 'theme-next',
+        icon: '➡️',
+        label: 'Next Theme',
+        shortcut: '⌘⌥→',
+        action: () => {
+          nextTheme()
+          toast.success(`Switched to: "${activeTheme.value.name}"`)
+          uiStore.closePalette()
+        },
+      },
+      {
+        id: 'theme-prev',
+        icon: '⬅️',
+        label: 'Previous Theme',
+        shortcut: '⌘⌥←',
+        action: () => {
+          prevTheme()
+          toast.success(`Switched to: "${activeTheme.value.name}"`)
+          uiStore.closePalette()
+        },
+      },
+      {
+        id: 'theme-favorite',
+        icon: '⭐',
+        label: 'Favorite Active Theme',
+        shortcut: '⌘⌥F',
+        action: () => {
+          toggleFavorite(activeTheme.value.id)
+          const isFav = activeTheme.value.id ? themeState.favorites.includes(activeTheme.value.id) : false
+          toast.success(isFav ? `Added "${activeTheme.value.name}" to favorites` : `Removed "${activeTheme.value.name}" from favorites`)
+          uiStore.closePalette()
+        },
+      },
+    ]
   },
   {
     label: 'Navigation',

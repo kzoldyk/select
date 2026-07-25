@@ -4,6 +4,8 @@ import { useUiStore } from '../stores/ui'
 import { useResultStore } from '../stores/result'
 import { useSchemaStore } from '../stores/schema'
 import { useConnectionStore } from '../stores/connection'
+import { toast } from 'vue-sonner'
+import { activeTheme, themeState, randomTheme, nextTheme, prevTheme, toggleFavorite } from '../theme'
 
 export function useKeyboardShortcuts(onRun?: () => void) {
   const editor = useEditorStore()
@@ -19,6 +21,7 @@ export function useKeyboardShortcuts(onRun?: () => void) {
   function handler(e: KeyboardEvent) {
     const meta = isMac() ? e.metaKey : e.ctrlKey
     const shift = e.shiftKey
+    const alt = e.altKey
     const key = e.key
     const target = e.target as HTMLElement | null
     const isTyping =
@@ -28,6 +31,46 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       (target?.isContentEditable && !target?.closest('.cm-editor'))
 
     if (isTyping && key !== 'Escape') return
+
+    // ⌘⌥T — Toggle theme gallery
+    if (meta && alt && (key === 't' || key === 'T')) {
+      e.preventDefault()
+      ui.toggleThemeGallery()
+      return
+    }
+
+    // ⌘⌥R — Random theme
+    if (meta && alt && (key === 'r' || key === 'R')) {
+      e.preventDefault()
+      const t = randomTheme()
+      if (t) toast.success(`Applied random theme: "${t.name}"`)
+      return
+    }
+
+    // ⌘⌥F — Favorite active theme
+    if (meta && alt && (key === 'f' || key === 'F')) {
+      e.preventDefault()
+      toggleFavorite(activeTheme.value.id)
+      const isFav = activeTheme.value.id ? themeState.favorites.includes(activeTheme.value.id) : false
+      toast.success(isFav ? `Added "${activeTheme.value.name}" to favorites` : `Removed "${activeTheme.value.name}" from favorites`)
+      return
+    }
+
+    // ⌘⌥→ — Next theme
+    if (meta && alt && key === 'ArrowRight') {
+      e.preventDefault()
+      nextTheme()
+      toast.success(`Theme: "${activeTheme.value.name}"`)
+      return
+    }
+
+    // ⌘⌥← — Previous theme
+    if (meta && alt && key === 'ArrowLeft') {
+      e.preventDefault()
+      prevTheme()
+      toast.success(`Theme: "${activeTheme.value.name}"`)
+      return
+    }
 
     // ⌘K — Toggle command palette
     if (meta && !shift && key === 'k') {
@@ -162,6 +205,7 @@ export function useKeyboardShortcuts(onRun?: () => void) {
 
     // Esc — Close the topmost open overlay
     if (key === 'Escape') {
+      if (ui.themeGalleryOpen) { ui.closeThemeGallery(); return }
       if (editor.saveDialogOpen) { editor.saveDialogOpen = false; return }
       if (ui.shortcutsOpen) { ui.closeShortcuts(); return }
       if (ui.connectionManagerOpen) { ui.closeConnectionManager(); return }

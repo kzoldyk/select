@@ -11,7 +11,7 @@
       <div class="py-4 space-y-6">
         <!-- Appearance section -->
         <div class="space-y-3">
-          <Label class="text-xs font-medium text-foreground">Theme</Label>
+          <Label class="text-xs font-medium text-foreground">Theme Mode</Label>
           <div class="grid grid-cols-3 gap-2">
             <button
               v-for="opt in themeOptions"
@@ -26,6 +26,17 @@
               <component :is="opt.icon" class="w-4 h-4" />
               <span>{{ opt.label }}</span>
             </button>
+          </div>
+          <div class="pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              class="w-full text-xs gap-2 justify-center cursor-pointer"
+              @click="openGallery"
+            >
+              <Palette class="w-4 h-4 text-primary" />
+              Browse Themes Gallery...
+            </Button>
           </div>
         </div>
       </div>
@@ -50,7 +61,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Sun, Moon, Monitor } from '@lucide/vue'
+import { Sun, Moon, Monitor, Palette } from '@lucide/vue'
 import { useUiStore, type Theme } from '../stores/ui'
 
 const uiStore = useUiStore()
@@ -60,4 +71,9 @@ const themeOptions = [
   { value: 'dark' as Theme, label: 'Dark', icon: Moon },
   { value: 'system' as Theme, label: 'System', icon: Monitor },
 ]
+
+function openGallery() {
+  uiStore.closeSettings()
+  uiStore.openThemeGallery()
+}
 </script>
