@@ -150,6 +150,7 @@
             id="result-grid-table"
             class="relative w-full text-left border-collapse focus:outline-none focus:ring-1 focus:ring-primary/40 rounded-sm transition-shadow"
             tabindex="0"
+            @keydown="handleTableKeydown"
           >
             <TableHeader class="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--border)]">
               <TableRow class="hover:bg-transparent border-none">
@@ -222,11 +223,13 @@
                 <TableCell
                   v-for="col in resultStore.columns"
                   :key="col.name"
-                  class="py-2 px-4 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/30"
+                  class="py-2 px-4 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/30 select-none transition-all duration-75"
                   :class="[
                     getCellClass(item.row[col.name], col),
-                    isNumericColumn(col) ? 'text-right tabular-nums' : ''
+                    isNumericColumn(col) ? 'text-right tabular-nums' : '',
+                    activeCell?.rowIndex === item.index && activeCell?.colName === col.name ? 'ring-2 ring-primary ring-inset bg-primary/10' : ''
                   ]"
+                  @click="selectCell(item.index, col.name)"
                   @dblclick="startEditCell(item.index, col.name, $event)"
                   @contextmenu.prevent="showContextMenu($event, item.row, item.index, col.name)"
                 >
@@ -1269,6 +1272,76 @@ function focus() {
   const el = document.getElementById('result-grid-table')
   el?.focus()
 }
+
+const activeCell = ref<{ rowIndex: number; colName: string } | null>(null)
+
+function selectCell(rowIndex: number, colName: string) {
+  activeCell.value = { rowIndex, colName }
+}
+
+function handleTableKeydown(e: KeyboardEvent) {
+  const meta = navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? e.metaKey : e.ctrlKey
+  
+  if (meta && e.key.toLowerCase() === 'c') {
+    if (activeCell.value) {
+      const row = resultStore.rows[activeCell.value.rowIndex]
+      const val = row?.[activeCell.value.colName]
+      if (val !== undefined && val !== null) {
+        e.preventDefault()
+        navigator.clipboard.writeText(String(val))
+        toast.success(`Copied cell value to clipboard`)
+      }
+    }
+    return
+  }
+
+  if (activeCell.value) {
+    const { rowIndex, colName } = activeCell.value
+    const colIndex = resultStore.columns.findIndex(c => c.name === colName)
+    
+    if (e.key === 'ArrowUp') {
+      if (rowIndex > 0) {
+        e.preventDefault()
+        activeCell.value = { rowIndex: rowIndex - 1, colName }
+        scrollToActiveCell()
+      }
+    } else if (e.key === 'ArrowDown') {
+      if (rowIndex < resultStore.rows.length - 1) {
+        e.preventDefault()
+        activeCell.value = { rowIndex: rowIndex + 1, colName }
+        scrollToActiveCell()
+      }
+    } else if (e.key === 'ArrowLeft') {
+      if (colIndex > 0) {
+        e.preventDefault()
+        const prevColName = resultStore.columns[colIndex - 1].name
+        activeCell.value = { rowIndex, colName: prevColName }
+        scrollToActiveCell()
+      }
+    } else if (e.key === 'ArrowRight') {
+      if (colIndex < resultStore.columns.length - 1) {
+        e.preventDefault()
+        const nextColName = resultStore.columns[colIndex + 1].name
+        activeCell.value = { rowIndex, colName: nextColName }
+        scrollToActiveCell()
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      startEditCell(rowIndex, colName, e)
+    }
+  }
+}
+
+function scrollToActiveCell() {
+  nextTick(() => {
+    const activeEl = document.querySelector('.ring-primary')
+    activeEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  })
+}
+
+watch(() => resultStore.rows, () => {
+  activeCell.value = null
+})
 
 defineExpose({ focus })
 </script>
