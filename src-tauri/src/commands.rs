@@ -357,6 +357,8 @@ fn validate_read_only_query(sql: &str) -> Result<(), String> {
         return Err("Only one SQL statement can be executed at a time.".into());
     }
 
+    let is_show_query = first == "SHOW";
+
     let blocked = [
         "ALTER", "ANALYZE", "BEGIN", "CALL", "CHECK", "COMMIT", "CREATE", "DEALLOCATE",
         "DELETE", "DROP", "EXECUTE", "FLUSH", "GRANT", "IMPORT", "INSERT", "INSTALL",
@@ -366,7 +368,13 @@ fn validate_read_only_query(sql: &str) -> Result<(), String> {
     ];
     if let Some(token) = tokens
         .iter()
-        .find(|token| blocked.contains(&token.as_str()))
+        .find(|token| {
+            if is_show_query && *token == "CREATE" {
+                false
+            } else {
+                blocked.contains(&token.as_str())
+            }
+        })
     {
         return Err(format!("Query contains disallowed keyword '{}'.", token));
     }
