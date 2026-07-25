@@ -168,6 +168,7 @@
                   :class="{ 'text-right': isNumericColumn(col) }"
                   :aria-sort="getSortAria(col.name)"
                   @click="sortBy(col.name)"
+                  @contextmenu.prevent="showHeaderContextMenu($event, col.name)"
                 >
                   <div class="inline-flex items-center gap-1.5" :class="{ 'flex-row-reverse': isNumericColumn(col) }">
                     {{ col.name }}
@@ -391,12 +392,26 @@
         @click.stop
         @contextmenu.prevent
       >
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors" @click="copyCellValue">Copy Cell Value</button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors" @click="copyRowJson">Copy Row as JSON</button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors" @click="copyRowInsert">Copy Row as INSERT</button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyCellValue">Copy Cell Value</button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyColumnName(false)">Copy Column Name</button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyRowJson">Copy Row as JSON</button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyRowInsert">Copy Row as INSERT</button>
         <div class="h-px bg-border my-1"></div>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors" @click="copyAllJson">Copy All as JSON</button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors" @click="copySelectedJson">Copy Selected as JSON</button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyAllJson">Copy All as JSON</button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copySelectedJson">Copy Selected as JSON</button>
+      </div>
+
+      <div
+        v-if="headerContextMenu.visible"
+        class="fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 w-[180px] text-xs"
+        :style="{ left: headerContextMenu.x + 'px', top: headerContextMenu.y + 'px' }"
+        @click.stop
+        @contextmenu.prevent
+      >
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyColumnName(true)">Copy Column Name</button>
+        <div class="h-px bg-border my-1"></div>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="sortFromHeader('asc')">Sort Ascending</button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="sortFromHeader('desc')">Sort Descending</button>
       </div>
     </Teleport>
     
@@ -781,6 +796,52 @@ function hideContextMenu() {
   contextMenu.visible = false
 }
 
+const headerContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  colName: '',
+})
+
+function showHeaderContextMenu(e: MouseEvent, colName: string) {
+  headerContextMenu.visible = true
+  headerContextMenu.x = e.clientX
+  headerContextMenu.y = e.clientY
+  headerContextMenu.colName = colName
+}
+
+function hideHeaderContextMenu() {
+  headerContextMenu.visible = false
+}
+
+function hideAllContextMenus() {
+  hideContextMenu()
+  hideHeaderContextMenu()
+}
+
+function copyColumnName(isHeader = true) {
+  const colName = isHeader ? headerContextMenu.colName : contextMenu.colName
+  if (colName) {
+    navigator.clipboard.writeText(colName)
+    toast.success(`Copied column name "${colName}"`)
+  }
+  if (isHeader) hideHeaderContextMenu()
+  else hideContextMenu()
+}
+
+function sortFromHeader(dir: 'asc' | 'desc') {
+  if (headerContextMenu.colName) {
+    const colName = headerContextMenu.colName
+    if (sortCol.value !== colName) {
+      sortBy(colName)
+    }
+    if (sortDir.value !== dir) {
+      sortBy(colName)
+    }
+  }
+  hideHeaderContextMenu()
+}
+
 function copyCellValue() {
   const val = contextMenu.row?.[contextMenu.colName]
   if (val !== undefined && val !== null) {
@@ -824,12 +885,12 @@ function copySelectedJson() {
 }
 
 onMounted(() => {
-  document.addEventListener('click', hideContextMenu)
+  document.addEventListener('click', hideAllContextMenus)
   resultStore.loadHistory()
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', hideContextMenu)
+  document.removeEventListener('click', hideAllContextMenus)
   if (observer) observer.disconnect()
   if (searchTimer) clearTimeout(searchTimer)
 })

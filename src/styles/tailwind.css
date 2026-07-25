@@ -167,6 +167,11 @@
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar) transparent;
   }
+
+  /* Global text selection color synced with theme */
+  ::selection {
+    background-color: var(--selection);
+  }
 }
 
 @layer utilities {
