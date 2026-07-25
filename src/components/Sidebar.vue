@@ -56,6 +56,7 @@
       </div>
 
       <input
+        id="sidebar-search-input"
         class="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-[12px] ring-offset-background placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all shadow-sm mt-1"
         type="text"
         placeholder="Search schema objects…"

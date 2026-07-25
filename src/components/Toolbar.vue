@@ -1,5 +1,10 @@
 <template>
-  <header class="flex items-center justify-between h-12 px-3 border-b border-border bg-background flex-shrink-0">
+  <header class="flex items-center justify-between h-12 px-3 border-b border-border bg-background flex-shrink-0 relative">
+    <div 
+      class="absolute top-0 left-0 right-0 h-[3px] transition-all duration-300"
+      :style="{ backgroundColor: connectionColor }"
+      :class="{ 'animate-pulse': isProd }"
+    ></div>
     <div class="flex items-center gap-2 min-w-0 flex-1">
       <Button variant="ghost" size="icon" class="text-muted-foreground hover:text-foreground h-8 w-8 transition-colors ease-premium duration-normal rounded-lg ml-1" aria-label="Toggle sidebar" @click="$emit('toggleSidebar')">
         <PanelLeft class="w-4.5 h-4.5 opacity-80" />
@@ -85,6 +90,8 @@ defineEmits<{
 
 const connectionName = computed(() => props.connection?.name ?? 'No connection')
 const connectionColor = computed(() => props.connection?.color ?? '#9CA3AF')
+
+const isProd = computed(() => props.connection?.color?.toUpperCase() === '#EF4444')
 
 const envName = computed(() => {
   const color = props.connection?.color?.toUpperCase()

@@ -30,7 +30,8 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       target instanceof HTMLSelectElement ||
       (target?.isContentEditable && !target?.closest('.cm-editor'))
 
-    if (isTyping && key !== 'Escape') return
+    const isFocusShortcut = meta && !shift && !alt && (key === '1' || key === '2' || key === '3')
+    if (isTyping && key !== 'Escape' && !isFocusShortcut) return
 
     // ⌘⌥T — Toggle theme gallery
     if (meta && alt && (key === 't' || key === 'T')) {
@@ -69,6 +70,35 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       e.preventDefault()
       prevTheme()
       toast.success(`Theme: "${activeTheme.value.name}"`)
+      return
+    }
+
+    // ⌘1 — Focus Sidebar Search Input
+    if (meta && !shift && !alt && key === '1') {
+      e.preventDefault()
+      if (!ui.sidebarOpen) {
+        ui.toggleSidebar()
+      }
+      setTimeout(() => {
+        const el = document.getElementById('sidebar-search-input') as HTMLElement | null
+        el?.focus()
+      }, 50)
+      return
+    }
+
+    // ⌘2 — Focus SQL Editor
+    if (meta && !shift && !alt && key === '2') {
+      e.preventDefault()
+      const el = document.querySelector('.cm-content') as HTMLElement | null
+      el?.focus()
+      return
+    }
+
+    // ⌘3 — Focus Results Grid
+    if (meta && !shift && !alt && key === '3') {
+      e.preventDefault()
+      const el = document.getElementById('result-grid-table') as HTMLElement | null
+      el?.focus()
       return
     }
 

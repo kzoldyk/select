@@ -12,7 +12,11 @@
 
     <Sidebar class="app-sidebar" />
 
-    <main class="main-content app-main" ref="mainRef">
+    <main 
+      class="main-content app-main transition-all duration-300"
+      :class="{ 'shadow-[inset_0_0_20px_rgba(239,68,68,0.12)] ring-1 ring-red-500/20': isProd }"
+      ref="mainRef"
+    >
       <div
         class="editor-pane"
         :style="{ height: editorPaneHeight }"
@@ -88,6 +92,8 @@ const editorStore = useEditorStore()
 const resultStore = useResultStore()
 const uiStore = useUiStore()
 const queryEditorRef = ref<InstanceType<typeof QueryEditor> | null>(null)
+
+const isProd = computed(() => connStore.activeConnection?.color?.toUpperCase() === '#EF4444')
 
 let mediaQueryList: MediaQueryList | null = null
 

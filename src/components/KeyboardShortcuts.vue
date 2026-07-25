@@ -52,6 +52,9 @@ const shortcutGroups = [
       { keys: '⌘ ⇧ /', label: 'Keyboard shortcuts' },
       { keys: '⌘ B', label: 'Toggle sidebar' },
       { keys: '⌘ ⇧ R', label: 'Refresh schema' },
+      { keys: '⌘ 1', label: 'Focus Schema Browser' },
+      { keys: '⌘ 2', label: 'Focus SQL Editor' },
+      { keys: '⌘ 3', label: 'Focus Results Grid' },
     ],
   },
   {

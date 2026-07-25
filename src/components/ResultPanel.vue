@@ -146,7 +146,11 @@
         </div>
 
         <ScrollArea class="flex-1 min-h-0 bg-background" ref="scrollAreaRef">
-          <Table class="relative w-full text-left border-collapse">
+          <Table 
+            id="result-grid-table"
+            class="relative w-full text-left border-collapse focus:outline-none focus:ring-1 focus:ring-primary/40 rounded-sm transition-shadow"
+            tabindex="0"
+          >
             <TableHeader class="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--border)]">
               <TableRow class="hover:bg-transparent border-none">
                 <TableHead class="w-[36px] text-center p-0 border-r border-border/50 bg-muted/80 backdrop-blur-md">
@@ -247,7 +251,19 @@
                     <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold" :class="item.row[col.name] ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'">{{ item.row[col.name] ? 'TRUE' : 'FALSE' }}</span>
                   </template>
                   <template v-else>
-                    <span :title="String(item.row[col.name]).length > 50 ? String(item.row[col.name]) : undefined">{{ formatCell(item.row[col.name], col) }}</span>
+                    <div class="flex items-center justify-between gap-1 group/fk w-full">
+                      <span :title="String(item.row[col.name]).length > 50 ? String(item.row[col.name]) : undefined" class="truncate">
+                        {{ formatCell(item.row[col.name], col) }}
+                      </span>
+                      <button 
+                        v-if="getColumnForeignKey(col)"
+                        class="text-primary/80 hover:text-primary cursor-pointer p-0.5 hover:bg-primary/10 rounded transition-colors opacity-0 group-hover/fk:opacity-100 focus:opacity-100 flex-shrink-0"
+                        title="Preview referenced record"
+                        @click.stop="(e) => showFkPreview(e, col, item.index, item.row[col.name])"
+                      >
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                      </button>
+                    </div>
                   </template>
                 </TableCell>
                 <TableCell v-if="isProcesslist" class="text-center p-1 border-l border-border/50">
@@ -437,6 +453,55 @@
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <!-- Foreign Key Row Preview Tooltip -->
+    <Teleport to="body">
+      <div 
+        v-if="activeFkPreview" 
+        id="fk-preview-popover"
+        class="fixed z-[1000] w-85 bg-popover text-popover-foreground border border-border rounded-lg shadow-xl p-4 text-[12px] font-sans pointer-events-auto transition-all"
+        :style="{ left: `${activeFkPreview.x}px`, top: `${activeFkPreview.y + 4}px` }"
+        @click.stop
+      >
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-border pb-2 mb-2">
+          <span class="font-semibold text-muted-foreground">Referenced Row Preview</span>
+          <span class="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px] text-foreground select-all">
+            {{ activeFkPreview.referencedTable }}
+          </span>
+        </div>
+
+        <!-- Content -->
+        <div v-if="activeFkPreview.loading" class="flex flex-col gap-2 py-2">
+          <div class="h-3 bg-muted/60 rounded w-3/4 animate-pulse"></div>
+          <div class="h-3 bg-muted/60 rounded w-5/6 animate-pulse"></div>
+          <div class="h-3 bg-muted/60 rounded w-1/2 animate-pulse"></div>
+        </div>
+        
+        <div v-else-if="activeFkPreview.error" class="text-destructive font-mono text-[10px] py-2">
+          Error loading record: {{ activeFkPreview.error }}
+        </div>
+
+        <div v-else-if="!activeFkPreview.data" class="text-muted-foreground italic py-2">
+          Referenced record not found.
+        </div>
+
+        <div v-else class="max-h-52 overflow-y-auto space-y-1.5 pr-1 font-mono text-[11px]">
+          <div v-for="(val, key) in activeFkPreview.data" :key="key" class="flex border-b border-border/30 pb-1 last:border-0 last:pb-0">
+            <span class="font-semibold text-muted-foreground w-1/3 truncate" :title="key">{{ key }}</span>
+            <span class="text-foreground w-2/3 break-all pl-2 border-l border-border/20">
+              <span v-if="val === null" class="italic text-muted-foreground/60">NULL</span>
+              <span v-else>{{ val }}</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Footer/Close instruction -->
+        <div class="text-[9px] text-muted-foreground/60 text-right mt-3 pt-2 border-t border-border/30">
+          Click outside or press Escape to close
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -886,11 +951,18 @@ function copySelectedJson() {
 
 onMounted(() => {
   document.addEventListener('click', hideAllContextMenus)
+  document.addEventListener('click', handleGlobalFkClick)
+  document.addEventListener('keydown', handleGlobalFkKeydown)
   resultStore.loadHistory()
+  if (resultStore.status === 'success') {
+    loadForeignKeysForColumns()
+  }
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', hideAllContextMenus)
+  document.removeEventListener('click', handleGlobalFkClick)
+  document.removeEventListener('keydown', handleGlobalFkKeydown)
   if (observer) observer.disconnect()
   if (searchTimer) clearTimeout(searchTimer)
 })
@@ -1075,4 +1147,128 @@ function restoreHistorySql(sql: string) {
     editorStore.updateSql(editorStore.activeTabId, sql)
   }
 }
+
+// Foreign Key Hover Previews Logic
+import { invoke } from '@tauri-apps/api/core'
+import { useConnectionStore } from '../stores/connection'
+
+const connStore = useConnectionStore()
+
+const foreignKeysCache = ref<Record<string, { column_name: string; referenced_table: string; referenced_column: string }[]>>({})
+
+const activeFkPreview = ref<{
+  rowIndex: number
+  colName: string
+  colValue: string
+  referencedTable: string
+  referencedColumn: string
+  loading: boolean
+  data: any | null
+  error: string | null
+  x: number
+  y: number
+} | null>(null)
+
+async function loadForeignKeysForColumns() {
+  const tablesToLoad = new Set<string>()
+  for (const col of resultStore.columns) {
+    if (col.orgTable) {
+      tablesToLoad.add(col.orgTable)
+    }
+  }
+
+  for (const table of tablesToLoad) {
+    if (foreignKeysCache.value[table]) continue
+    try {
+      const fks = await invoke<any[]>('fetch_table_foreign_keys', {
+        table,
+        id: connStore.activeId,
+        database: connStore.activeConnection?.database || null
+      })
+      foreignKeysCache.value[table] = fks
+    } catch (e) {
+      console.error(`Failed to load foreign keys for table ${table}:`, e)
+      foreignKeysCache.value[table] = []
+    }
+  }
+}
+
+function getColumnForeignKey(col: Column) {
+  if (!col.orgTable) return null
+  const fks = foreignKeysCache.value[col.orgTable]
+  if (!fks) return null
+  const colName = col.orgName || col.name
+  return fks.find(fk => fk.column_name.toLowerCase() === colName.toLowerCase()) || null
+}
+
+async function showFkPreview(event: MouseEvent, col: Column, rowIndex: number, cellValue: CellValue) {
+  if (cellValue === null || cellValue === undefined) return
+  const fk = getColumnForeignKey(col)
+  if (!fk) return
+
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  
+  activeFkPreview.value = {
+    rowIndex,
+    colName: col.name,
+    colValue: String(cellValue),
+    referencedTable: fk.referenced_table,
+    referencedColumn: fk.referenced_column,
+    loading: true,
+    data: null,
+    error: null,
+    x: rect.left,
+    y: rect.bottom + window.scrollY,
+  }
+
+  try {
+    const data = await invoke<any>('fetch_referenced_row', {
+      table: fk.referenced_table,
+      column: fk.referenced_column,
+      value: String(cellValue),
+      id: connStore.activeId,
+      database: connStore.activeConnection?.database || null
+    })
+    if (activeFkPreview.value && activeFkPreview.value.rowIndex === rowIndex && activeFkPreview.value.colName === col.name) {
+      activeFkPreview.value.data = data
+      activeFkPreview.value.loading = false
+    }
+  } catch (e) {
+    if (activeFkPreview.value && activeFkPreview.value.rowIndex === rowIndex && activeFkPreview.value.colName === col.name) {
+      activeFkPreview.value.error = String(e)
+      activeFkPreview.value.loading = false
+    }
+  }
+}
+
+function closeFkPreview() {
+  activeFkPreview.value = null
+}
+
+function handleGlobalFkClick(e: MouseEvent) {
+  if (!activeFkPreview.value) return
+  const popover = document.getElementById('fk-preview-popover')
+  if (popover && !popover.contains(e.target as Node) && !(e.target as HTMLElement).closest('button[title="Preview referenced record"]')) {
+    closeFkPreview()
+  }
+}
+
+function handleGlobalFkKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    closeFkPreview()
+  }
+}
+
+watch(() => resultStore.status, (newStatus) => {
+  if (newStatus === 'success') {
+    loadForeignKeysForColumns()
+  }
+})
+
+function focus() {
+  const el = document.getElementById('result-grid-table')
+  el?.focus()
+}
+
+defineExpose({ focus })
 </script>

@@ -1679,6 +1679,155 @@ pub async fn fetch_table_details(
     })
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ForeignKey {
+    pub column_name: String,
+    pub referenced_table: String,
+    pub referenced_column: String,
+}
+
+#[tauri::command]
+pub async fn fetch_table_foreign_keys(
+    table: String,
+    id: Option<String>,
+    database: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ForeignKey>, String> {
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+
+    let (schema_opt, table_name) = match table.split_once('.') {
+        Some((s, t)) => (Some(s.to_string()), t.to_string()),
+        None => (database.clone(), table.clone()),
+    };
+
+    let schema_param = schema_opt.as_deref().unwrap_or("");
+
+    let fks = conn
+        .exec_map(
+            r#"
+        SELECT column_name, referenced_table_name, referenced_column_name
+        FROM information_schema.key_column_usage
+        WHERE (
+            (:schema = '' AND table_schema = DATABASE()) OR
+            (:schema != '' AND table_schema = :schema)
+        ) AND table_name = :table
+          AND referenced_table_name IS NOT NULL
+        ORDER BY ordinal_position
+        "#,
+            params! { "schema" => schema_param, "table" => &table_name },
+            |(column_name, referenced_table, referenced_column): (String, String, String)| ForeignKey {
+                column_name,
+                referenced_table,
+                referenced_column,
+            },
+        )
+        .await
+        .map_err(|e| safe_error(&e))?;
+
+    Ok(fks)
+}
+
+#[tauri::command]
+pub async fn fetch_referenced_row(
+    table: String,
+    column: String,
+    value: String,
+    id: Option<String>,
+    database: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Option<Value>, String> {
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+
+    if !table.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.') {
+        return Err("Invalid table name identifier".to_string());
+    }
+    if !column.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err("Invalid column name identifier".to_string());
+    }
+
+    let (schema_opt, table_name) = match table.split_once('.') {
+        Some((s, t)) => (Some(s.to_string()), t.to_string()),
+        None => (database.clone(), table.clone()),
+    };
+
+    let full_table_identifier = match schema_opt {
+        Some(s) => {
+            if !s.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                return Err("Invalid schema name identifier".to_string());
+            }
+            format!("{}.{}", quote_identifier(&s), quote_identifier(&table_name))
+        }
+        None => quote_identifier(&table_name),
+    };
+
+    let sql = format!(
+        "SELECT * FROM {} WHERE {} = :val LIMIT 1",
+        full_table_identifier, quote_identifier(&column)
+    );
+
+    let mut result = conn
+        .exec_iter(sql, params! { "val" => &value })
+        .await
+        .map_err(|e| safe_error(&e))?;
+
+    let mut columns = Vec::new();
+    let mut column_types = Vec::new();
+    for col in result.columns_ref() {
+        columns.push(col.name_str().into_owned());
+        let type_str = format!("{:?}", col.column_type());
+        column_types.push(map_column_type(&type_str));
+    }
+
+    let mut mapped_row = None;
+    if let Some(row) = result.next().await.map_err(|e| safe_error(&e))? {
+        let mut map = serde_json::Map::new();
+        for (i, col_name) in columns.iter().enumerate() {
+            let col_type = &column_types[i];
+            let val = row.get_opt::<mysql_async::Value, _>(i);
+            let json_val = match val {
+                Some(Ok(v)) => match v {
+                    mysql_async::Value::NULL => Value::Null,
+                    mysql_async::Value::Bytes(b) => {
+                        if col_type == "binary" {
+                            Value::String(format!("[binary {} bytes]", b.len()))
+                        } else {
+                            Value::String(String::from_utf8_lossy(&b).to_string())
+                        }
+                    }
+                    mysql_async::Value::Int(i) => json!(i),
+                    mysql_async::Value::UInt(u) => json!(u),
+                    mysql_async::Value::Float(f) => json!(f),
+                    mysql_async::Value::Double(d) => json!(d),
+                    mysql_async::Value::Date(y, m, d, h, mi, s, micro) => {
+                        Value::String(format!(
+                            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
+                            y, m, d, h, mi, s, micro
+                        ))
+                    }
+                    mysql_async::Value::Time(neg, d, h, m, s, micro) => {
+                        let sign = if neg { "-" } else { "" };
+                        Value::String(format!(
+                            "{}{:02}:{:02}:{:02}.{:06}",
+                            sign,
+                            d * 24 + h as u32,
+                            m,
+                            s,
+                            micro
+                        ))
+                    }
+                },
+                _ => Value::Null,
+            };
+            map.insert(col_name.clone(), json_val);
+        }
+        mapped_row = Some(Value::Object(map));
+    }
+
+    Ok(mapped_row)
+}
+
 #[tauri::command]
 pub async fn get_history(app: tauri::AppHandle) -> Result<Vec<QueryHistoryItem>, String> {
     Ok(load_history_from_disk(&app))
