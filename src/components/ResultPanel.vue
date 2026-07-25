@@ -1301,10 +1301,12 @@ function getCellSelectionClass(rowIndex: number, colIndex: number) {
     return 'ring-2 ring-primary ring-inset bg-primary/15'
   }
   
-  return 'bg-primary/10 border-primary/30'
+  return 'bg-primary/10'
 }
 
 function handleTableKeydown(e: KeyboardEvent) {
+  if (resultStore.editingCell) return
+
   const meta = navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? e.metaKey : e.ctrlKey
   
   // Copy selected range (TSV formatted)
@@ -1387,7 +1389,7 @@ function copySelectedRange() {
 
 function scrollToActiveCell() {
   nextTick(() => {
-    const activeEl = document.querySelector('.ring-primary')
+    const activeEl = document.querySelector('#result-grid-table .ring-primary')
     activeEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   })
 }
