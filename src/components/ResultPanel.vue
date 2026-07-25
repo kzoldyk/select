@@ -221,15 +221,15 @@
                 </TableCell>
                 <TableCell class="text-center py-2 px-3 w-[48px] border-r border-border/20 text-[10px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
                 <TableCell
-                  v-for="col in resultStore.columns"
+                  v-for="(col, colIndex) in resultStore.columns"
                   :key="col.name"
                   class="py-2 px-4 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/30 select-none transition-all duration-75"
                   :class="[
                     getCellClass(item.row[col.name], col),
                     isNumericColumn(col) ? 'text-right tabular-nums' : '',
-                    activeCell?.rowIndex === item.index && activeCell?.colName === col.name ? 'ring-2 ring-primary ring-inset bg-primary/10' : ''
+                    getCellSelectionClass(item.index, colIndex)
                   ]"
-                  @click="selectCell(item.index, col.name)"
+                  @click="selectCell(item.index, col.name, $event)"
                   @dblclick="startEditCell(item.index, col.name, $event)"
                   @contextmenu.prevent="showContextMenu($event, item.row, item.index, col.name)"
                 >
@@ -1273,63 +1273,116 @@ function focus() {
   el?.focus()
 }
 
-const activeCell = ref<{ rowIndex: number; colName: string } | null>(null)
+const anchorCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
+const focusCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
 
-function selectCell(rowIndex: number, colName: string) {
-  activeCell.value = { rowIndex, colName }
+function selectCell(rowIndex: number, colName: string, event?: MouseEvent) {
+  const colIndex = resultStore.columns.findIndex(c => c.name === colName)
+  if (event?.shiftKey && anchorCell.value) {
+    focusCell.value = { rowIndex, colIndex }
+  } else {
+    anchorCell.value = { rowIndex, colIndex }
+    focusCell.value = { rowIndex, colIndex }
+  }
+}
+
+function getCellSelectionClass(rowIndex: number, colIndex: number) {
+  if (!anchorCell.value || !focusCell.value) return ''
+  
+  const minRow = Math.min(anchorCell.value.rowIndex, focusCell.value.rowIndex)
+  const maxRow = Math.max(anchorCell.value.rowIndex, focusCell.value.rowIndex)
+  const minCol = Math.min(anchorCell.value.colIndex, focusCell.value.colIndex)
+  const maxCol = Math.max(anchorCell.value.colIndex, focusCell.value.colIndex)
+  
+  const inRange = rowIndex >= minRow && rowIndex <= maxRow && colIndex >= minCol && colIndex <= maxCol
+  if (!inRange) return ''
+  
+  if (focusCell.value.rowIndex === rowIndex && focusCell.value.colIndex === colIndex) {
+    return 'ring-2 ring-primary ring-inset bg-primary/15'
+  }
+  
+  return 'bg-primary/10 border-primary/30'
 }
 
 function handleTableKeydown(e: KeyboardEvent) {
   const meta = navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? e.metaKey : e.ctrlKey
   
+  // Copy selected range (TSV formatted)
   if (meta && e.key.toLowerCase() === 'c') {
-    if (activeCell.value) {
-      const row = resultStore.rows[activeCell.value.rowIndex]
-      const val = row?.[activeCell.value.colName]
-      if (val !== undefined && val !== null) {
-        e.preventDefault()
-        navigator.clipboard.writeText(String(val))
-        toast.success(`Copied cell value to clipboard`)
-      }
+    if (anchorCell.value && focusCell.value) {
+      e.preventDefault()
+      copySelectedRange()
     }
     return
   }
 
-  if (activeCell.value) {
-    const { rowIndex, colName } = activeCell.value
-    const colIndex = resultStore.columns.findIndex(c => c.name === colName)
+  if (focusCell.value && anchorCell.value) {
+    const { rowIndex, colIndex } = focusCell.value
+    const shift = e.shiftKey
+    
+    let nextRow = rowIndex
+    let nextCol = colIndex
     
     if (e.key === 'ArrowUp') {
       if (rowIndex > 0) {
         e.preventDefault()
-        activeCell.value = { rowIndex: rowIndex - 1, colName }
-        scrollToActiveCell()
+        nextRow = rowIndex - 1
       }
     } else if (e.key === 'ArrowDown') {
       if (rowIndex < resultStore.rows.length - 1) {
         e.preventDefault()
-        activeCell.value = { rowIndex: rowIndex + 1, colName }
-        scrollToActiveCell()
+        nextRow = rowIndex + 1
       }
     } else if (e.key === 'ArrowLeft') {
       if (colIndex > 0) {
         e.preventDefault()
-        const prevColName = resultStore.columns[colIndex - 1].name
-        activeCell.value = { rowIndex, colName: prevColName }
-        scrollToActiveCell()
+        nextCol = colIndex - 1
       }
     } else if (e.key === 'ArrowRight') {
       if (colIndex < resultStore.columns.length - 1) {
         e.preventDefault()
-        const nextColName = resultStore.columns[colIndex + 1].name
-        activeCell.value = { rowIndex, colName: nextColName }
-        scrollToActiveCell()
+        nextCol = colIndex + 1
       }
     } else if (e.key === 'Enter') {
       e.preventDefault()
+      const colName = resultStore.columns[colIndex].name
       startEditCell(rowIndex, colName, e)
+      return
+    } else {
+      return
     }
+    
+    focusCell.value = { rowIndex: nextRow, colIndex: nextCol }
+    if (!shift) {
+      anchorCell.value = { rowIndex: nextRow, colIndex: nextCol }
+    }
+    scrollToActiveCell()
   }
+}
+
+function copySelectedRange() {
+  if (!anchorCell.value || !focusCell.value) return
+  
+  const minRow = Math.min(anchorCell.value.rowIndex, focusCell.value.rowIndex)
+  const maxRow = Math.max(anchorCell.value.rowIndex, focusCell.value.rowIndex)
+  const minCol = Math.min(anchorCell.value.colIndex, focusCell.value.colIndex)
+  const maxCol = Math.max(anchorCell.value.colIndex, focusCell.value.colIndex)
+  
+  const lines: string[] = []
+  for (let r = minRow; r <= maxRow; r++) {
+    const row = resultStore.rows[r]
+    const rowValues: string[] = []
+    for (let c = minCol; c <= maxCol; c++) {
+      const colName = resultStore.columns[c].name
+      const val = row?.[colName]
+      rowValues.push(val === null || val === undefined ? '' : String(val))
+    }
+    lines.push(rowValues.join('\t'))
+  }
+  
+  const text = lines.join('\n')
+  navigator.clipboard.writeText(text)
+  toast.success(`Copied selection (${maxRow - minRow + 1}x${maxCol - minCol + 1}) to clipboard`)
 }
 
 function scrollToActiveCell() {
@@ -1340,7 +1393,8 @@ function scrollToActiveCell() {
 }
 
 watch(() => resultStore.rows, () => {
-  activeCell.value = null
+  anchorCell.value = null
+  focusCell.value = null
 })
 
 defineExpose({ focus })
