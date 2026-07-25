@@ -80,6 +80,16 @@
             <div class="w-px h-4 bg-border"></div>
             <button
               class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              :class="{ 'text-primary bg-primary/10': showSearch }"
+              :disabled="!resultStore.columns.length"
+              @click="toggleSearch"
+              title="Search Results"
+            >
+              <Search class="w-3.5 h-3.5" />
+            </button>
+            <div class="w-px h-4 bg-border"></div>
+            <button
+              class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
               :class="{ 'text-primary bg-primary/10': showFilters }"
               :disabled="!detectedTable"
               @click="showFilters = !showFilters"
@@ -100,7 +110,7 @@
       </div>
 
       <TabsContent value="table" class="flex-1 flex flex-col overflow-hidden min-h-0 p-0 m-0">
-        <div class="flex items-center h-7 px-2 bg-muted/20 border-b border-border gap-1.5 flex-shrink-0">
+        <div v-if="showSearch" class="flex items-center h-7 px-2 bg-muted/20 border-b border-border gap-1.5 flex-shrink-0">
 
           <Input
             class="h-6 w-[180px] text-[11px]"
@@ -435,7 +445,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Download } from '@lucide/vue'
+import { Download, Search } from '@lucide/vue'
 import { useResultStore, type ResultView, type Column, type CellValue, type ResultRow } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
 import { useSchemaStore } from '../stores/schema'
@@ -451,6 +461,7 @@ const sentinelRef = ref<HTMLDivElement | null>(null)
 const editInputRef = ref<HTMLInputElement | null>(null)
 const showFullError = ref(false)
 const showFilters = ref(false)
+const showSearch = ref(false)
 const filters = reactive<Record<string, string>>({})
 const showUpdateModal = ref(false)
 const pendingUpdateSql = ref('')
@@ -863,6 +874,14 @@ const searchQuery = ref('')
 function onSearch() {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => { searchQuery.value = rawSearch.value }, 150)
+}
+
+function toggleSearch() {
+  showSearch.value = !showSearch.value
+  if (!showSearch.value) {
+    rawSearch.value = ''
+    searchQuery.value = ''
+  }
 }
 
 
