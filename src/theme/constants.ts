@@ -92,7 +92,7 @@ export function defineTheme(options: {
     info: options.colors.info ?? '#3B82F6',
 
     // Selection
-    selection: options.colors.selection ?? (isDarkCategory ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'),
+    selection: options.colors.selection ?? `${options.colors.primary}35`,
 
     // Scrollbars
     scrollbar: options.colors.scrollbar ?? (isDarkCategory ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'),

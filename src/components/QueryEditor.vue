@@ -1,54 +1,30 @@
 <template>
   <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1">
-    <TabBar />
+    <TabBar @format="formatSql" @explain="$emit('explain')" />
 
-    <div class="flex items-center justify-between h-9 px-3 bg-background border-b border-border flex-shrink-0">
-      <div class="flex gap-1">
-        <Button variant="ghost" size="sm" class="text-[11px] h-6 px-2.5 gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors" @click="formatSql">
-          <FileText class="w-3.5 h-3.5 opacity-70" /> Format
-        </Button>
-        <Button variant="ghost" size="sm" class="text-[11px] h-6 px-2.5 gap-1.5 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors" @click="$emit('explain')">
-          <Search class="w-3.5 h-3.5 opacity-70" /> Explain
-        </Button>
-      </div>
-      <div class="flex items-center gap-4 opacity-50">
-        <div class="flex items-center gap-1">
-          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⌘R</Kbd>
-          <span class="text-[10px] font-medium text-muted-foreground">Run</span>
-        </div>
-        <div class="flex items-center gap-1">
-          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⌘S</Kbd>
-          <span class="text-[10px] font-medium text-muted-foreground">Save</span>
-        </div>
-        <div class="flex items-center gap-1">
-          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⌘/</Kbd>
-          <span class="text-[10px] font-medium text-muted-foreground">Comment</span>
-        </div>
-        <div class="flex items-center gap-1">
-          <Kbd class="text-[9px] bg-transparent border-none shadow-none px-0.5">⇧⌘F</Kbd>
-          <span class="text-[10px] font-medium text-muted-foreground">Format</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="flex-1 overflow-hidden" ref="editorContainer"></div>
+    <div
+      class="flex-1 overflow-hidden"
+      ref="editorContainer"
+      :style="{ '--editor-font-size': `${editorStore.fontSize}px` }"
+      @wheel="onWheel"
+    ></div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, shallowRef, nextTick } from 'vue'
-import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
+import {
+  EditorView, keymap, lineNumbers, highlightActiveLine,
+  drawSelection, dropCursor, rectangularSelection
+} from '@codemirror/view'
+import { EditorState, EditorSelection } from '@codemirror/state'
 import { sql, MySQL, StandardSQL } from '@codemirror/lang-sql'
-import { defaultKeymap, historyKeymap, history, indentWithTab } from '@codemirror/commands'
+import { defaultKeymap, historyKeymap, history, indentWithTab, toggleComment } from '@codemirror/commands'
 import { syntaxHighlighting } from '@codemirror/language'
 import { autocompletion, closeBrackets, startCompletion } from '@codemirror/autocomplete'
 import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { dynamicTheme, dynamicHighlight } from '../editor/sqlTheme'
-import { Button } from '@/components/ui/button'
-import { Kbd } from '@/components/ui/kbd'
-import { FileText, Search } from '@lucide/vue'
 import { format } from 'sql-formatter'
 import { useEditorStore } from '../stores/editor'
 import { useConnectionStore } from '../stores/connection'
@@ -64,6 +40,20 @@ const schemaStore = useSchemaStore()
 const uiStore = useUiStore()
 const editorContainer = ref<HTMLDivElement | null>(null)
 const view = shallowRef<EditorView | null>(null)
+
+const tabStates = new Map<string, EditorState>()
+const currentActiveTabId = ref<string | null>(null)
+
+function onWheel(e: WheelEvent) {
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    if (e.deltaY < 0) {
+      editorStore.zoomIn()
+    } else if (e.deltaY > 0) {
+      editorStore.zoomOut()
+    }
+  }
+}
 
 function collectColumns(): { name: string; table: string; type: string }[] {
   const result: { name: string; table: string; type: string }[] = []
@@ -106,9 +96,8 @@ function getSqlAutocomplete() {
 
         if (ctx.afterDot) {
           const lowerPrefix = ctx.dotPrefix.toLowerCase()
-          // Check if the prefix is a database
           const isDatabase = schemaStore.databases.some(d => d.toLowerCase() === lowerPrefix)
-          
+
           if (isDatabase) {
             const tables = await schemaStore.fetchTablesForSchema(ctx.dotPrefix)
             let matched = tables.filter(t => t.toLowerCase().startsWith(q))
@@ -145,14 +134,13 @@ function getSqlAutocomplete() {
         const allCols = collectColumns()
         const tables = [...schemaStore.tables, ...schemaStore.views].map(item => item.name)
 
-        const options: { label: string; type: string; detail: string; apply?: string }[] = []
+        const options: { label: string; type: string; detail: string; apply?: string | ((view: EditorView, completion: any, from: number, to: number) => void) }[] = []
 
-        // Push schemas as namespaces
         options.push(...schemaStore.databases.filter(d => d.toLowerCase().startsWith(q)).map(d => ({
-          label: d, 
-          type: 'namespace', 
+          label: d,
+          type: 'namespace',
           detail: 'schema',
-          apply: (view, completion, from, to) => {
+          apply: (view: EditorView, completion: any, from: number, to: number) => {
             view.dispatch({
               changes: { from, to, insert: `${d}.` },
             })
@@ -196,14 +184,14 @@ function getStatementAtCursor(sql: string, cursorPos: number): string {
   let inBacktick = false
   let inLineComment = false
   let inBlockComment = false
-  
+
   let lastSemi = 0
   const statements: { start: number, end: number, text: string }[] = []
-  
+
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i]
     const nextCh = sql[i + 1] || ''
-    
+
     if (inLineComment) {
       if (ch === '\n') inLineComment = false
       continue
@@ -233,11 +221,11 @@ function getStatementAtCursor(sql: string, cursorPos: number): string {
       lastSemi = i + 1
     }
   }
-  
+
   if (lastSemi < sql.length) {
     statements.push({ start: lastSemi, end: sql.length, text: sql.substring(lastSemi) })
   }
-  
+
   const cleaned: { start: number, end: number, text: string }[] = []
   for (const s of statements) {
     const match = s.text.match(/^(\s*)([\s\S]*?)(\s*)$/)
@@ -248,9 +236,9 @@ function getStatementAtCursor(sql: string, cursorPos: number): string {
       text: match[2]
     })
   }
-  
+
   if (cleaned.length === 0) return ''
-  
+
   for (let i = 0; i < cleaned.length; i++) {
     const s = cleaned[i]
     if (cursorPos >= s.start && cursorPos <= s.end) {
@@ -267,14 +255,14 @@ function getStatementAtCursor(sql: string, cursorPos: number): string {
       }
     }
   }
-  
+
   if (cursorPos >= cleaned[cleaned.length - 1].end) {
     return cleaned[cleaned.length - 1].text
   }
   if (cursorPos <= cleaned[0].start) {
     return cleaned[0].text
   }
-  
+
   return ''
 }
 
@@ -296,6 +284,9 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
 
   return [
     history(),
+    drawSelection(),
+    dropCursor(),
+    rectangularSelection(),
     sql({ dialect }),
     syntaxHighlighting(dynamicHighlight),
     dynamicTheme,
@@ -311,33 +302,92 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
       ...historyKeymap,
       ...searchKeymap,
       indentWithTab,
+      { key: 'Mod-/', run: toggleComment },
+      { key: 'Mod-=', run: () => { editorStore.zoomIn(); return true } },
+      { key: 'Mod-+', run: () => { editorStore.zoomIn(); return true } },
+      { key: 'Mod--', run: () => { editorStore.zoomOut(); return true } },
+      { key: 'Mod-0', run: () => { editorStore.resetZoom(); return true } },
       { key: 'Mod-s', run: () => { if (editorStore.activeTabId) { editorStore.saveTab(editorStore.activeTabId); return true } return false } },
     ]),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) { onUpdate(update.state.doc.toString()) }
-      if (update.selectionSet) {
-        const sel = update.state.selection.main.head
+      if (update.selectionSet || update.docChanged) {
+        const mainSel = update.state.selection.main
+        const sel = mainSel.head
         const line = update.state.doc.lineAt(sel)
-        editorStore.updateCursor(editorStore.activeTabId, line.number, sel - line.from + 1)
+        const selectedLen = Math.abs(mainSel.to - mainSel.from)
+        if (editorStore.activeTabId) {
+          editorStore.updateCursorAndSelection(
+            editorStore.activeTabId,
+            line.number,
+            sel - line.from + 1,
+            mainSel.anchor,
+            mainSel.head,
+            selectedLen
+          )
+        }
       }
     }),
   ]
 }
 
-function mountEditor() {
-  if (!editorContainer.value) return
-  view.value?.destroy()
-  const activeTab = editorStore.activeTab
-  const initialSql = activeTab?.sql ?? ''
+function createTabState(sqlContent: string, anchor?: number, head?: number): EditorState {
+  let selection: EditorSelection | undefined
+  if (anchor !== undefined && head !== undefined && anchor <= sqlContent.length && head <= sqlContent.length) {
+    selection = EditorSelection.single(anchor, head)
+  }
 
-  const state = EditorState.create({
-    doc: initialSql,
+  return EditorState.create({
+    doc: sqlContent,
+    selection,
     extensions: buildExtensions(
       (sql) => { if (editorStore.activeTabId) editorStore.updateSql(editorStore.activeTabId, sql) },
       (sql?: string) => emit('run', sql)
     ),
   })
-  view.value = new EditorView({ state, parent: editorContainer.value })
+}
+
+function syncEditorState() {
+  if (!editorContainer.value) return
+
+  const activeTabId = editorStore.activeTabId
+  const activeTab = editorStore.activeTab
+  if (!activeTab || !activeTabId) return
+
+  // Save state of current active tab before switching
+  if (view.value && currentActiveTabId.value && currentActiveTabId.value !== activeTabId) {
+    tabStates.set(currentActiveTabId.value, view.value.state)
+  }
+
+  if (!view.value) {
+    let state = tabStates.get(activeTabId)
+    if (!state) {
+      state = createTabState(activeTab.sql, activeTab.selectionAnchor, activeTab.selectionHead)
+      tabStates.set(activeTabId, state)
+    }
+    view.value = new EditorView({ state, parent: editorContainer.value })
+    currentActiveTabId.value = activeTabId
+    return
+  }
+
+  if (currentActiveTabId.value !== activeTabId) {
+    currentActiveTabId.value = activeTabId
+    let targetState = tabStates.get(activeTabId)
+    if (!targetState) {
+      targetState = createTabState(activeTab.sql, activeTab.selectionAnchor, activeTab.selectionHead)
+      tabStates.set(activeTabId, targetState)
+    }
+    view.value.setState(targetState)
+    view.value.focus()
+  } else {
+    // Check if doc was modified externally
+    const docStr = view.value.state.doc.toString()
+    if (docStr !== activeTab.sql) {
+      view.value.dispatch({
+        changes: { from: 0, to: docStr.length, insert: activeTab.sql }
+      })
+    }
+  }
 }
 
 function formatSql() {
@@ -366,17 +416,36 @@ function getCurrentSql(): string {
 }
 
 watch(() => editorStore.activeTabId, () => {
-  nextTick(mountEditor)
+  nextTick(syncEditorState)
 })
 
-onMounted(mountEditor)
-onUnmounted(() => view.value?.destroy())
+watch(() => editorStore.tabs.map(t => t.id), (validIds) => {
+  const validSet = new Set(validIds)
+  for (const id of tabStates.keys()) {
+    if (!validSet.has(id)) {
+      tabStates.delete(id)
+    }
+  }
+})
+
+onMounted(() => {
+  editorStore.loadFontSize()
+  syncEditorState()
+})
+
+onUnmounted(() => {
+  if (view.value && currentActiveTabId.value) {
+    tabStates.set(currentActiveTabId.value, view.value.state)
+  }
+  view.value?.destroy()
+  view.value = null
+})
 
 defineExpose({ formatSql, getCurrentSql })
 </script>
 
 <style scoped>
-:deep(.cm-editor) { height: 100%; }
+:deep(.cm-editor) { height: 100%; font-size: var(--editor-font-size, 13px); }
 :deep(.cm-scroller) { height: 100%; overflow: auto; }
-:deep(.cm-content) { font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+:deep(.cm-content) { font-family: 'JetBrains Mono', monospace; }
 </style>

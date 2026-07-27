@@ -30,8 +30,30 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       target instanceof HTMLSelectElement ||
       (target?.isContentEditable && !target?.closest('.cm-editor'))
 
+    const isZoomShortcut = meta && (key === '=' || key === '+' || key === '-' || key === '0')
     const isFocusShortcut = meta && !shift && !alt && (key === '1' || key === '2' || key === '3')
-    if (isTyping && key !== 'Escape' && !isFocusShortcut) return
+    if (isTyping && key !== 'Escape' && !isFocusShortcut && !isZoomShortcut) return
+
+    // ⌘+ or ⌘= — Zoom In
+    if (meta && (key === '=' || key === '+')) {
+      e.preventDefault()
+      editor.zoomIn()
+      return
+    }
+
+    // ⌘- — Zoom Out
+    if (meta && key === '-') {
+      e.preventDefault()
+      editor.zoomOut()
+      return
+    }
+
+    // ⌘0 — Reset Zoom
+    if (meta && key === '0') {
+      e.preventDefault()
+      editor.resetZoom()
+      return
+    }
 
     // ⌘⌥T — Toggle theme gallery
     if (meta && alt && (key === 't' || key === 'T')) {

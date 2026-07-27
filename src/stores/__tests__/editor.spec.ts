@@ -143,4 +143,37 @@ describe("editor store", () => {
       expect(store.tabs[0].savedQueryId).toBeNull();
     });
   });
+
+  describe("zoom and selection management", () => {
+    it("zoomIn, zoomOut, resetZoom and setFontSize adjust font size within bounds", () => {
+      const store = useEditorStore();
+      expect(store.fontSize).toBe(13);
+
+      store.zoomIn();
+      expect(store.fontSize).toBe(14);
+
+      store.zoomOut();
+      expect(store.fontSize).toBe(13);
+
+      store.setFontSize(40);
+      expect(store.fontSize).toBe(32);
+
+      store.setFontSize(5);
+      expect(store.fontSize).toBe(9);
+
+      store.resetZoom();
+      expect(store.fontSize).toBe(13);
+    });
+
+    it("updateCursorAndSelection updates line, col, selection bounds and character count", () => {
+      const store = useEditorStore();
+      store.updateCursorAndSelection("tab-1", 4, 15, 10, 25, 15);
+      const tab = store.tabs[0];
+      expect(tab.cursorLine).toBe(4);
+      expect(tab.cursorCol).toBe(15);
+      expect(tab.selectionAnchor).toBe(10);
+      expect(tab.selectionHead).toBe(25);
+      expect(tab.selectedTextCount).toBe(15);
+    });
+  });
 });

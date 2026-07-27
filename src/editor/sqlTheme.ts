@@ -50,28 +50,31 @@ export const dynamicTheme = EditorView.theme({
     backgroundColor: 'var(--background)',
     color: 'var(--foreground)',
     height: '100%',
-    fontSize: '12px',
+    fontSize: 'var(--editor-font-size, 13px)',
     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
   },
   '.cm-scroller': {
     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-    lineHeight: '18px',
+    lineHeight: '1.5',
     overflow: 'auto',
   },
   '.cm-content': {
-    caretColor: 'var(--foreground)',
+    caretColor: 'var(--editor-cursor, var(--primary, var(--foreground)))',
     padding: '10px 0',
   },
+  '.cm-line': {
+    lineHeight: '1.5',
+  },
   '.cm-cursor': {
-    borderLeftColor: 'var(--foreground)',
+    borderLeftColor: 'var(--editor-cursor, var(--primary, var(--foreground)))',
     borderLeftWidth: '2px',
   },
   '.cm-activeLine': {
-    backgroundColor: 'var(--accent)',
+    backgroundColor: 'var(--editor-active-line, var(--accent))',
     borderLeft: '2px solid var(--ring)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'var(--accent)',
+    backgroundColor: 'var(--editor-active-line, var(--accent))',
   },
   '.cm-gutters': {
     backgroundColor: 'var(--background)',
@@ -84,19 +87,20 @@ export const dynamicTheme = EditorView.theme({
     minWidth: '36px',
   },
   '.cm-lineNumbers .cm-gutterElement': {
-    padding: '0 4px 0 0',
+    padding: '0 8px 0 0',
     textAlign: 'right',
-    fontSize: '11px',
-    lineHeight: '18px',
+    fontSize: '0.85em',
+    lineHeight: '1.5',
     color: 'var(--muted-foreground)',
   },
   '.cm-selectionBackground': {
-    backgroundColor: 'var(--selection) !important',
-    opacity: '0.3',
+    backgroundColor: 'var(--editor-selection, var(--selection)) !important',
   },
   '&.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'var(--selection)',
-    opacity: '0.45',
+    backgroundColor: 'var(--editor-selection, var(--selection)) !important',
+  },
+  '::selection': {
+    backgroundColor: 'var(--editor-selection, var(--selection)) !important',
   },
   '.cm-selectionMatch': {
     backgroundColor: 'var(--accent)',

@@ -25,7 +25,12 @@
     </div>
 
     <div class="flex items-center gap-3 text-muted-foreground/80 cursor-default">
-      <span class="font-mono text-[10px]">Ln {{ editorStore.activeTab?.cursorLine ?? 1 }}, Col {{ editorStore.activeTab?.cursorCol ?? 1 }}</span>
+      <span class="font-mono text-[10px]">
+        Ln {{ editorStore.activeTab?.cursorLine ?? 1 }}, Col {{ editorStore.activeTab?.cursorCol ?? 1 }}
+        <template v-if="editorStore.activeTab?.selectedTextCount">
+          ({{ editorStore.activeTab.selectedTextCount }} selected)
+        </template>
+      </span>
       <span class="w-px h-3 bg-border"></span>
       <span>UTF-8</span>
       <span class="w-px h-3 bg-border"></span>
