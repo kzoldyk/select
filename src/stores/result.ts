@@ -405,12 +405,13 @@ export const useResultStore = defineStore('result', {
       this.dirtyCells = {}
     },
 
-    async saveEdits(tableName: string, pkColumns: string[]) {
+    async saveEdits(tableName: string, pkColumns: string[]): Promise<boolean> {
       if (pkColumns.length === 0) {
         this.messages.push('Error: No primary key columns found for this table. Edits cannot be saved.')
-        return
+        return false
       }
       this.savingEdits = true
+      let success = true
       try {
         for (const [rowKey, cells] of Object.entries(this.dirtyCells)) {
           const rowIndex = parseInt(rowKey)
@@ -440,11 +441,12 @@ export const useResultStore = defineStore('result', {
         this.dirtyCells = {}
         this.originalRows = JSON.parse(JSON.stringify(this.rows))
         this.messages.push('Edits saved successfully.')
-        this.activeView = 'messages'
       } catch (err) {
         this.messages.push(`Error saving edits: ${String(err)}`)
+        success = false
       }
       this.savingEdits = false
+      return success
     },
 
     async runWriteQuery(_sql: string) {

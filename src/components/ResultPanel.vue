@@ -78,6 +78,25 @@
               <Download class="w-3.5 h-3.5" />
             </button>
             <div class="w-px h-4 bg-border"></div>
+            <div v-if="resultStore.selectedRows.size > 0" class="contents">
+              <button
+                class="inline-flex items-center justify-center h-7 px-2 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary transition-colors text-[10px] font-semibold gap-1 rounded-sm cursor-pointer border-none"
+                @click="copySelectedRowsTsv"
+                title="Copy selected rows as TSV (Excel friendly)"
+              >
+                <Copy class="w-3 h-3" />
+                <span>Copy TSV ({{ resultStore.selectedRows.size }})</span>
+              </button>
+              <button
+                class="inline-flex items-center justify-center h-7 px-2 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary transition-colors text-[10px] font-semibold gap-1 rounded-sm cursor-pointer border-none ml-1"
+                @click="copySelectedRowsJson"
+                title="Copy selected rows as JSON"
+              >
+                <Copy class="w-3 h-3" />
+                <span>JSON</span>
+              </button>
+              <div class="w-px h-4 bg-border mx-1"></div>
+            </div>
             <button
               class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
               :class="{ 'text-primary bg-primary/10': showSearch }"
@@ -528,7 +547,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Download, Search } from '@lucide/vue'
+import { Download, Search, Copy } from '@lucide/vue'
 import { useResultStore, type ResultView, type Column, type CellValue, type ResultRow } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
 import { useSchemaStore } from '../stores/schema'
@@ -737,8 +756,14 @@ async function confirmSaveEdits() {
   const tableName = editableTableName.value
   if (!tableName) return
   
-  await resultStore.saveEdits(tableName, pkColumns.value)
+  const success = await resultStore.saveEdits(tableName, pkColumns.value)
   showUpdateModal.value = false
+  if (success) {
+    toast.success('Edits saved successfully')
+  } else {
+    resultStore.activeView = 'messages'
+    toast.error('Failed to save edits', { description: 'Check the Messages tab for details.' })
+  }
 }
 
 function copyUpdateQueries() {
@@ -950,6 +975,32 @@ function copySelectedJson() {
   const selected = resultStore.rows.filter((_, i) => resultStore.selectedRows.has(String(i)))
   navigator.clipboard.writeText(JSON.stringify(selected.length ? selected : resultStore.rows, null, 2))
   hideContextMenu()
+}
+
+function copySelectedRowsTsv() {
+  const selectedIndices = Array.from(resultStore.selectedRows).map(Number).sort((a, b) => a - b)
+  if (!selectedIndices.length) return
+  
+  const headers = resultStore.columns.map(c => c.name).join('\t')
+  const lines = selectedIndices.map(idx => {
+    const row = resultStore.rows[idx]
+    if (!row) return ''
+    return resultStore.columns.map(c => {
+      const val = row[c.name]
+      return val === null || val === undefined ? '' : String(val)
+    }).join('\t')
+  })
+  
+  const text = [headers, ...lines].join('\n')
+  navigator.clipboard.writeText(text)
+  toast.success(`Copied ${selectedIndices.length} rows to clipboard (TSV)`)
+}
+
+function copySelectedRowsJson() {
+  const selected = resultStore.rows.filter((_, i) => resultStore.selectedRows.has(String(i)))
+  if (!selected.length) return
+  navigator.clipboard.writeText(JSON.stringify(selected, null, 2))
+  toast.success(`Copied ${selected.length} rows to clipboard (JSON)`)
 }
 
 onMounted(() => {
