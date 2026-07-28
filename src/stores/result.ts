@@ -43,6 +43,18 @@ export interface SingleQueryResult {
   error: string | null
 }
 
+export interface PinnedResult {
+  id: string
+  sql: string
+  columns: Column[]
+  rows: ResultRow[]
+  duration: number
+  error: DbError | null
+  messages: string[]
+  lastDatabase: string
+  pinnedAt: string
+}
+
 export interface QueryHistoryItem {
   id: string
   sql: string
@@ -142,6 +154,8 @@ export const useResultStore = defineStore('result', {
     cancelling: false,
     multiResults: [] as SingleQueryResult[],
     activeResultIndex: 0,
+    pinnedResults: [] as PinnedResult[],
+    activeResultTabId: 'current' as string,
   }),
 
   getters: {
@@ -166,6 +180,7 @@ export const useResultStore = defineStore('result', {
     },
 
     async runQuery(_sql: string) {
+      this.activeResultTabId = 'current'
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
         this.status = 'error'
@@ -450,6 +465,7 @@ export const useResultStore = defineStore('result', {
     },
 
     async runWriteQuery(_sql: string) {
+      this.activeResultTabId = 'current'
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
         this.status = 'error'
@@ -490,6 +506,7 @@ export const useResultStore = defineStore('result', {
       this.loadHistory()
     },
     async explainQuery(sql: string) {
+      this.activeResultTabId = 'current'
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
         this.status = 'error'
@@ -566,6 +583,34 @@ export const useResultStore = defineStore('result', {
       this.requestId++
     },
 
+    pinCurrentResult() {
+      if (this.status !== 'success' || !this.columns.length) return
+      const id = `pin-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
+      const pinned: PinnedResult = {
+        id,
+        sql: this.lastSql,
+        columns: JSON.parse(JSON.stringify(this.columns)),
+        rows: JSON.parse(JSON.stringify(this.rows)),
+        duration: this.duration,
+        error: JSON.parse(JSON.stringify(this.error)),
+        messages: [...this.messages],
+        lastDatabase: this.lastDatabase,
+        pinnedAt: new Date().toISOString(),
+      }
+      this.pinnedResults.push(pinned)
+      this.activeResultTabId = id
+    },
+
+    unpinResult(id: string) {
+      const idx = this.pinnedResults.findIndex(p => p.id === id)
+      if (idx >= 0) {
+        this.pinnedResults.splice(idx, 1)
+        if (this.activeResultTabId === id) {
+          this.activeResultTabId = 'current'
+        }
+      }
+    },
+
     async runProcesslist() {
       await this.runQuery('SHOW FULL PROCESSLIST;')
     },
@@ -582,9 +627,20 @@ export const useResultStore = defineStore('result', {
       }
     },
     exportCsv() {
-      const cols = this.multiResults.length > 0 ? this.multiResults[this.activeResultIndex]?.columns ?? this.columns : this.columns
+      let cols = this.columns
+      let rows = this.rows
+      if (this.activeResultTabId !== 'current') {
+        const pin = this.pinnedResults.find(p => p.id === this.activeResultTabId)
+        if (pin) {
+          cols = pin.columns
+          rows = pin.rows
+        }
+      } else if (this.multiResults.length > 0) {
+        cols = this.multiResults[this.activeResultIndex]?.columns ?? this.columns
+        rows = this.multiResults[this.activeResultIndex]?.rows ?? this.rows
+      }
+
       if (!cols.length) return
-      const rows = this.multiResults.length > 0 ? this.multiResults[this.activeResultIndex]?.rows ?? this.rows : this.rows
       const csvEscape = (value: string) => {
         if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`
         return value

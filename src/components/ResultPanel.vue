@@ -1,5 +1,38 @@
 <template>
   <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1">
+    <!-- Result Tabs Bar (Current vs Pinned Results) -->
+    <div v-if="resultStore.pinnedResults.length > 0" class="flex items-center h-8 bg-muted/20 border-b border-border px-2 select-none gap-1 flex-shrink-0">
+      <!-- Current Result Tab -->
+      <button
+        class="inline-flex items-center gap-1.5 px-3 h-6 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer border-none bg-transparent"
+        :class="{ 'bg-background text-foreground shadow-[inset_0_-1.5px_0_0_var(--primary)] font-semibold border-b-transparent': resultStore.activeResultTabId === 'current' }"
+        @click="resultStore.activeResultTabId = 'current'"
+      >
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+        Active Result
+      </button>
+
+      <!-- Pinned Tabs -->
+      <div 
+        v-for="pin in resultStore.pinnedResults" 
+        :key="pin.id"
+        class="group inline-flex items-center gap-1.5 px-3 h-6 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer relative"
+        :class="{ 'bg-background text-foreground shadow-[inset_0_-1.5px_0_0_var(--primary)] font-semibold border-b-transparent': resultStore.activeResultTabId === pin.id }"
+        @click="resultStore.activeResultTabId = pin.id"
+      >
+        <svg class="w-2.5 h-2.5 text-primary flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <span class="max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap" :title="pin.sql">{{ getQueryLabel(pin.sql) }}</span>
+        <!-- Close/Unpin button -->
+        <button
+          class="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent flex-shrink-0 cursor-pointer border-none bg-transparent opacity-0 group-hover:opacity-100 transition-opacity ml-1"
+          title="Unpin"
+          @click.stop="resultStore.unpinResult(pin.id)"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+    </div>
+
     <Tabs v-model="resultStore.activeView" class="flex-1 flex flex-col overflow-hidden min-h-0">
       <div class="flex items-center h-10 bg-background border-b border-border flex-shrink-0 overflow-hidden px-2 justify-between">
         <TabsList class="h-8 bg-muted/40 p-0.5 rounded-md gap-0.5">
@@ -40,13 +73,13 @@
           </template>
 
           <div class="flex items-center px-2 py-1 rounded bg-muted/30 border border-border/50 text-[10px] text-muted-foreground gap-3 shadow-inner">
-            <span v-if="resultStore.status === 'success'" class="whitespace-nowrap font-medium font-mono tabular-nums">
-              {{ resultStore.rowCount }} rows
+            <span v-if="currentStatus === 'success'" class="whitespace-nowrap font-medium font-mono tabular-nums">
+              {{ currentRows.length }} rows
             </span>
-            <span v-if="resultStore.status === 'success'" class="whitespace-nowrap font-medium font-mono tabular-nums text-muted-foreground/70">
-              {{ resultStore.duration }}ms
+            <span v-if="currentStatus === 'success'" class="whitespace-nowrap font-medium font-mono tabular-nums text-muted-foreground/70">
+              {{ currentDuration }}ms
             </span>
-            <span v-else-if="resultStore.status === 'running'" class="text-amber-500 flex items-center gap-2 font-medium">
+            <span v-else-if="currentStatus === 'running'" class="text-amber-500 flex items-center gap-2 font-medium">
               Running&hellip;
               <button
                 class="px-1.5 py-0.5 rounded bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors cursor-pointer"
@@ -58,7 +91,7 @@
 
           <div class="flex items-center border border-border rounded-md bg-background overflow-hidden shadow-sm">
             <select
-              v-if="resultStore.columns.length"
+              v-if="currentColumns.length"
               class="h-7 w-[68px] bg-transparent px-2 text-[11px] font-medium text-foreground outline-none border-r border-border hover:bg-muted/30 transition-colors cursor-pointer"
               :value="resultStore.pageSize"
               @change="onPageSizeChange"
@@ -70,8 +103,18 @@
               <option :value="500">500</option>
             </select>
             <button
+              v-if="currentStatus === 'success' && currentColumns.length"
+              class="inline-flex items-center justify-center h-7 px-2.5 transition-colors border-none bg-transparent cursor-pointer"
+              :class="isCurrentResultPinned ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'"
+              @click="togglePinCurrentResult"
+              :title="isCurrentResultPinned ? 'Unpin this result' : 'Pin this result'"
+            >
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            </button>
+            <div v-if="currentStatus === 'success' && currentColumns.length" class="w-px h-4 bg-border"></div>
+            <button
               class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              :disabled="!resultStore.columns.length"
+              :disabled="!currentColumns.length"
               @click="uiStore.openExport()"
               title="Export"
             >
@@ -100,7 +143,7 @@
             <button
               class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
               :class="{ 'text-primary bg-primary/10': showSearch }"
-              :disabled="!resultStore.columns.length"
+              :disabled="!currentColumns.length"
               @click="toggleSearch"
               title="Search Results"
             >
@@ -144,12 +187,12 @@
             v-model="filterCol"
           >
             <option value="">All columns</option>
-            <option v-for="col in resultStore.columns" :key="col.name" :value="col.name">{{ col.name }}</option>
+            <option v-for="col in currentColumns" :key="col.name" :value="col.name">{{ col.name }}</option>
           </select>
         </div>
 
         <div v-if="showFilters && detectedTable" class="flex items-center gap-1.5 px-2 py-1 bg-muted/10 border-b border-border flex-wrap">
-          <template v-for="col in resultStore.columns" :key="col.name">
+          <template v-for="col in currentColumns" :key="col.name">
             <div class="flex items-center gap-1">
               <label class="text-[9px] text-muted-foreground whitespace-nowrap">{{ col.name }}</label>
               <input
@@ -186,7 +229,7 @@
                 </TableHead>
                 <TableHead class="w-[48px] text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/20 select-none py-2.5 px-3">#</TableHead>
                 <TableHead
-                  v-for="col in resultStore.columns"
+                  v-for="col in currentColumns"
                   :key="col.name"
                   class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-2.5 px-4 border-r border-border/20 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
                   :class="{ 'text-right': isNumericColumn(col) }"
@@ -205,8 +248,8 @@
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow v-if="resultStore.status === 'running' && filteredRows.length === 0" class="hover:bg-transparent">
-                <TableCell :colspan="resultStore.columns.length + (isProcesslist ? 3 : 2)" class="h-32 text-center text-muted-foreground border-b-0">
+              <TableRow v-if="currentStatus === 'running' && filteredRows.length === 0" class="hover:bg-transparent">
+                <TableCell :colspan="currentColumns.length + (isProcesslist ? 3 : 2)" class="h-32 text-center text-muted-foreground border-b-0">
                   <div class="flex flex-col items-center justify-center gap-3">
                     <svg class="w-6 h-6 animate-spin text-primary opacity-80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
@@ -240,7 +283,7 @@
                 </TableCell>
                 <TableCell class="text-center py-2 px-3 w-[48px] border-r border-border/20 text-[10px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
                 <TableCell
-                  v-for="(col, colIndex) in resultStore.columns"
+                  v-for="(col, colIndex) in currentColumns"
                   :key="col.name"
                   class="py-2 px-4 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/30 select-none transition-all duration-75"
                   :class="[
@@ -300,7 +343,7 @@
               </template>
             </TableBody>
           </Table>
-          <div v-if="resultStore.hasMore && resultStore.status === 'success' && !searchQuery.value" ref="sentinelRef" class="flex items-center justify-center py-3 text-xs text-muted-foreground">
+          <div v-if="resultStore.hasMore && currentStatus === 'success' && !searchQuery.value" ref="sentinelRef" class="flex items-center justify-center py-3 text-xs text-muted-foreground">
             <template v-if="resultStore.loadingMore">
               <span class="animate-pulse">Loading more&hellip;</span>
             </template>
@@ -308,7 +351,7 @@
               <span>Scroll for more rows</span>
             </template>
           </div>
-          <div v-if="filteredRows.length === 0 && resultStore.status === 'success'" class="py-6 text-center text-xs text-muted-foreground">
+          <div v-if="filteredRows.length === 0 && currentStatus === 'success'" class="py-6 text-center text-xs text-muted-foreground">
             No results match your filter.
           </div>
         </ScrollArea>
@@ -360,25 +403,25 @@
 
       <TabsContent value="messages" class="flex-1 overflow-auto min-h-0 p-4 m-0">
         <div
-          v-for="(msg, i) in resultStore.messages"
+          v-for="(msg, i) in currentMessages"
           :key="i"
           class="text-xs font-mono mb-1"
-          :class="resultStore.status === 'error' ? 'text-red-500' : 'text-muted-foreground'"
+          :class="currentError ? 'text-red-500' : 'text-muted-foreground'"
         >{{ msg }}</div>
-        <div v-if="resultStore.error" class="text-xs font-mono text-red-500 mb-1">
+        <div v-if="currentError" class="text-xs font-mono text-red-500 mb-1">
           <div class="flex items-center gap-2">
-            <span>[{{ resultStore.error.code }}] {{ truncateError(resultStore.error.message) }}</span>
+            <span>[{{ currentError.code }}] {{ truncateError(currentError.message) }}</span>
             <button
-              v-if="resultStore.error.message.length > 80"
+              v-if="currentError.message.length > 80"
               class="text-[10px] text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer underline"
               @click="showFullError = !showFullError"
             >{{ showFullError ? 'Less' : 'More' }}</button>
           </div>
           <div v-if="showFullError" class="mt-2 p-2 rounded bg-muted/50 border border-border text-[10px] leading-relaxed text-foreground whitespace-pre-wrap break-all">
-            {{ resultStore.error.message }}
+            {{ currentError.message }}
           </div>
         </div>
-        <div v-if="!resultStore.messages.length && !resultStore.error" class="text-xs font-mono text-muted-foreground">
+        <div v-if="!currentMessages.length && !currentError" class="text-xs font-mono text-muted-foreground">
           No messages.
         </div>
       </TabsContent>
@@ -558,6 +601,75 @@ const resultStore = useResultStore()
 const schemaStore = useSchemaStore()
 const uiStore = useUiStore()
 
+const currentColumns = computed(() => {
+  if (resultStore.activeResultTabId === 'current') return resultStore.columns
+  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
+  return pin ? pin.columns : []
+})
+
+const currentRows = computed(() => {
+  if (resultStore.activeResultTabId === 'current') return resultStore.rows
+  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
+  return pin ? pin.rows : []
+})
+
+const currentDuration = computed(() => {
+  if (resultStore.activeResultTabId === 'current') return resultStore.duration
+  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
+  return pin ? pin.duration : 0
+})
+
+const currentStatus = computed(() => {
+  if (resultStore.activeResultTabId === 'current') return resultStore.status
+  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
+  return pin ? 'success' : 'idle'
+})
+
+const currentMessages = computed(() => {
+  if (resultStore.activeResultTabId === 'current') return resultStore.messages
+  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
+  return pin ? pin.messages : []
+})
+
+const currentError = computed(() => {
+  if (resultStore.activeResultTabId === 'current') return resultStore.error
+  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
+  return pin ? pin.error : null
+})
+
+const currentSql = computed(() => {
+  if (resultStore.activeResultTabId === 'current') return resultStore.lastSql
+  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
+  return pin ? pin.sql : ''
+})
+
+const isCurrentResultPinned = computed(() => {
+  if (resultStore.activeResultTabId !== 'current') return true
+  return resultStore.pinnedResults.some(p => p.sql === resultStore.lastSql)
+})
+
+function togglePinCurrentResult() {
+  if (resultStore.activeResultTabId !== 'current') {
+    resultStore.unpinResult(resultStore.activeResultTabId)
+    return
+  }
+  const existingIndex = resultStore.pinnedResults.findIndex(p => p.sql === resultStore.lastSql)
+  if (existingIndex >= 0) {
+    resultStore.unpinResult(resultStore.pinnedResults[existingIndex].id)
+  } else {
+    resultStore.pinCurrentResult()
+  }
+}
+
+function getQueryLabel(sql: string): string {
+  const cleaned = sql.trim().replace(/\s+/g, ' ')
+  const fromMatch = cleaned.match(/FROM\s+([a-zA-Z0-9_\.`"'\-]+)/i)
+  if (fromMatch && fromMatch[1]) {
+    return fromMatch[1].replace(/[`"']/g, '')
+  }
+  return cleaned.length > 20 ? cleaned.slice(0, 18) + '...' : cleaned
+}
+
 const scrollAreaRef = ref<InstanceType<typeof ScrollArea> | null>(null)
 const sentinelRef = ref<HTMLDivElement | null>(null)
 const editInputRef = ref<HTMLInputElement | null>(null)
@@ -569,9 +681,9 @@ const showUpdateModal = ref(false)
 const pendingUpdateSql = ref('')
 let observer: IntersectionObserver | null = null
 
-const detectedTable = computed(() => detectTableFromSql(resultStore.lastSql))
+const detectedTable = computed(() => detectTableFromSql(currentSql.value))
 const isProcesslist = computed(() => {
-  const cols = resultStore.columns.map(c => c.name)
+  const cols = currentColumns.value.map(c => c.name)
   return cols.includes('Id') && cols.includes('Command') && cols.includes('Info')
 })
 
@@ -610,7 +722,7 @@ function detectTableFromSql(sql: string): string | null {
 }
 
 const editableTableName = computed(() => {
-  return detectTableFromSql(resultStore.lastSql)
+  return detectTableFromSql(currentSql.value)
 })
 
 const pkColumns = computed<string[]>(() => {
@@ -630,11 +742,15 @@ const pkColumns = computed<string[]>(() => {
   return pks
 })
 
-const hasDirtyEdits = computed(() => Object.keys(resultStore.dirtyCells).length > 0)
+const hasDirtyEdits = computed(() => {
+  if (resultStore.activeResultTabId !== 'current') return false
+  return Object.keys(resultStore.dirtyCells).length > 0
+})
 
 async function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) {
-  console.log('[startEditCell] Clicked cell. lastSql is:', resultStore.lastSql)
-  const manualDetect = detectTableFromSql(resultStore.lastSql)
+  if (resultStore.activeResultTabId !== 'current') return
+  console.log('[startEditCell] Clicked cell. lastSql is:', currentSql.value)
+  const manualDetect = detectTableFromSql(currentSql.value)
   console.log('[startEditCell] manualDetect returned:', manualDetect)
   
   if (!editableTableName.value) {
@@ -953,7 +1069,7 @@ function copyRowJson() {
 function copyRowInsert() {
   const row = contextMenu.row
   if (!row) { hideContextMenu(); return }
-  const cols = resultStore.columns
+  const cols = currentColumns.value
   const names = cols.map(c => `\`${c.name}\``).join(', ')
   const vals = cols.map(c => {
     const v = row[c.name]
@@ -967,13 +1083,13 @@ function copyRowInsert() {
 }
 
 function copyAllJson() {
-  navigator.clipboard.writeText(JSON.stringify(resultStore.rows, null, 2))
+  navigator.clipboard.writeText(JSON.stringify(currentRows.value, null, 2))
   hideContextMenu()
 }
 
 function copySelectedJson() {
-  const selected = resultStore.rows.filter((_, i) => resultStore.selectedRows.has(String(i)))
-  navigator.clipboard.writeText(JSON.stringify(selected.length ? selected : resultStore.rows, null, 2))
+  const selected = currentRows.value.filter((_, i) => resultStore.selectedRows.has(String(i)))
+  navigator.clipboard.writeText(JSON.stringify(selected.length ? selected : currentRows.value, null, 2))
   hideContextMenu()
 }
 
@@ -981,11 +1097,11 @@ function copySelectedRowsTsv() {
   const selectedIndices = Array.from(resultStore.selectedRows).map(Number).sort((a, b) => a - b)
   if (!selectedIndices.length) return
   
-  const headers = resultStore.columns.map(c => c.name).join('\t')
+  const headers = currentColumns.value.map(c => c.name).join('\t')
   const lines = selectedIndices.map(idx => {
-    const row = resultStore.rows[idx]
+    const row = currentRows.value[idx]
     if (!row) return ''
-    return resultStore.columns.map(c => {
+    return currentColumns.value.map(c => {
       const val = row[c.name]
       return val === null || val === undefined ? '' : String(val)
     }).join('\t')
@@ -997,7 +1113,7 @@ function copySelectedRowsTsv() {
 }
 
 function copySelectedRowsJson() {
-  const selected = resultStore.rows.filter((_, i) => resultStore.selectedRows.has(String(i)))
+  const selected = currentRows.value.filter((_, i) => resultStore.selectedRows.has(String(i)))
   if (!selected.length) return
   navigator.clipboard.writeText(JSON.stringify(selected, null, 2))
   toast.success(`Copied ${selected.length} rows to clipboard (JSON)`)
@@ -1097,11 +1213,11 @@ function getSortAria(col: string) {
 }
 
 const filteredRows = computed<FilteredRow[]>(() => {
-  let rows = resultStore.rows.map((row, index) => ({ row, index, key: String(index) }))
+  let rows = currentRows.value.map((row, index) => ({ row, index, key: String(index) }))
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     rows = rows.filter(item => {
-      const cols = filterCol.value ? [filterCol.value] : resultStore.columns.map(c => c.name)
+      const cols = filterCol.value ? [filterCol.value] : currentColumns.value.map(c => c.name)
       return cols.some(c => String(item.row[c] ?? '').toLowerCase().includes(q))
     })
   }
@@ -1169,7 +1285,7 @@ function escapeHtml(s: string): string {
 }
 
 const highlightedJson = computed(() => {
-  const json = JSON.stringify(resultStore.rows, null, 2)
+  const json = JSON.stringify(currentRows.value, null, 2)
   const escaped = escapeHtml(json)
   return escaped
     .replace(/(&quot;.*?&quot;)(: )/g, '<span class="text-blue-400">$1</span>$2')
@@ -1180,7 +1296,7 @@ const highlightedJson = computed(() => {
 })
 
 function copyJson() {
-  navigator.clipboard.writeText(JSON.stringify(resultStore.rows, null, 2))
+  navigator.clipboard.writeText(JSON.stringify(currentRows.value, null, 2))
 }
 
 function formatTime(iso: string): string {
@@ -1328,7 +1444,7 @@ const anchorCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
 const focusCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
 
 function selectCell(rowIndex: number, colName: string, event?: MouseEvent) {
-  const colIndex = resultStore.columns.findIndex(c => c.name === colName)
+  const colIndex = currentColumns.value.findIndex(c => c.name === colName)
   if (event?.shiftKey && anchorCell.value) {
     focusCell.value = { rowIndex, colIndex }
   } else {
@@ -1382,7 +1498,7 @@ function handleTableKeydown(e: KeyboardEvent) {
         nextRow = rowIndex - 1
       }
     } else if (e.key === 'ArrowDown') {
-      if (rowIndex < resultStore.rows.length - 1) {
+      if (rowIndex < currentRows.value.length - 1) {
         e.preventDefault()
         nextRow = rowIndex + 1
       }
@@ -1392,13 +1508,13 @@ function handleTableKeydown(e: KeyboardEvent) {
         nextCol = colIndex - 1
       }
     } else if (e.key === 'ArrowRight') {
-      if (colIndex < resultStore.columns.length - 1) {
+      if (colIndex < currentColumns.value.length - 1) {
         e.preventDefault()
         nextCol = colIndex + 1
       }
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      const colName = resultStore.columns[colIndex].name
+      const colName = currentColumns.value[colIndex].name
       startEditCell(rowIndex, colName, e)
       return
     } else {
@@ -1423,10 +1539,10 @@ function copySelectedRange() {
   
   const lines: string[] = []
   for (let r = minRow; r <= maxRow; r++) {
-    const row = resultStore.rows[r]
+    const row = currentRows.value[r]
     const rowValues: string[] = []
     for (let c = minCol; c <= maxCol; c++) {
-      const colName = resultStore.columns[c].name
+      const colName = currentColumns.value[c].name
       const val = row?.[colName]
       rowValues.push(val === null || val === undefined ? '' : String(val))
     }

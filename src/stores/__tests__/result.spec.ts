@@ -132,4 +132,51 @@ describe("result store", () => {
       expect(store.status).toBe("error");
     });
   });
+
+  describe("query pinning", () => {
+    it("should pin the current query result and update activeResultTabId", () => {
+      const store = useResultStore();
+      store.status = "success";
+      store.columns = [{ name: "id", type: "integer" }];
+      store.rows = [{ id: 1 }];
+      store.lastSql = "SELECT * FROM users";
+      
+      store.pinCurrentResult();
+      
+      expect(store.pinnedResults.length).toBe(1);
+      expect(store.pinnedResults[0].sql).toBe("SELECT * FROM users");
+      expect(store.activeResultTabId).toBe(store.pinnedResults[0].id);
+    });
+
+    it("should unpin the query result and reset activeResultTabId to current", () => {
+      const store = useResultStore();
+      store.status = "success";
+      store.columns = [{ name: "id", type: "integer" }];
+      store.rows = [{ id: 1 }];
+      store.lastSql = "SELECT * FROM users";
+      
+      store.pinCurrentResult();
+      const pinnedId = store.pinnedResults[0].id;
+      
+      store.unpinResult(pinnedId);
+      
+      expect(store.pinnedResults.length).toBe(0);
+      expect(store.activeResultTabId).toBe("current");
+    });
+
+    it("should reset activeResultTabId to current on runQuery", async () => {
+      mockInvoke.mockResolvedValue({ columns: [], rows: [], duration_ms: 5, row_count: 0 });
+      const store = useResultStore();
+      store.status = "success";
+      store.columns = [{ name: "id", type: "integer" }];
+      store.rows = [{ id: 1 }];
+      store.lastSql = "SELECT * FROM users";
+      
+      store.pinCurrentResult();
+      expect(store.activeResultTabId).not.toBe("current");
+      
+      await store.runQuery("SELECT * FROM products");
+      expect(store.activeResultTabId).toBe("current");
+    });
+  });
 });
