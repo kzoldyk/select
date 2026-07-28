@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1">
-    <TabBar @format="formatSql" @explain="$emit('explain')" />
+    <TabBar @format="formatSql" @explain="$emit('explain')" @run="$emit('run')" />
 
     <div
       class="flex-1 overflow-hidden"

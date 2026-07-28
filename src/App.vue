@@ -1,15 +1,5 @@
 <template>
   <div class="app" :style="appGridStyle">
-    <Toolbar
-      class="app-header"
-      :connection="connStore.activeConnection"
-      @run="runQuery"
-      @open-palette="uiStore.openPalette()"
-      @open-conn-manager="uiStore.openConnectionManager()"
-      @open-settings="uiStore.openSettings()"
-      @toggle-sidebar="uiStore.toggleSidebar()"
-    />
-
     <Sidebar class="app-sidebar" />
 
     <main 
@@ -64,7 +54,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import Toolbar from './components/Toolbar.vue'
 import Sidebar from './components/Sidebar.vue'
 import QueryEditor from './components/QueryEditor.vue'
 import ResultPanel from './components/ResultPanel.vue'
@@ -210,10 +199,9 @@ function resetSplit() {
 
 .app {
   display: grid;
-  grid-template-rows: 48px 1fr 32px;
+  grid-template-rows: 1fr 32px;
   grid-template-columns: 260px 1fr;
   grid-template-areas:
-    "header header"
     "sidebar main"
     "footer footer";
   height: 100vh;
@@ -221,7 +209,6 @@ function resetSplit() {
   transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.app-header { grid-area: header; z-index: 20; }
 .app-sidebar { grid-area: sidebar; border-right: 1px solid var(--border); overflow: hidden; }
 .app-main { grid-area: main; z-index: 10; }
 .app-footer { grid-area: footer; z-index: 20; }
