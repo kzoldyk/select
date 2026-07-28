@@ -18,13 +18,6 @@ const MAX_RESULT_ROWS: usize = 10_000;
 const MAX_PAGE_SIZE: usize = 500;
 const QUERY_TIMEOUT_SECS: u64 = 30;
 
-fn queries_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    path.push("saved_queries.json");
-    Ok(path)
-}
-
 fn history_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
@@ -36,25 +29,234 @@ fn now_iso() -> String {
     Utc::now().to_rfc3339()
 }
 
-fn load_queries_from_disk(app: &tauri::AppHandle) -> Vec<SavedQuery> {
-    let path = match queries_path(app) {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
-    };
-    if !path.exists() {
-        return Vec::new();
-    }
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
-    serde_json::from_str(&content).unwrap_or_default()
+fn get_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    path.push("config.json");
+    Ok(path)
 }
 
-fn save_queries_to_disk(app: &tauri::AppHandle, queries: &[SavedQuery]) -> Result<(), String> {
-    let path = queries_path(app)?;
-    let content = serde_json::to_string(queries).map_err(|e| e.to_string())?;
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+fn read_queries_dir_from_config(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let path = get_config_path(app).ok()?;
+    if !path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    let config: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let dir_str = config.get("queries_dir")?.as_str()?;
+    Some(PathBuf::from(dir_str))
+}
+
+fn write_queries_dir_to_config(app: &tauri::AppHandle, dir: &str) -> Result<(), String> {
+    let path = get_config_path(app)?;
+    let config = serde_json::json!({
+        "queries_dir": dir
+    });
+    let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    std::fs::write(path, content).map_err(|e| e.to_string())
+}
+
+fn get_safe_filename(id: &str) -> Result<String, String> {
+    let path = std::path::Path::new(id);
+    let file_name = path.file_name()
+        .and_then(|f| f.to_str())
+        .ok_or_else(|| "Invalid file name".to_string())?;
+    
+    if file_name != id || id.contains('/') || id.contains('\\') || id == ".." || id == "." {
+        return Err("Invalid path characters in query ID".into());
+    }
+    Ok(file_name.to_string())
+}
+
+fn is_same_file(p1: &std::path::Path, p2: &std::path::Path) -> bool {
+    if let (Ok(c1), Ok(c2)) = (std::fs::canonicalize(p1), std::fs::canonicalize(p2)) {
+        c1 == c2
+    } else {
+        false
+    }
+}
+
+fn safe_rename(from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    if from == to {
+        return Ok(());
+    }
+    if is_same_file(from, to) {
+        let tmp = from.with_extension("sql.tmp");
+        std::fs::rename(from, &tmp).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, to).map_err(|e| e.to_string())?;
+    } else {
+        std::fs::rename(from, to).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Directory where saved queries live as individual `.sql` files.
+fn queries_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(custom_path) = read_queries_dir_from_config(app) {
+        if custom_path.exists() && custom_path.is_dir() {
+            return Ok(custom_path);
+        }
+    }
+    let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    path.push("queries");
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+fn legacy_queries_json_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    path.push("saved_queries.json");
+    Ok(path)
+}
+
+/// Sanitize a query name into a safe `.sql` filename stem.
+fn sanitize_query_filename(name: &str) -> String {
+    let trimmed = name.trim();
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0' => out.push('_'),
+            c if c.is_control() => out.push('_'),
+            c => out.push(c),
+        }
+    }
+    let out = out.trim().trim_matches('.');
+    if out.is_empty() {
+        "untitled".to_string()
+    } else {
+        // Keep names reasonably short for filesystems
+        out.chars().take(120).collect()
+    }
+}
+
+fn query_file_path(dir: &PathBuf, name: &str) -> PathBuf {
+    dir.join(format!("{}.sql", sanitize_query_filename(name)))
+}
+
+fn system_time_to_iso(time: std::time::SystemTime) -> String {
+    let datetime: chrono::DateTime<Utc> = time.into();
+    datetime.to_rfc3339()
+}
+
+fn saved_query_from_file(path: &std::path::Path) -> Option<SavedQuery> {
+    let file_name = path.file_name()?.to_str()?.to_string();
+    if !file_name.to_lowercase().ends_with(".sql") {
+        return None;
+    }
+    let name = path.file_stem()?.to_str()?.to_string();
+    let sql = std::fs::read_to_string(path).ok()?;
+    let meta = std::fs::metadata(path).ok();
+    let created_at = meta
+        .as_ref()
+        .and_then(|m| m.created().ok())
+        .map(system_time_to_iso)
+        .unwrap_or_else(now_iso);
+    let updated_at = meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .map(system_time_to_iso)
+        .unwrap_or_else(now_iso);
+
+    Some(SavedQuery {
+        // Stable id is the filename so renames/deletes target the right file
+        id: file_name,
+        name,
+        sql,
+        created_at,
+        updated_at,
+    })
+}
+
+fn write_query_file(path: &std::path::Path, sql: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, sql).map_err(|e| e.to_string())
+}
+
+/// One-time migration from the old single JSON file into per-query `.sql` files.
+fn migrate_legacy_queries_json(app: &tauri::AppHandle, dir: &PathBuf) -> Result<(), String> {
+    let legacy = legacy_queries_json_path(app)?;
+    if !legacy.exists() {
+        return Ok(());
+    }
+    // Only migrate if the queries folder has no .sql files yet
+    let has_sql = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries.filter_map(|e| e.ok()).any(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("sql"))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+    if has_sql {
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&legacy).map_err(|e| e.to_string())?;
+    let legacy_queries: Vec<SavedQuery> = serde_json::from_str(&content).unwrap_or_default();
+    for q in legacy_queries {
+        let path = query_file_path(dir, &q.name);
+        // Avoid clobbering if a file already exists under that name
+        if path.exists() {
+            continue;
+        }
+        write_query_file(&path, &q.sql)?;
+    }
+
+    // Keep the old file as a backup, but mark it migrated
+    let backup = legacy.with_extension("json.bak");
+    let _ = std::fs::rename(&legacy, &backup);
+    Ok(())
+}
+
+fn load_queries_from_disk(app: &tauri::AppHandle) -> Vec<SavedQuery> {
+    let dir = match queries_dir(app) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+    let _ = migrate_legacy_queries_json(app, &dir);
+
+    let mut queries: Vec<SavedQuery> = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.is_file() {
+                    saved_query_from_file(&path)
+                } else {
+                    None
+                }
+            })
+            .collect(),
+        Err(_) => return Vec::new(),
+    };
+
+    queries.sort_by(|a, b| {
+        b.updated_at
+            .cmp(&a.updated_at)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    queries
+}
+
+fn resolve_unique_query_path(dir: &PathBuf, name: &str) -> PathBuf {
+    let sanitized = sanitize_query_filename(name);
+    let path = dir.join(format!("{}.sql", sanitized));
+    if !path.exists() {
+        return path;
+    }
+    let mut counter = 1;
+    loop {
+        let candidate = dir.join(format!("{} ({}).sql", sanitized, counter));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
 }
 
 fn load_history_from_disk(app: &tauri::AppHandle) -> Vec<QueryHistoryItem> {
@@ -99,6 +301,9 @@ pub struct ConnectionConfig {
     pub password: String,
     pub db_type: String,
     pub ssl: bool,
+    pub ssl_mode: Option<String>,
+    pub connect_timeout_secs: Option<u64>,
+    pub charset: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -437,14 +642,54 @@ fn encode_url_part(value: &str) -> String {
 }
 
 fn build_connection_url(config: &ConnectionConfig) -> String {
-    format!(
+    let mut base = format!(
         "mysql://{}:{}@{}:{}/{}",
         encode_url_part(&config.username),
         encode_url_part(&config.password),
         config.host,
         config.port,
         encode_url_part(&config.database),
-    )
+    );
+
+    let mut params = Vec::new();
+
+    let resolved_ssl = match config.ssl_mode.as_deref().unwrap_or("") {
+        "disabled" => Some("DISABLED"),
+        "preferred" => Some("PREFERRED"),
+        "required" => Some("REQUIRED"),
+        "verify_ca" => Some("VERIFY_CA"),
+        "verify_identity" => Some("VERIFY_IDENTITY"),
+        _ => {
+            if config.ssl {
+                Some("REQUIRED")
+            } else {
+                None
+            }
+        }
+    };
+
+    if let Some(mode) = resolved_ssl {
+        params.push(format!("ssl_mode={}", mode));
+    }
+
+    if let Some(timeout) = config.connect_timeout_secs {
+        if timeout > 0 {
+            params.push(format!("connect_timeout={}", timeout));
+        }
+    }
+
+    if let Some(ref cs) = config.charset {
+        if !cs.trim().is_empty() {
+            params.push(format!("charset={}", encode_url_part(cs.trim())));
+        }
+    }
+
+    if !params.is_empty() {
+        base.push('?');
+        base.push_str(&params.join("&"));
+    }
+
+    base
 }
 
 fn quote_identifier(identifier: &str) -> String {
@@ -464,11 +709,15 @@ fn safe_error(err: &dyn std::fmt::Display) -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct SavedQuery {
     pub id: String,
     pub name: String,
     pub sql: String,
+    /// Accept both camelCase (API) and snake_case (legacy JSON migration).
+    #[serde(alias = "created_at")]
     pub created_at: String,
+    #[serde(alias = "updated_at")]
     pub updated_at: String,
 }
 
@@ -1838,28 +2087,46 @@ pub async fn save_query(
     app: tauri::AppHandle,
     name: String,
     sql: String,
+    id: Option<String>,
 ) -> Result<SavedQuery, String> {
-    let mut queries = load_queries_from_disk(&app);
-    let now = now_iso();
-    // Check if a query with this name already exists (update it)
-    if let Some(existing) = queries.iter_mut().find(|q| q.name == name) {
-        existing.sql = sql;
-        existing.updated_at = now.clone();
-        let result = existing.clone();
-        save_queries_to_disk(&app, &queries)?;
-        return Ok(result);
+    let dir = queries_dir(&app)?;
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("Query name cannot be empty".into());
     }
-    let id = format!("sq-{}", Uuid::new_v4());
-    let saved = SavedQuery {
-        id: id.clone(),
-        name,
-        sql,
-        created_at: now.clone(),
-        updated_at: now,
+
+    // Prefer updating by id (filename) when the tab already has a saved query.
+    let target_path = if let Some(existing_id) = id.as_ref().filter(|s| !s.is_empty()) {
+        let safe_id = get_safe_filename(existing_id)?;
+        let path = dir.join(safe_id);
+        if path.exists() && path.is_file() {
+            // If the display name changed, rename the file to match.
+            let desired = query_file_path(&dir, &name);
+            if !is_same_file(&path, &desired) {
+                if desired.exists() {
+                    return Err(format!(
+                        "A query file named \"{}.sql\" already exists",
+                        sanitize_query_filename(&name)
+                    ));
+                }
+                safe_rename(&path, &desired)?;
+                desired
+            } else {
+                // If it's the same file (e.g. casing change), we safely rename to apply casing change on disk
+                safe_rename(&path, &desired)?;
+                desired
+            }
+        } else {
+            // Stale id — fall back to name-based path
+            resolve_unique_query_path(&dir, &name)
+        }
+    } else {
+        resolve_unique_query_path(&dir, &name)
     };
-    queries.push(saved.clone());
-    save_queries_to_disk(&app, &queries)?;
-    Ok(saved)
+
+    write_query_file(&target_path, &sql)?;
+
+    saved_query_from_file(&target_path).ok_or_else(|| "Failed to read saved query file".into())
 }
 
 #[tauri::command]
@@ -1872,29 +2139,99 @@ pub async fn rename_query(
     app: tauri::AppHandle,
     id: String,
     new_name: String,
-) -> Result<(), String> {
-    let mut queries = load_queries_from_disk(&app);
-    if let Some(q) = queries.iter_mut().find(|q| q.id == id) {
-        q.name = new_name;
-        q.updated_at = now_iso();
-        save_queries_to_disk(&app, &queries)?;
-        Ok(())
-    } else {
-        Err("Query not found".into())
+) -> Result<SavedQuery, String> {
+    let dir = queries_dir(&app)?;
+    let new_name = new_name.trim().to_string();
+    if new_name.is_empty() {
+        return Err("Query name cannot be empty".into());
     }
+
+    let safe_id = get_safe_filename(&id)?;
+    let old_path = dir.join(&safe_id);
+    if !old_path.exists() || !old_path.is_file() {
+        return Err("Query not found".into());
+    }
+
+    let new_path = query_file_path(&dir, &new_name);
+    if !is_same_file(&old_path, &new_path) {
+        if new_path.exists() {
+            return Err(format!(
+                "A query file named \"{}.sql\" already exists",
+                sanitize_query_filename(&new_name)
+            ));
+        }
+        safe_rename(&old_path, &new_path)?;
+    } else {
+        safe_rename(&old_path, &new_path)?;
+    }
+
+    saved_query_from_file(&new_path).ok_or_else(|| "Failed to read renamed query file".into())
 }
 
 #[tauri::command]
 pub async fn delete_query(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let mut queries = load_queries_from_disk(&app);
-    let len = queries.len();
-    queries.retain(|q| q.id != id);
-    if queries.len() != len {
-        save_queries_to_disk(&app, &queries)?;
-        Ok(())
-    } else {
-        Err("Query not found".into())
+    let dir = queries_dir(&app)?;
+    let safe_id = get_safe_filename(&id)?;
+    let path = dir.join(&safe_id);
+    if !path.exists() || !path.is_file() {
+        return Err("Query not found".into());
     }
+    std::fs::remove_file(&path).map_err(|e| e.to_string())
+}
+
+/// Returns the absolute path to the queries folder (for UI / reveal in Finder).
+#[tauri::command]
+pub async fn get_queries_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = queries_dir(&app)?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn get_custom_queries_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let custom_dir = read_queries_dir_from_config(&app);
+    Ok(custom_dir.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub async fn set_custom_queries_dir(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let new_dir = PathBuf::from(path.trim());
+    if !new_dir.exists() || !new_dir.is_dir() {
+        return Err("The selected path does not exist or is not a directory".into());
+    }
+    
+    // Perform migration of any existing .sql queries from default dir
+    let mut default_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    default_dir.push("queries");
+    if default_dir.exists() && default_dir.is_dir() && default_dir != new_dir {
+        if let Ok(entries) = std::fs::read_dir(default_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_file() {
+                    if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
+                        if ext.eq_ignore_ascii_case("sql") {
+                            if let Some(filename) = p.file_name() {
+                                let dest = new_dir.join(filename);
+                                if !dest.exists() {
+                                    let _ = std::fs::copy(&p, &dest);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    write_queries_dir_to_config(&app, &new_dir.to_string_lossy())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn select_folder() -> Result<Option<String>, String> {
+    let res = rfd::FileDialog::new()
+        .pick_folder()
+        .map(|p| p.to_string_lossy().to_string());
+    Ok(res)
 }
 
 #[tauri::command]
@@ -2030,6 +2367,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sanitize_query_filename_strips_unsafe_chars() {
+        assert_eq!(sanitize_query_filename("Monthly Active Users"), "Monthly Active Users");
+        assert_eq!(sanitize_query_filename("a/b\\c:d*e?f\"g<h>i|j"), "a_b_c_d_e_f_g_h_i_j");
+        assert_eq!(sanitize_query_filename("   "), "untitled");
+        assert_eq!(sanitize_query_filename("..."), "untitled");
+    }
+
+    #[test]
+    fn query_file_path_appends_sql_extension() {
+        let dir = PathBuf::from("/tmp/queries");
+        assert_eq!(
+            query_file_path(&dir, "User Stats"),
+            PathBuf::from("/tmp/queries/User Stats.sql")
+        );
+    }
+
+    #[test]
     fn read_only_validation_allows_safe_single_statements() {
         assert!(validate_read_only_query("SELECT * FROM users WHERE name = 'DROP'").is_ok());
         assert!(validate_read_only_query("SHOW TABLES").is_ok());
@@ -2087,12 +2441,37 @@ mod tests {
             password: "p@ss:word/with space".into(),
             db_type: "mysql".into(),
             ssl: false,
+            ssl_mode: None,
+            connect_timeout_secs: None,
+            charset: None,
         };
 
         let url = build_connection_url(&config);
         assert!(url.contains("root%40example"));
         assert!(url.contains("p%40ss%3Aword%2Fwith%20space"));
-        assert!(url.ends_with("/my%20db"));
+        assert!(url.contains("/my%20db"));
+    }
+
+    #[test]
+    fn connection_url_appends_ssl_and_query_options() {
+        let config = ConnectionConfig {
+            name: "prod".into(),
+            host: "db.example.com".into(),
+            port: 3306,
+            database: "app".into(),
+            username: "admin".into(),
+            password: "secret".into(),
+            db_type: "mysql".into(),
+            ssl: true,
+            ssl_mode: Some("required".into()),
+            connect_timeout_secs: Some(15),
+            charset: Some("utf8mb4".into()),
+        };
+
+        let url = build_connection_url(&config);
+        assert!(url.contains("ssl_mode=REQUIRED"));
+        assert!(url.contains("connect_timeout=15"));
+        assert!(url.contains("charset=utf8mb4"));
     }
 
     #[test]

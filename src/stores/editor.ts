@@ -7,6 +7,7 @@ export interface Tab {
   sql: string
   connectionId: string | null
   isUnsaved: boolean
+  /** Filename of the saved `.sql` file, e.g. `My Query.sql` */
   savedQueryId: string | null
   cursorLine: number
   cursorCol: number
@@ -16,6 +17,7 @@ export interface Tab {
 }
 
 export interface SavedQuery {
+  /** Filename used as stable id, e.g. `My Query.sql` */
   id: string
   name: string
   sql: string
@@ -25,8 +27,10 @@ export interface SavedQuery {
 
 const MAX_TABS = 20
 const DEFAULT_SQL = ``
+const TAB_STATE_DEBOUNCE_MS = 400
 
 let tabCounter = 1
+let tabStateTimer: ReturnType<typeof setTimeout> | null = null
 
 export const useEditorStore = defineStore('editor', {
   state: () => ({
@@ -51,6 +55,9 @@ export const useEditorStore = defineStore('editor', {
     savedQueries: [] as SavedQuery[],
     saveDialogOpen: false,
     saveDialogTabId: null as string | null,
+    /** Absolute path to the on-disk queries folder */
+    queriesDir: null as string | null,
+    queriesDirNeedsSetup: false,
   }),
 
   getters: {
@@ -60,14 +67,38 @@ export const useEditorStore = defineStore('editor', {
 
   actions: {
     saveTabState() {
+      const activeIndex = Math.max(0, this.tabs.findIndex(t => t.id === this.activeTabId))
       const data = this.tabs.map(t => ({
-        name: t.name, sql: t.sql, savedQueryId: t.savedQueryId,
-        cursorLine: t.cursorLine, cursorCol: t.cursorCol,
-        selectionAnchor: t.selectionAnchor, selectionHead: t.selectionHead,
+        id: t.id,
+        name: t.name,
+        sql: t.sql,
+        savedQueryId: t.savedQueryId,
+        isUnsaved: t.isUnsaved,
+        cursorLine: t.cursorLine,
+        cursorCol: t.cursorCol,
+        selectionAnchor: t.selectionAnchor,
+        selectionHead: t.selectionHead,
       }))
       localStorage.setItem('tabState', JSON.stringify(data))
+      localStorage.setItem('activeTabIndex', String(activeIndex))
       localStorage.setItem('activeTabId', this.activeTabId)
       localStorage.setItem('editorFontSize', String(this.fontSize))
+    },
+    /** Debounced persist so typing doesn't thrash localStorage */
+    scheduleSaveTabState() {
+      if (tabStateTimer) clearTimeout(tabStateTimer)
+      tabStateTimer = setTimeout(() => {
+        tabStateTimer = null
+        this.saveTabState()
+      }, TAB_STATE_DEBOUNCE_MS)
+    },
+    /** Flush any pending debounced tab state immediately (app close / Cmd+S). */
+    flushTabState() {
+      if (tabStateTimer) {
+        clearTimeout(tabStateTimer)
+        tabStateTimer = null
+      }
+      this.saveTabState()
     },
     restoreTabState() {
       this.loadFontSize()
@@ -75,9 +106,11 @@ export const useEditorStore = defineStore('editor', {
       if (!raw) return
       try {
         const data = JSON.parse(raw) as {
+          id?: string
           name: string
           sql: string
           savedQueryId: string | null
+          isUnsaved?: boolean
           cursorLine: number
           cursorCol: number
           selectionAnchor?: number
@@ -85,11 +118,11 @@ export const useEditorStore = defineStore('editor', {
         }[]
         if (!data.length) return
         this.tabs = data.map((d, i) => ({
-          id: `tab-${Date.now()}-${i}`,
+          id: d.id || `tab-${Date.now()}-${i}`,
           name: d.name,
           sql: d.sql,
           connectionId: null,
-          isUnsaved: false,
+          isUnsaved: Boolean(d.isUnsaved),
           savedQueryId: d.savedQueryId,
           cursorLine: d.cursorLine || 1,
           cursorCol: d.cursorCol || 1,
@@ -100,8 +133,12 @@ export const useEditorStore = defineStore('editor', {
             : 0,
         }))
         const activeId = localStorage.getItem('activeTabId')
+        const activeIndexRaw = localStorage.getItem('activeTabIndex')
+        const activeIndex = activeIndexRaw != null ? parseInt(activeIndexRaw, 10) : NaN
         if (activeId && this.tabs.some(t => t.id === activeId)) {
           this.activeTabId = activeId
+        } else if (Number.isFinite(activeIndex) && this.tabs[activeIndex]) {
+          this.activeTabId = this.tabs[activeIndex].id
         } else {
           this.activeTabId = this.tabs[0]?.id ?? this.activeTabId
         }
@@ -175,6 +212,7 @@ export const useEditorStore = defineStore('editor', {
     selectTab(id: string) {
       if (this.tabs.find(t => t.id === id)) {
         this.activeTabId = id
+        this.scheduleSaveTabState()
       }
     },
     updateSql(id: string, sql: string) {
@@ -182,16 +220,27 @@ export const useEditorStore = defineStore('editor', {
       if (tab) {
         tab.sql = sql
         tab.isUnsaved = true
+        this.scheduleSaveTabState()
       }
     },
-    saveTab(id: string) {
+    async saveTab(id: string) {
       const tab = this.tabs.find(t => t.id === id)
       if (!tab) return
       if (tab.savedQueryId) {
-        invoke('save_query', { name: tab.name, sql: tab.sql }).then(() => {
+        try {
+          const saved = await invoke<SavedQuery>('save_query', {
+            name: tab.name,
+            sql: tab.sql,
+            id: tab.savedQueryId,
+          })
+          tab.name = saved.name
+          tab.savedQueryId = saved.id
           tab.isUnsaved = false
-          this._refreshSavedQueries()
-        }).catch(console.error)
+          this.flushTabState()
+          await this._refreshSavedQueries()
+        } catch (e) {
+          console.error('Failed to save query:', e)
+        }
       } else {
         this.saveDialogTabId = id
         this.saveDialogOpen = true
@@ -201,13 +250,17 @@ export const useEditorStore = defineStore('editor', {
       const tab = this.tabs.find(t => t.id === tabId)
       if (!tab) return
       try {
-        const saved = await invoke<SavedQuery>('save_query', { name, sql: tab.sql })
-        tab.name = name
+        const saved = await invoke<SavedQuery>('save_query', {
+          name,
+          sql: tab.sql,
+          id: null,
+        })
+        tab.name = saved.name
         tab.savedQueryId = saved.id
         tab.isUnsaved = false
         this.saveDialogOpen = false
         this.saveDialogTabId = null
-        this.saveTabState()
+        this.flushTabState()
         await this._refreshSavedQueries()
       } catch (e) {
         console.error('Failed to save query:', e)
@@ -217,8 +270,12 @@ export const useEditorStore = defineStore('editor', {
       try {
         await invoke('delete_query', { id })
         this.tabs.forEach(t => {
-          if (t.savedQueryId === id) t.savedQueryId = null
+          if (t.savedQueryId === id) {
+            t.savedQueryId = null
+            t.isUnsaved = true
+          }
         })
+        this.flushTabState()
         await this._refreshSavedQueries()
       } catch (e) {
         console.error('Failed to delete query:', e)
@@ -226,10 +283,14 @@ export const useEditorStore = defineStore('editor', {
     },
     async renameSavedQuery(id: string, newName: string) {
       try {
-        await invoke('rename_query', { id, newName })
+        const renamed = await invoke<SavedQuery>('rename_query', { id, newName })
         this.tabs.forEach(t => {
-          if (t.savedQueryId === id) t.name = newName
+          if (t.savedQueryId === id) {
+            t.name = renamed.name
+            t.savedQueryId = renamed.id
+          }
         })
+        this.flushTabState()
         await this._refreshSavedQueries()
       } catch (e) {
         console.error('Failed to rename query:', e)
@@ -239,6 +300,7 @@ export const useEditorStore = defineStore('editor', {
       const existing = this.tabs.find(t => t.savedQueryId === saved.id)
       if (existing) {
         this.activeTabId = existing.id
+        this.scheduleSaveTabState()
         return
       }
       tabCounter++
@@ -257,12 +319,31 @@ export const useEditorStore = defineStore('editor', {
       }
       this.tabs.push(tab)
       this.activeTabId = tab.id
+      this.saveTabState()
     },
     async loadSavedQueries() {
       try {
         this.savedQueries = await invoke<SavedQuery[]>('load_queries')
+        try {
+          this.queriesDir = await invoke<string>('get_queries_dir')
+          const customDir = await invoke<string | null>('get_custom_queries_dir')
+          this.queriesDirNeedsSetup = !customDir
+        } catch {
+          this.queriesDir = null
+          this.queriesDirNeedsSetup = false
+        }
       } catch (e) {
         console.error('Failed to load queries:', e)
+      }
+    },
+    async setQueriesDir(path: string) {
+      try {
+        await invoke('set_custom_queries_dir', { path })
+        this.queriesDirNeedsSetup = false
+        await this.loadSavedQueries()
+      } catch (e) {
+        console.error('Failed to set queries directory:', e)
+        throw e
       }
     },
     async _refreshSavedQueries() {
@@ -284,6 +365,7 @@ export const useEditorStore = defineStore('editor', {
         if (anchor !== undefined) tab.selectionAnchor = anchor
         if (head !== undefined) tab.selectionHead = head
         tab.selectedTextCount = selectedTextCount ?? 0
+        this.scheduleSaveTabState()
       }
     },
     setSplitRatio(ratio: number) {
@@ -299,11 +381,17 @@ export const useEditorStore = defineStore('editor', {
     },
     selectPrevTab() {
       const idx = this.tabs.findIndex(t => t.id === this.activeTabId)
-      if (idx > 0) this.activeTabId = this.tabs[idx - 1].id
+      if (idx > 0) {
+        this.activeTabId = this.tabs[idx - 1].id
+        this.scheduleSaveTabState()
+      }
     },
     selectNextTab() {
       const idx = this.tabs.findIndex(t => t.id === this.activeTabId)
-      if (idx < this.tabs.length - 1) this.activeTabId = this.tabs[idx + 1].id
+      if (idx < this.tabs.length - 1) {
+        this.activeTabId = this.tabs[idx + 1].id
+        this.scheduleSaveTabState()
+      }
     },
   },
 })

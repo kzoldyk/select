@@ -121,26 +121,55 @@ describe("editor store", () => {
     });
 
     it("saveQueryAs calls invoke and updates tab", async () => {
-      const saved = { id: "sq-new", name: "My Query", sql: "SELECT 1", createdAt: "", updatedAt: "" };
-      mockInvoke.mockResolvedValue(saved);
+      const saved = { id: "My Query.sql", name: "My Query", sql: "SELECT 1", createdAt: "", updatedAt: "" };
       mockInvoke.mockResolvedValueOnce(saved);
       mockInvoke.mockResolvedValueOnce([]);
       const store = useEditorStore();
       await store.saveQueryAs("tab-1", "My Query");
-      expect(mockInvoke).toHaveBeenCalledWith("save_query", { name: "My Query", sql: "" });
+      expect(mockInvoke).toHaveBeenCalledWith("save_query", { name: "My Query", sql: "", id: null });
       expect(store.tabs[0].name).toBe("My Query");
-      expect(store.tabs[0].savedQueryId).toBe("sq-new");
+      expect(store.tabs[0].savedQueryId).toBe("My Query.sql");
+      expect(store.tabs[0].isUnsaved).toBe(false);
+    });
+
+    it("saveTab re-saves existing .sql file by id", async () => {
+      const saved = { id: "Users.sql", name: "Users", sql: "SELECT 2", createdAt: "", updatedAt: "" };
+      mockInvoke.mockResolvedValueOnce(saved);
+      mockInvoke.mockResolvedValueOnce([saved]);
+      const store = useEditorStore();
+      store.updateSql("tab-1", "SELECT 2");
+      store.tabs[0].name = "Users";
+      store.tabs[0].savedQueryId = "Users.sql";
+      await store.saveTab("tab-1");
+      expect(mockInvoke).toHaveBeenCalledWith("save_query", {
+        name: "Users",
+        sql: "SELECT 2",
+        id: "Users.sql",
+      });
+      expect(store.tabs[0].isUnsaved).toBe(false);
     });
 
     it("dropSavedQuery calls invoke and clears tab ref", async () => {
-      mockInvoke.mockResolvedValue(undefined);
       mockInvoke.mockResolvedValueOnce(undefined);
       mockInvoke.mockResolvedValueOnce([]);
       const store = useEditorStore();
-      store.tabs[0].savedQueryId = "sq-1";
-      await store.dropSavedQuery("sq-1");
-      expect(mockInvoke).toHaveBeenCalledWith("delete_query", { id: "sq-1" });
+      store.tabs[0].savedQueryId = "Users.sql";
+      await store.dropSavedQuery("Users.sql");
+      expect(mockInvoke).toHaveBeenCalledWith("delete_query", { id: "Users.sql" });
       expect(store.tabs[0].savedQueryId).toBeNull();
+    });
+
+    it("renameSavedQuery updates tab id when filename changes", async () => {
+      const renamed = { id: "New Name.sql", name: "New Name", sql: "SELECT 1", createdAt: "", updatedAt: "" };
+      mockInvoke.mockResolvedValueOnce(renamed);
+      mockInvoke.mockResolvedValueOnce([renamed]);
+      const store = useEditorStore();
+      store.tabs[0].savedQueryId = "Old Name.sql";
+      store.tabs[0].name = "Old Name";
+      await store.renameSavedQuery("Old Name.sql", "New Name");
+      expect(mockInvoke).toHaveBeenCalledWith("rename_query", { id: "Old Name.sql", newName: "New Name" });
+      expect(store.tabs[0].savedQueryId).toBe("New Name.sql");
+      expect(store.tabs[0].name).toBe("New Name");
     });
   });
 

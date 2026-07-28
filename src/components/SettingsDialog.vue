@@ -39,6 +39,25 @@
             </Button>
           </div>
         </div>
+
+        <!-- Queries Directory section -->
+        <div class="space-y-3 pt-4 border-t border-border/40">
+          <Label class="text-xs font-medium text-foreground">Saved Queries Folder</Label>
+          <div class="flex flex-col gap-2 bg-muted/40 border border-border/40 p-2.5 rounded-lg">
+            <span class="text-[10px] font-mono break-all leading-normal text-muted-foreground">
+              {{ editorStore.queriesDir || 'Not configured' }}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              class="w-full text-xs gap-1.5 justify-center cursor-pointer h-8"
+              @click="changeQueriesFolder"
+            >
+              <FolderOpen class="w-3.5 h-3.5" />
+              Change Folder...
+            </Button>
+          </div>
+        </div>
       </div>
 
       <DialogFooter class="border-t border-border/40 pt-4 flex justify-end">
@@ -61,10 +80,14 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Sun, Moon, Monitor, Palette } from '@lucide/vue'
+import { Sun, Moon, Monitor, Palette, FolderOpen } from '@lucide/vue'
 import { useUiStore, type Theme } from '../stores/ui'
+import { useEditorStore } from '../stores/editor'
+import { invoke } from '@tauri-apps/api/core'
+import { toast } from 'vue-sonner'
 
 const uiStore = useUiStore()
+const editorStore = useEditorStore()
 
 const themeOptions = [
   { value: 'light' as Theme, label: 'Light', icon: Sun },
@@ -75,5 +98,17 @@ const themeOptions = [
 function openGallery() {
   uiStore.closeSettings()
   uiStore.openThemeGallery()
+}
+
+async function changeQueriesFolder() {
+  try {
+    const selected = await invoke<string | null>('select_folder')
+    if (selected) {
+      await editorStore.setQueriesDir(selected)
+      toast.success('Queries folder updated successfully!')
+    }
+  } catch (e) {
+    toast.error('Failed to update queries folder')
+  }
 }
 </script>

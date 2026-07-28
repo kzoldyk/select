@@ -4,6 +4,8 @@ import { saveConnections, loadConnections, saveActiveConnectionId, loadActiveCon
 import { useResultStore } from './result'
 import { useSchemaStore } from './schema'
 
+export type SslMode = 'disabled' | 'preferred' | 'required' | 'verify_ca' | 'verify_identity'
+
 export interface Connection {
   id: string
   name: string
@@ -12,8 +14,12 @@ export interface Connection {
   database: string
   username: string
   password: string
-	  dbType: 'mysql' | 'mariadb'
+  dbType: 'mysql' | 'mariadb'
   ssl: boolean
+  sslMode?: SslMode
+  connectTimeoutSecs?: number
+  charset?: string
+  socketPath?: string
   readOnly: boolean
   sshTunnel: boolean
   sshHost?: string
@@ -35,10 +41,10 @@ export const useConnectionStore = defineStore('connection', {
     lastError: null as string | null,
   }),
 
-	  getters: {
-	    activeConnection: (state): Connection | null =>
-	      state.connections.find(c => c.id === state.activeId) ?? null,
-	  },
+  getters: {
+    activeConnection: (state): Connection | null =>
+      state.connections.find(c => c.id === state.activeId) ?? null,
+  },
 
   actions: {
     async load() {
@@ -58,6 +64,10 @@ export const useConnectionStore = defineStore('connection', {
           password: '',
           dbType: 'mysql' as const,
           ssl: false,
+          sslMode: 'preferred',
+          connectTimeoutSecs: 10,
+          charset: 'utf8mb4',
+          readOnly: false,
           sshTunnel: false,
           color: '#22C55E',
           createdAt: new Date().toISOString(),

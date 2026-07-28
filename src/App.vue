@@ -56,6 +56,7 @@
       <ExportDialog />
       <SettingsDialog />
       <ThemeGalleryDialog />
+      <QueriesDirDialog />
       <Toaster />
     </div>
   </div>
@@ -79,6 +80,7 @@ import SaveQueryDialog from './components/SaveQueryDialog.vue'
 import DestructiveQueryDialog from './components/DestructiveQueryDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import ExportDialog from './components/ExportDialog.vue'
+import QueriesDirDialog from './components/QueriesDirDialog.vue'
 import { initThemeSystem } from './theme'
 
 import { useConnectionStore } from './stores/connection'
@@ -101,6 +103,10 @@ const handleSystemThemeChange = (e: MediaQueryListEvent) => {
   uiStore.updateSystemTheme(e.matches)
 }
 
+function flushEditorState() {
+  editorStore.flushTabState()
+}
+
 onMounted(async () => {
   initThemeSystem()
   if (typeof window !== 'undefined' && window.matchMedia) {
@@ -108,6 +114,11 @@ onMounted(async () => {
     uiStore.updateSystemTheme(mediaQueryList.matches)
     mediaQueryList.addEventListener('change', handleSystemThemeChange)
   }
+
+  window.addEventListener('beforeunload', flushEditorState)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushEditorState()
+  })
 
   uiStore.applyTheme()
   await connStore.load()
@@ -121,6 +132,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  flushEditorState()
+  window.removeEventListener('beforeunload', flushEditorState)
   if (mediaQueryList) {
     mediaQueryList.removeEventListener('change', handleSystemThemeChange)
   }
