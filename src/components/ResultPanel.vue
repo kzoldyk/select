@@ -207,7 +207,7 @@
           <Button variant="ghost" size="sm" class="text-[10px] h-6 px-2" @click="clearFilters">Clear</Button>
         </div>
 
-        <ScrollArea class="flex-1 min-h-0 bg-background" ref="scrollAreaRef">
+        <div class="flex-1 min-h-0 overflow-auto bg-background" ref="scrollAreaRef">
           <Table 
             id="result-grid-table"
             class="relative w-full text-left border-collapse focus:outline-none focus:ring-1 focus:ring-primary/40 rounded-sm transition-shadow"
@@ -216,7 +216,7 @@
           >
             <TableHeader class="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--border)]">
               <TableRow class="hover:bg-transparent border-none">
-                <TableHead class="w-[36px] text-center p-0 border-r border-border/50 bg-muted/80 backdrop-blur-md">
+                <TableHead class="w-[36px] text-center p-0 border-r border-border/30 bg-muted/80 backdrop-blur-md">
                   <div class="flex items-center justify-center w-full h-full">
                     <input
                       type="checkbox"
@@ -227,11 +227,11 @@
                     />
                   </div>
                 </TableHead>
-                <TableHead class="w-[36px] text-center text-[9px] font-bold uppercase tracking-tight text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/20 select-none py-1 px-2">#</TableHead>
+                <TableHead class="w-[36px] text-center text-[9px] font-medium tracking-tight text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/30 select-none py-1 px-2">#</TableHead>
                 <TableHead
                   v-for="col in currentColumns"
                   :key="col.name"
-                  class="text-[10.5px] font-bold uppercase tracking-tight text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-1.5 px-3 border-r border-border/20 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
+                  class="text-[10.5px] font-medium tracking-tight text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-1.5 px-3 border-r border-border/30 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
                   :class="{ 'text-right': isNumericColumn(col) }"
                   :aria-sort="getSortAria(col.name)"
                   @click="sortBy(col.name)"
@@ -244,7 +244,7 @@
                     </span>
                   </div>
                 </TableHead>
-                <TableHead v-if="isProcesslist" class="w-[70px] text-center text-[10.5px] font-semibold text-muted-foreground bg-muted/80 backdrop-blur-md">Action</TableHead>
+                <TableHead v-if="isProcesslist" class="w-[70px] text-center text-[10.5px] font-medium text-muted-foreground bg-muted/80 backdrop-blur-md">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -268,7 +268,7 @@
                     resultStore.selectedRows.has(item.key) ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/40'
                   ]"
                 >
-                <TableCell class="text-center p-0 w-[36px] border-r border-border/20 relative">
+                <TableCell class="text-center p-0 w-[36px] border-r border-border/30 relative">
                   <div v-if="resultStore.selectedRows.has(item.key)" class="absolute left-0 top-0 bottom-0 w-[2.5px] bg-primary"></div>
                   <div class="flex items-center justify-center w-full h-full">
                     <input
@@ -281,11 +281,11 @@
                     />
                   </div>
                 </TableCell>
-                <TableCell class="text-center py-1 px-2 w-[36px] border-r border-border/20 text-[9.5px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
+                <TableCell class="text-center py-1 px-2 w-[36px] border-r border-border/30 text-[9.5px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
                 <TableCell
                   v-for="(col, colIndex) in currentColumns"
                   :key="col.name"
-                  class="py-1 px-3 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/15 select-none transition-all duration-75 font-sans"
+                  class="py-1 px-3 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/30 last:border-r-0 cursor-cell hover:bg-muted/15 select-none transition-all duration-75 font-sans"
                   :class="[
                     getCellClass(item.row[col.name], col),
                     isNumericColumn(col) ? 'text-right tabular-nums font-mono text-[10px]' : '',
@@ -355,7 +355,7 @@
           <div v-if="filteredRows.length === 0 && currentStatus === 'success'" class="py-6 text-center text-xs text-muted-foreground">
             No results match your filter.
           </div>
-        </ScrollArea>
+        </div>
       </TabsContent>
 
       <TabsContent value="json" class="flex-1 flex flex-col overflow-hidden min-h-0 p-0 m-0">

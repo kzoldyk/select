@@ -221,7 +221,7 @@
     </div>
 
     <!-- Data Grid Scroll Area -->
-    <ScrollArea class="flex-1 min-h-0 bg-background" ref="scrollAreaRef">
+    <div class="flex-1 min-h-0 overflow-auto bg-background" ref="scrollAreaRef">
       <div v-if="loading && rows.length === 0" class="h-48 flex flex-col items-center justify-center gap-3 text-muted-foreground">
         <svg class="w-6 h-6 animate-spin text-primary opacity-80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
@@ -239,7 +239,7 @@
         <thead class="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--border)]">
           <tr class="hover:bg-transparent border-none">
             <!-- Row selection column -->
-            <th class="w-[32px] text-center p-0 border-r border-border/50 bg-muted/80 backdrop-blur-md">
+            <th class="w-[32px] text-center p-0 border-r border-border/30 bg-muted/80 backdrop-blur-md">
               <div class="flex items-center justify-center w-full h-full">
                 <input
                   type="checkbox"
@@ -251,12 +251,12 @@
               </div>
             </th>
 
-            <th class="w-[36px] text-center text-[9px] font-bold uppercase tracking-tight text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/20 select-none py-1 px-2">#</th>
+            <th class="w-[36px] text-center text-[9px] font-medium tracking-tight text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/30 select-none py-1 px-2">#</th>
 
             <th 
               v-for="col in columns" 
               :key="col.name"
-              class="text-[10.5px] font-bold tracking-tight text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-1.5 px-3 border-r border-border/20 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
+              class="text-[10.5px] font-medium tracking-tight text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-1.5 px-3 border-r border-border/30 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
               :class="{ 'text-right': isNumericColumn(col) }"
               @click="toggleSortColumn(col.name)"
             >
@@ -287,7 +287,7 @@
             ]"
           >
             <!-- Checkbox cell -->
-            <td class="text-center p-0 w-[32px] border-r border-border/20 relative">
+            <td class="text-center p-0 w-[32px] border-r border-border/30 relative">
               <div v-if="selectedRowKeys.has(row._tempId || String(rowIndex))" class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary"></div>
               <div class="flex items-center justify-center w-full h-full">
                 <input
@@ -301,7 +301,7 @@
             </td>
 
             <!-- Serial index cell -->
-            <td class="text-center py-1 px-2 w-[36px] border-r border-border/20 text-[9.5px] text-muted-foreground/60 select-none tabular-nums font-mono">
+            <td class="text-center py-1 px-2 w-[36px] border-r border-border/30 text-[9.5px] text-muted-foreground/60 select-none tabular-nums font-mono">
               {{ row._tempId ? '*' : rowIndex + 1 + (page - 1) * limit }}
             </td>
 
@@ -309,7 +309,7 @@
             <td
               v-for="(col, colIndex) in columns"
               :key="col.name"
-              class="py-1 px-3 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell select-none transition-all duration-75 font-sans"
+              class="py-1 px-3 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/30 last:border-r-0 cursor-cell select-none transition-all duration-75 font-sans"
               :class="[
                 getCellClass(row[col.name], col, rowIndex),
                 isNumericColumn(col) ? 'text-right tabular-nums font-mono text-[10px]' : '',
@@ -366,7 +366,7 @@
       <div v-else class="py-12 text-center text-xs text-muted-foreground">
         No records found.
       </div>
-    </ScrollArea>
+    </div>
 
     <!-- Context / FK Popover preview (using teleport) -->
     <Teleport to="body">
