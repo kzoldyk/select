@@ -28,6 +28,10 @@
           :title="tab.name"
           @click="editorStore.selectTab(tab.id)"
         >
+          <component 
+            :is="tab.type === 'table' ? PhTable : PhFileCode" 
+            class="w-3.5 h-3.5 opacity-70 flex-shrink-0"
+          />
           <span class="max-w-[120px] overflow-hidden text-ellipsis">{{ tab.name }}</span>
           <span v-if="tab.isUnsaved" class="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" aria-label="Unsaved changes"></span>
           <div
@@ -156,7 +160,8 @@ import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { Button } from '@/components/ui/button'
 import { 
-  PhSidebar, PhPlus, PhMinus, PhMagnifyingGlass, PhCode, PhFileText, PhGear, PhPlay, PhX 
+  PhSidebar, PhPlus, PhMinus, PhMagnifyingGlass, PhCode, PhFileText, PhGear, PhPlay, PhX,
+  PhTable, PhFileCode
 } from '@phosphor-icons/vue'
 
 defineEmits<{

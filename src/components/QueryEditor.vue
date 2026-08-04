@@ -1,7 +1,5 @@
 <template>
   <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1">
-    <TabBar @format="formatSql" @explain="$emit('explain')" @run="$emit('run')" />
-
     <div
       class="flex-1 overflow-hidden"
       ref="editorContainer"
@@ -30,7 +28,7 @@ import { useEditorStore } from '../stores/editor'
 import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
 import { useUiStore } from '../stores/ui'
-import TabBar from './TabBar.vue'
+
 
 const emit = defineEmits<{ explain: []; run: [sql?: string] }>()
 
@@ -276,6 +274,19 @@ function selectedSql(editorView: EditorView): string {
   return editorView.state.sliceDoc(selection.from, selection.to)
 }
 
+function getWordAt(doc: string, pos: number): string | null {
+  let start = pos
+  while (start > 0 && /[\w\d_`"']/.test(doc[start - 1])) {
+    start--
+  }
+  let end = pos
+  while (end < doc.length && /[\w\d_`"']/.test(doc[end])) {
+    end++
+  }
+  if (start === end) return null
+  return doc.slice(start, end)
+}
+
 function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) => void) {
   const activeConn = connStore.activeConnection
   const dialect = activeConn?.dbType === 'mysql' || activeConn?.dbType === 'mariadb'
@@ -309,6 +320,37 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
       { key: 'Mod-0', run: () => { editorStore.resetZoom(); return true } },
       { key: 'Mod-s', run: () => { if (editorStore.activeTabId) { editorStore.saveTab(editorStore.activeTabId); return true } return false } },
     ]),
+    EditorView.domEventHandlers({
+      click(event, view) {
+        if (event.ctrlKey || event.metaKey) {
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+          if (pos !== null) {
+            const word = getWordAt(view.state.doc.toString(), pos)
+            if (word) {
+              const cleanWord = word.replace(/[`"\[\]']/g, '').trim()
+              if (cleanWord) {
+                const schemaStore = useSchemaStore()
+                const editorStore = useEditorStore()
+                const matches = [...schemaStore.tables, ...schemaStore.views].some(
+                  t => t.name.toLowerCase() === cleanWord.toLowerCase()
+                )
+                if (matches) {
+                  const table = [...schemaStore.tables, ...schemaStore.views].find(
+                    t => t.name.toLowerCase() === cleanWord.toLowerCase()
+                  )
+                  if (table) {
+                    editorStore.addTableTab(table.name)
+                    event.preventDefault()
+                    return true
+                  }
+                }
+              }
+            }
+          }
+        }
+        return false
+      }
+    }),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) { onUpdate(update.state.doc.toString()) }
       if (update.selectionSet || update.docChanged) {

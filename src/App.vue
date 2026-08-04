@@ -6,30 +6,39 @@
       class="main-content app-main"
       ref="mainRef"
     >
-      <div
-        class="editor-pane"
-        :style="{ height: editorPaneHeight }"
-      >
-        <QueryEditor @run="runQuery" @explain="explainQuery" ref="queryEditorRef" />
-      </div>
+      <TabBar @format="formatActiveSql" @explain="explainQuery" @run="runQuery" />
 
-      <div
-        class="resize-handle group"
-        role="separator"
-        aria-label="Resize editor and result panels"
-        aria-orientation="horizontal"
-        @pointerdown="startResize"
-        @dblclick="resetSplit"
-      >
-        <div class="resize-handle-icon group-hover:opacity-100 group-active:opacity-100 flex items-center justify-center gap-0.5 px-2 h-3.5 bg-muted/80 border border-border/80 rounded-full opacity-0 shadow-sm transition-all absolute pointer-events-none">
-          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
-          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
-          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
-        </div>
-      </div>
+      <div class="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+        <template v-if="editorStore.activeTab?.type === 'table'">
+          <TableDataViewer :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName!" />
+        </template>
+        <template v-else>
+          <div
+            class="editor-pane"
+            :style="{ height: editorPaneHeight }"
+          >
+            <QueryEditor @run="runQuery" @explain="explainQuery" ref="queryEditorRef" />
+          </div>
 
-      <div class="result-pane" :style="{ height: resultPaneHeight }">
-        <ResultPanel />
+          <div
+            class="resize-handle group"
+            role="separator"
+            aria-label="Resize editor and result panels"
+            aria-orientation="horizontal"
+            @pointerdown="startResize"
+            @dblclick="resetSplit"
+          >
+            <div class="resize-handle-icon group-hover:opacity-100 group-active:opacity-100 flex items-center justify-center gap-0.5 px-2 h-3.5 bg-muted/80 border border-border/80 rounded-full opacity-0 shadow-sm transition-all absolute pointer-events-none">
+              <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+              <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+              <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+            </div>
+          </div>
+
+          <div class="result-pane" :style="{ height: resultPaneHeight }">
+            <ResultPanel />
+          </div>
+        </template>
       </div>
     </main>
 
@@ -62,6 +71,8 @@ import ConnectionManager from './components/ConnectionManager.vue'
 import SchemaInspector from './components/SchemaInspector.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import ThemeGalleryDialog from './components/ThemeGalleryDialog.vue'
+import TabBar from './components/TabBar.vue'
+import TableDataViewer from './components/TableDataViewer.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'vue-sonner'
 import SaveQueryDialog from './components/SaveQueryDialog.vue'
@@ -145,6 +156,10 @@ async function explainQuery() {
   if (!tab) return
   const sql = queryEditorRef.value?.getCurrentSql() ?? tab.sql
   await resultStore.explainQuery(sql)
+}
+
+function formatActiveSql() {
+  queryEditorRef.value?.formatSql()
 }
 
 const mainRef = ref<HTMLDivElement | null>(null)

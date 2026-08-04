@@ -14,6 +14,8 @@ export interface Tab {
   selectionAnchor?: number
   selectionHead?: number
   selectedTextCount?: number
+  type?: 'query' | 'table'
+  tableName?: string
 }
 
 export interface SavedQuery {
@@ -78,6 +80,8 @@ export const useEditorStore = defineStore('editor', {
         cursorCol: t.cursorCol,
         selectionAnchor: t.selectionAnchor,
         selectionHead: t.selectionHead,
+        type: t.type || 'query',
+        tableName: t.tableName,
       }))
       localStorage.setItem('tabState', JSON.stringify(data))
       localStorage.setItem('activeTabIndex', String(activeIndex))
@@ -131,6 +135,8 @@ export const useEditorStore = defineStore('editor', {
           selectedTextCount: (d.selectionAnchor !== undefined && d.selectionHead !== undefined)
             ? Math.abs(d.selectionHead - d.selectionAnchor)
             : 0,
+          type: (d as any).type || 'query',
+          tableName: (d as any).tableName,
         }))
         const activeId = localStorage.getItem('activeTabId')
         const activeIndexRaw = localStorage.getItem('activeTabIndex')
@@ -188,8 +194,34 @@ export const useEditorStore = defineStore('editor', {
         selectionAnchor: 0,
         selectionHead: 0,
         selectedTextCount: 0,
+        type: 'query',
       }
       this.tabs.push(tab)
+      this.activeTabId = tab.id
+      this.saveTabState()
+      return tab.id
+    },
+    addTableTab(tableName: string) {
+      let tab = this.tabs.find(t => t.type === 'table' && t.tableName === tableName)
+      if (!tab) {
+        if (this.tabs.length >= MAX_TABS) return ''
+        tab = {
+          id: `tab-table-${Date.now()}`,
+          name: tableName,
+          sql: `SELECT * FROM \`${tableName.replace(/`/g, '``')}\``,
+          connectionId: null,
+          isUnsaved: false,
+          savedQueryId: null,
+          cursorLine: 1,
+          cursorCol: 1,
+          selectionAnchor: 0,
+          selectionHead: 0,
+          selectedTextCount: 0,
+          type: 'table',
+          tableName: tableName,
+        }
+        this.tabs.push(tab)
+      }
       this.activeTabId = tab.id
       this.saveTabState()
       return tab.id

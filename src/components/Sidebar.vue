@@ -508,16 +508,7 @@ function onSearch(e: Event) {
 
 function selectTable(name: string) {
   schemaStore.setActiveTable(name)
-  const quotedName = quoteSqlIdentifier(name)
-  let tab = editorStore.tabs.find(t => t.name === name && t.sql.includes(`SELECT * FROM ${quotedName}`))
-  if (!tab) {
-    const tabId = editorStore.addTab()
-    tab = editorStore.tabs.find(t => t.id === tabId)
-    if (tab) { tab.name = name; tab.sql = `SELECT * FROM ${quotedName} LIMIT 100;` }
-  } else {
-    editorStore.selectTab(tab.id)
-  }
-  if (tab) resultStore.runQuery(tab.sql)
+  editorStore.addTableTab(name)
 }
 
 function copyOrInsert(name: string) {
