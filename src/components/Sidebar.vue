@@ -101,7 +101,6 @@
                   @contextmenu.prevent="(e) => openCtxMenu(e, table.name, 'table')"
                 >
                   <div v-if="schemaStore.activeTable === table.name" class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-primary rounded-r-full shadow-[0_0_8px_var(--primary)]"></div>
-                  <Table class="w-3.5 h-3.5 text-sky-400/80 flex-shrink-0" :class="{ 'text-primary opacity-100': schemaStore.activeTable === table.name }" />
                   <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ table.name }}</span>
                   <span class="text-[9px] text-muted-foreground/70 font-mono flex-shrink-0">{{ formatCount(table.rowCount) }}</span>
                 </button>
@@ -142,7 +141,6 @@
                   @click="selectTable(view.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, view.name, 'view')"
                 >
-                  <Eye class="w-3.5 h-3.5 text-amber-400/80 flex-shrink-0" />
                   <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ view.name }}</span>
                 </button>
               </template>
@@ -181,7 +179,6 @@
                   @click="selectFunction(fn.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, fn.name, 'function')"
                 >
-                  <Zap class="w-3.5 h-3.5 text-purple-400/80 flex-shrink-0" />
                   <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ fn.name }}</span>
                 </button>
               </template>
@@ -220,7 +217,6 @@
                   @click="copyOrInsert(idx.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, idx.name, 'index')"
                 >
-                  <Hash class="w-3.5 h-3.5 text-emerald-400/80 flex-shrink-0" />
                   <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ idx.name }}</span>
                 </button>
               </template>
@@ -259,7 +255,6 @@
                   @click="selectProc(proc.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, proc.name, 'proc')"
                 >
-                  <Play class="w-3.5 h-3.5 text-indigo-400/80 flex-shrink-0" />
                   <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ proc.name }}</span>
                 </button>
               </template>
@@ -298,7 +293,6 @@
                   @click="selectTrigger(trig.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, trig.name, 'trigger')"
                 >
-                  <Activity class="w-3.5 h-3.5 text-rose-400/80 flex-shrink-0" />
                   <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ trig.name }}</span>
                 </button>
               </template>
@@ -333,7 +327,6 @@
                 @click="editorStore.openSavedQuery(sq)"
                 @contextmenu.prevent="(e) => openSQCtxMenu(e, sq)"
               >
-                <FileText class="w-3.5 h-3.5 text-zinc-400/80 flex-shrink-0" />
                 <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ sq.name }}</span>
               </button>
               <div v-if="!editorStore.savedQueries.length" class="px-6 py-2 text-[11px] text-muted-foreground/50">
