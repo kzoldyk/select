@@ -71,3 +71,28 @@ export async function loadActiveConnectionId(): Promise<string | null> {
     return localGet<string>(ACTIVE_CONNECTION_KEY)
   }
 }
+
+const RECENTS_KEY = 'recentConnectionIds'
+
+export async function saveRecentConnectionIds(ids: string[]): Promise<void> {
+  try {
+    const store = await getStore()
+    await store.set(RECENTS_KEY, ids)
+    await store.save()
+  } catch (error) {
+    console.warn('Falling back to localStorage for recents:', error)
+    localSet(RECENTS_KEY, ids)
+  }
+}
+
+export async function loadRecentConnectionIds(): Promise<string[] | null> {
+  try {
+    const store = await getStore()
+    const value = await store.get<string[]>(RECENTS_KEY)
+    return value ?? localGet<string[]>(RECENTS_KEY)
+  } catch (error) {
+    console.warn('Falling back to localStorage for recents:', error)
+    return localGet<string[]>(RECENTS_KEY)
+  }
+}
+

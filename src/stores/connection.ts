@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
-import { saveConnections, loadConnections, saveActiveConnectionId, loadActiveConnectionId } from './storage'
+import { saveConnections, loadConnections, saveActiveConnectionId, loadActiveConnectionId, saveRecentConnectionIds, loadRecentConnectionIds } from './storage'
 import { useResultStore } from './result'
 import { useSchemaStore } from './schema'
 
@@ -35,6 +35,7 @@ export const useConnectionStore = defineStore('connection', {
   state: () => ({
     connections: [] as Connection[],
     activeId: null as string | null,
+    recentIds: [] as string[],
     status: 'idle' as ConnectionStatus,
     latency: 0,
     loaded: false,
@@ -44,6 +45,11 @@ export const useConnectionStore = defineStore('connection', {
   getters: {
     activeConnection: (state): Connection | null =>
       state.connections.find(c => c.id === state.activeId) ?? null,
+    recentConnections: (state): Connection[] => {
+      return state.recentIds
+        .map(id => state.connections.find(c => c.id === id))
+        .filter((c): c is Connection => !!c)
+    }
   },
 
   actions: {
@@ -80,6 +86,11 @@ export const useConnectionStore = defineStore('connection', {
       } else if (this.connections.length > 0) {
         this.activeId = this.connections[0].id
       }
+
+      const savedRecents = await loadRecentConnectionIds()
+      if (savedRecents) {
+        this.recentIds = savedRecents.filter(id => this.connections.some(c => c.id === id))
+      }
       
       this.loaded = true
     },
@@ -110,6 +121,8 @@ export const useConnectionStore = defineStore('connection', {
 
     async removeConnection(id: string) {
       this.connections = this.connections.filter(c => c.id !== id)
+      this.recentIds = this.recentIds.filter(x => x !== id)
+      await saveRecentConnectionIds(this.recentIds)
       if (this.activeId === id) {
         this.activeId = this.connections[0]?.id ?? null
         await saveActiveConnectionId(this.activeId)
@@ -138,6 +151,12 @@ export const useConnectionStore = defineStore('connection', {
 	        this.activeId = id
 	        this.status = 'connected'
 	        await saveActiveConnectionId(id)
+
+	        // Track connection in history (max 5)
+	        const nextRecents = [id, ...this.recentIds.filter(x => x !== id)].slice(0, 5)
+	        this.recentIds = nextRecents
+	        await saveRecentConnectionIds(nextRecents)
+
 	        useResultStore().clearResults()
 	        useSchemaStore().clearSchema()
 	        return true
@@ -154,7 +173,7 @@ export const useConnectionStore = defineStore('connection', {
         await invoke('change_database', { database: dbName, id: this.activeId })
         await this.updateConnection(this.activeId, { database: dbName })
         useResultStore().clearResults()
-        useSchemaStore().clearSchema()
+        useSchemaStore().clearSchema(true)
       } catch (e) {
         this.status = 'error'
         this.lastError = String(e)

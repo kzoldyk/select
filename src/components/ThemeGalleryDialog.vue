@@ -11,7 +11,7 @@
             Discover, customize, and manage themes. Hover to preview instantly.
           </DialogDescription>
         </div>
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-1 pr-10">
           <Button variant="ghost" size="icon" class="h-7 w-7 text-text-muted hover:text-foreground cursor-pointer" @click="applyRandomTheme" title="Random Theme (⌘⌥R)">
             <Shuffle class="w-3.5 h-3.5" />
           </Button>

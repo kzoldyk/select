@@ -227,11 +227,11 @@
                     />
                   </div>
                 </TableHead>
-                <TableHead class="w-[48px] text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/20 select-none py-2.5 px-3">#</TableHead>
+                <TableHead class="w-[48px] text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/20 select-none py-3 px-3.5">#</TableHead>
                 <TableHead
                   v-for="col in currentColumns"
                   :key="col.name"
-                  class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-2.5 px-4 border-r border-border/20 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
+                  class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-3 px-5 border-r border-border/20 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
                   :class="{ 'text-right': isNumericColumn(col) }"
                   :aria-sort="getSortAria(col.name)"
                   @click="sortBy(col.name)"
@@ -281,11 +281,11 @@
                     />
                   </div>
                 </TableCell>
-                <TableCell class="text-center py-2 px-3 w-[48px] border-r border-border/20 text-[10px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
+                <TableCell class="text-center py-2.5 px-3.5 w-[48px] border-r border-border/20 text-[10px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
                 <TableCell
                   v-for="(col, colIndex) in currentColumns"
                   :key="col.name"
-                  class="py-2 px-4 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/30 select-none transition-all duration-75"
+                  class="py-2.5 px-5 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/30 select-none transition-all duration-75"
                   :class="[
                     getCellClass(item.row[col.name], col),
                     isNumericColumn(col) ? 'text-right tabular-nums' : '',

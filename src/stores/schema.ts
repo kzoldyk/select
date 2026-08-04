@@ -127,14 +127,16 @@ export const useSchemaStore = defineStore('schema', {
       this.activeTable = name
       this.tableDetails = name ? this.detailsByTable[name] ?? null : null
     },
-    clearSchema() {
+    clearSchema(keepDatabases = false) {
       this.tables = []
       this.views = []
       this.functions = []
       this.indexes = []
       this.triggers = []
       this.procs = []
-      this.databases = []
+      if (!keepDatabases) {
+        this.databases = []
+      }
       this.activeTable = null
       this.tableDetails = null
       this.detailsByTable = {}
@@ -180,6 +182,9 @@ export const useSchemaStore = defineStore('schema', {
 	      this.detailsError = null
 	      try {
 	        const connStore = useConnectionStore()
+          if (!this.databases.length) {
+            await this.fetchDatabases(connectionId)
+          }
 	        const dbName = connStore.activeConnection?.database ?? null
 	        const data = await invoke<any>('fetch_schema', { id: connectionId ?? 'default', database: dbName })
         if (data.tables) {

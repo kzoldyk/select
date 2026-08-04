@@ -3,7 +3,7 @@ use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, Key, KeyInit, Nonce};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chrono::Utc;
 use mysql_async::prelude::*;
-use mysql_async::{params, Conn, Opts, Pool};
+use mysql_async::{params, Conn, Opts, OptsBuilder, Pool};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 const MAX_RESULT_ROWS: usize = 10_000;
 const MAX_PAGE_SIZE: usize = 500;
-const QUERY_TIMEOUT_SECS: u64 = 30;
+const QUERY_TIMEOUT_SECS: u64 = 600;
 
 fn history_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -653,34 +653,28 @@ fn build_connection_url(config: &ConnectionConfig) -> String {
 
     let mut params = Vec::new();
 
-    let resolved_ssl = match config.ssl_mode.as_deref().unwrap_or("") {
-        "disabled" => Some("DISABLED"),
-        "preferred" => Some("PREFERRED"),
-        "required" => Some("REQUIRED"),
-        "verify_ca" => Some("VERIFY_CA"),
-        "verify_identity" => Some("VERIFY_IDENTITY"),
+    let ssl_params = match config.ssl_mode.as_deref().unwrap_or("") {
+        "disabled" => Some(("false", None, None)),
+        "preferred" => None,
+        "required" => Some(("true", Some("false"), Some("false"))),
+        "verify_ca" => Some(("true", Some("true"), Some("false"))),
+        "verify_identity" => Some(("true", Some("true"), Some("true"))),
         _ => {
             if config.ssl {
-                Some("REQUIRED")
+                Some(("true", Some("false"), Some("false")))
             } else {
                 None
             }
         }
     };
 
-    if let Some(mode) = resolved_ssl {
-        params.push(format!("ssl_mode={}", mode));
-    }
-
-    if let Some(timeout) = config.connect_timeout_secs {
-        if timeout > 0 {
-            params.push(format!("connect_timeout={}", timeout));
+    if let Some((require, verify_ca, verify_identity)) = ssl_params {
+        params.push(format!("require_ssl={}", require));
+        if let Some(ca) = verify_ca {
+            params.push(format!("verify_ca={}", ca));
         }
-    }
-
-    if let Some(ref cs) = config.charset {
-        if !cs.trim().is_empty() {
-            params.push(format!("charset={}", encode_url_part(cs.trim())));
+        if let Some(identity) = verify_identity {
+            params.push(format!("verify_identity={}", identity));
         }
     }
 
@@ -690,6 +684,21 @@ fn build_connection_url(config: &ConnectionConfig) -> String {
     }
 
     base
+}
+
+fn get_connection_opts(config: &ConnectionConfig) -> Result<(Opts, String), String> {
+    let url = build_connection_url(config);
+    let opts = Opts::from_url(&url).map_err(|e| safe_error(&e))?;
+    let mut builder = OptsBuilder::from_opts(opts);
+    if let Some(ref cs) = config.charset {
+        if !cs.trim().is_empty() {
+            let cs_trimmed = cs.trim();
+            if cs_trimmed.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+                builder = builder.init(vec![format!("SET NAMES '{}'", cs_trimmed)]);
+            }
+        }
+    }
+    Ok((Opts::from(builder), url))
 }
 
 fn quote_identifier(identifier: &str) -> String {
@@ -770,17 +779,15 @@ pub async fn run_query(
 
     let (conn_id, pool) = resolve_connection(&state, id).await?;
 
-    if let Ok(mut c) = pool.get_conn().await {
-        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-            if let Some(t) = tid {
-                state.thread_ids.lock().await.insert(conn_id, t);
-            }
-        }
-    }
+    let thread_ids = state.thread_ids.clone();
+    let sql_clone = sql.clone();
 
-    let query_future = async {
+    let query_future = async move {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-        let mut result = conn.query_iter(&sql).await.map_err(|e| safe_error(&e))?;
+        if let Ok(Some(tid)) = conn.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+            thread_ids.lock().await.insert(conn_id, tid);
+        }
+        let mut result = conn.query_iter(&sql_clone).await.map_err(|e| safe_error(&e))?;
         let mut columns = Vec::new();
         for col in result.columns_ref() {
             let type_str = format!("{:?}", col.column_type());
@@ -849,13 +856,13 @@ pub async fn run_query(
             json_rows.push(Value::Object(map));
         }
 
-        result.drop_result().await.map_err(|e| safe_error(&e))?;
         if truncated {
             return Err(format!(
                 "Result limit exceeded. Refine the query or add LIMIT {}.",
                 MAX_RESULT_ROWS
             ));
         }
+        result.drop_result().await.map_err(|e| safe_error(&e))?;
 
         Ok::<(Vec<Column>, Vec<Value>), String>((columns, json_rows))
     };
@@ -953,12 +960,15 @@ pub async fn run_multi_query(
 
     let (conn_id, pool) = resolve_connection(&state, id).await?;
 
-    if let Ok(mut c) = pool.get_conn().await {
-        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-            if let Some(t) = tid {
-                state.thread_ids.lock().await.insert(conn_id, t);
-            }
-        }
+    let thread_ids = state.thread_ids.clone();
+
+    let mut conn = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), pool.get_conn())
+        .await
+        .map_err(|_| format!("Connection timed out after {} seconds.", QUERY_TIMEOUT_SECS))?
+        .map_err(|e| safe_error(&e))?;
+
+    if let Ok(Some(tid)) = conn.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+        thread_ids.lock().await.insert(conn_id, tid);
     }
 
     let mut results = Vec::new();
@@ -967,8 +977,6 @@ pub async fn run_multi_query(
         let is_mutating = validate_read_only_query(stmt).is_err();
 
         let result = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
-            let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-
             if is_mutating {
                 conn.query_iter(stmt).await.map_err(|e| safe_error(&e))?;
                 let affected = conn.affected_rows();
@@ -1048,7 +1056,9 @@ pub async fn run_multi_query(
                     json_rows.push(Value::Object(map));
                 }
 
-                result.drop_result().await.map_err(|e| safe_error(&e))?;
+                if json_rows.len() < MAX_RESULT_ROWS {
+                    result.drop_result().await.map_err(|e| safe_error(&e))?;
+                }
 
                 let row_count = json_rows.len() as u64;
                 Ok(SingleQueryResult {
@@ -1100,8 +1110,13 @@ pub async fn run_multi_query(
                     row_count: None,
                     affected_rows: None,
                     duration_ms: stmt_start.elapsed().as_millis() as u64,
-                    error: Some(e),
+                    error: Some(e.clone()),
                 });
+                
+                if e.contains("timed out") {
+                    // The connection is poisoned by the timeout, we must abort the multi-query
+                    break;
+                }
             }
         }
     }
@@ -1152,30 +1167,30 @@ pub async fn run_query_paged(
 
     let (conn_id, pool) = resolve_connection(&state, id).await?;
 
-    if let Ok(mut c) = pool.get_conn().await {
-        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-            if let Some(t) = tid {
-                state.thread_ids.lock().await.insert(conn_id, t);
-            }
-        }
-    }
+    let thread_ids = state.thread_ids.clone();
 
     let fetch_limit = page_size + 1;
     let clean_sql = sql.trim().trim_end_matches(';');
     let paged_sql = format!("{} LIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
 
-    let query_future = async {
+    let clean_sql_clone = clean_sql.to_string();
+    let paged_sql_clone = paged_sql.clone();
+
+    let query_future = async move {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+        if let Ok(Some(tid)) = conn.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+            thread_ids.lock().await.insert(conn_id, tid);
+        }
         
         let mut result_is_fallback = false;
-        let mut result = match conn.query_iter(&paged_sql).await {
+        let mut result = match conn.query_iter(&paged_sql_clone).await {
             Ok(r) => r,
             Err(e) => {
                 let err_msg = safe_error(&e);
                 if err_msg.to_lowercase().contains("syntax") || err_msg.to_lowercase().contains("parse") {
                     // Fallback to original query (user might already have LIMIT)
                     result_is_fallback = true;
-                    conn.query_iter(clean_sql).await.map_err(|e| safe_error(&e))?
+                    conn.query_iter(&clean_sql_clone).await.map_err(|e| safe_error(&e))?
                 } else {
                     return Err(err_msg);
                 }
@@ -1251,7 +1266,9 @@ pub async fn run_query_paged(
             json_rows.push(Value::Object(map));
         }
 
-        result.drop_result().await.map_err(|e| safe_error(&e))?;
+        if json_rows.len() < fetch_limit {
+            result.drop_result().await.map_err(|e| safe_error(&e))?;
+        }
 
         Ok::<(Vec<Column>, Vec<Value>), String>((columns, json_rows))
     };
@@ -1337,13 +1354,7 @@ pub async fn run_write_query(
 
     let (conn_id, pool) = resolve_connection(&state, id).await?;
 
-    if let Ok(mut c) = pool.get_conn().await {
-        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-            if let Some(t) = tid {
-                state.thread_ids.lock().await.insert(conn_id, t);
-            }
-        }
-    }
+    let thread_ids = state.thread_ids.clone();
 
     let mut warning = None;
     if !has_where_clause(&sql) {
@@ -1357,19 +1368,18 @@ pub async fn run_write_query(
         ));
     }
 
-    let mut conn = pool
-        .get_conn()
-        .await
-        .map_err(|e| safe_error(&e))?;
-
-    let result = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
-        conn.query_iter(&sql).await.map_err(|e| safe_error(&e))
+    let affected = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
+        let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+        if let Ok(Some(tid)) = conn.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
+            thread_ids.lock().await.insert(conn_id, tid);
+        }
+        let result = conn.query_iter(&sql).await.map_err(|e| safe_error(&e))?;
+        Ok::<u64, String>(result.affected_rows())
     })
     .await
     .map_err(|_| format!("Query timed out after {} seconds.", QUERY_TIMEOUT_SECS))
     .and_then(|r| r)?;
 
-    let affected = result.affected_rows();
     let duration = start.elapsed().as_millis() as u64;
 
     let _ = append_history(
@@ -1489,12 +1499,24 @@ pub async fn connect(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     validate_connection_config(&config)?;
-    let url = build_connection_url(&config);
-    let opts = Opts::from_url(&url).map_err(|e| safe_error(&e))?;
+    let (opts, url) = get_connection_opts(&config)?;
     let pool = Pool::new(opts);
 
     {
-        let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+        let conn_fut = pool.get_conn();
+        let mut conn = if let Some(timeout_secs) = config.connect_timeout_secs {
+            if timeout_secs > 0 {
+                match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), conn_fut).await {
+                    Ok(res) => res.map_err(|e| safe_error(&e))?,
+                    Err(_) => return Err(format!("Connection timed out after {} seconds.", timeout_secs)),
+                }
+            } else {
+                conn_fut.await.map_err(|e| safe_error(&e))?
+            }
+        } else {
+            conn_fut.await.map_err(|e| safe_error(&e))?
+        };
+
         let thread_id: u32 = conn
             .query_first("SELECT CONNECTION_ID()")
             .await
@@ -1573,9 +1595,21 @@ pub async fn disconnect(id: String, state: State<'_, AppState>) -> Result<(), St
 pub async fn test_connection(config: ConnectionConfig) -> Result<u64, String> {
     validate_connection_config(&config)?;
     let start = std::time::Instant::now();
-    let url = build_connection_url(&config);
-    let opts = Opts::from_url(&url).map_err(|e| safe_error(&e))?;
-    let conn = Conn::new(opts).await.map_err(|e| safe_error(&e))?;
+    let (opts, _url) = get_connection_opts(&config)?;
+    let conn_fut = Conn::new(opts);
+    let conn = if let Some(timeout_secs) = config.connect_timeout_secs {
+        if timeout_secs > 0 {
+            match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), conn_fut).await {
+                Ok(res) => res.map_err(|e| safe_error(&e))?,
+                Err(_) => return Err(format!("Connection timed out after {} seconds.", timeout_secs)),
+            }
+        } else {
+            conn_fut.await.map_err(|e| safe_error(&e))?
+        }
+    } else {
+        conn_fut.await.map_err(|e| safe_error(&e))?
+    };
+
     conn.disconnect().await.map_err(|e| safe_error(&e))?;
     Ok(start.elapsed().as_millis() as u64)
 }
@@ -2468,10 +2502,11 @@ mod tests {
             charset: Some("utf8mb4".into()),
         };
 
-        let url = build_connection_url(&config);
-        assert!(url.contains("ssl_mode=REQUIRED"));
-        assert!(url.contains("connect_timeout=15"));
-        assert!(url.contains("charset=utf8mb4"));
+        let (opts, url) = get_connection_opts(&config).unwrap();
+        assert!(url.contains("require_ssl=true"));
+        assert!(url.contains("verify_ca=false"));
+        assert!(url.contains("verify_identity=false"));
+        assert_eq!(opts.init(), &["SET NAMES 'utf8mb4'".to_string()]);
     }
 
     #[test]

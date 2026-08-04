@@ -55,15 +55,15 @@ export const dynamicTheme = EditorView.theme({
   },
   '.cm-scroller': {
     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-    lineHeight: '1.5',
+    lineHeight: '1.65',
     overflow: 'auto',
   },
   '.cm-content': {
     caretColor: 'var(--editor-cursor, var(--primary, var(--foreground)))',
-    padding: '10px 0',
+    padding: '12px 0',
   },
   '.cm-line': {
-    lineHeight: '1.5',
+    lineHeight: '1.65',
   },
   '.cm-cursor': {
     borderLeftColor: 'var(--editor-cursor, var(--primary, var(--foreground)))',
@@ -90,7 +90,7 @@ export const dynamicTheme = EditorView.theme({
     padding: '0 8px 0 0',
     textAlign: 'right',
     fontSize: '0.85em',
-    lineHeight: '1.5',
+    lineHeight: '1.65',
     color: 'var(--muted-foreground)',
   },
   '.cm-selectionBackground': {

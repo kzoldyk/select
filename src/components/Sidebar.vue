@@ -14,6 +14,7 @@
           :value="connStore.activeConnection?.database"
           @change="async (e) => {
             await connStore.changeDatabase((e.target as HTMLSelectElement).value)
+            await schemaStore.fetchDatabases(connStore.activeId ?? undefined)
             await schemaStore.refreshSchema(connStore.activeId ?? undefined)
           }"
         >
@@ -93,7 +94,7 @@
                 <button
                   v-for="table in schemaStore.filteredTables"
                   :key="table.name"
-                  class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
+                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
                   :class="{ 'text-primary bg-primary/10 font-medium': schemaStore.activeTable === table.name }"
                   :title="table.name"
                   @click="selectTable(table.name)"
@@ -136,7 +137,7 @@
                 <button
                   v-for="view in schemaStore.filteredViews"
                   :key="view.name"
-                  class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
+                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
                   :title="view.name"
                   @click="selectTable(view.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, view.name, 'view')"
@@ -175,7 +176,7 @@
                 <button
                   v-for="fn in schemaStore.filteredFunctions"
                   :key="fn.name"
-                  class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
+                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
                   :title="fn.name"
                   @click="selectFunction(fn.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, fn.name, 'function')"
@@ -214,7 +215,7 @@
                 <button
                   v-for="idx in schemaStore.filteredIndexes"
                   :key="idx.name"
-                  class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
+                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
                   :title="idx.name"
                   @click="copyOrInsert(idx.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, idx.name, 'index')"
@@ -253,7 +254,7 @@
                 <button
                   v-for="proc in schemaStore.filteredProcs"
                   :key="proc.name"
-                  class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
+                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
                   :title="proc.name"
                   @click="selectProc(proc.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, proc.name, 'proc')"
@@ -292,7 +293,7 @@
                 <button
                   v-for="trig in schemaStore.filteredTriggers"
                   :key="trig.name"
-                  class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
+                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
                   :title="trig.name"
                   @click="selectTrigger(trig.name)"
                   @contextmenu.prevent="(e) => openCtxMenu(e, trig.name, 'trigger')"
@@ -327,7 +328,7 @@
               <button
                 v-for="sq in editorStore.savedQueries"
                 :key="sq.id"
-                class="w-full flex items-center gap-2 px-2 py-1 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-colors bg-transparent border-none cursor-pointer text-left relative"
+                class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
                 :title="sq.name"
                 @click="editorStore.openSavedQuery(sq)"
                 @contextmenu.prevent="(e) => openSQCtxMenu(e, sq)"

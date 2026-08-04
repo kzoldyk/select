@@ -3,8 +3,7 @@
     <Sidebar class="app-sidebar" />
 
     <main 
-      class="main-content app-main transition-all duration-300"
-      :class="{ 'shadow-[inset_0_0_20px_rgba(239,68,68,0.12)] ring-1 ring-red-500/20': isProd }"
+      class="main-content app-main"
       ref="mainRef"
     >
       <div
