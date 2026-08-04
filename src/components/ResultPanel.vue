@@ -227,11 +227,11 @@
                     />
                   </div>
                 </TableHead>
-                <TableHead class="w-[48px] text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/20 select-none py-3 px-3.5">#</TableHead>
+                <TableHead class="w-[36px] text-center text-[9px] font-bold uppercase tracking-tight text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/20 select-none py-1 px-2">#</TableHead>
                 <TableHead
                   v-for="col in currentColumns"
                   :key="col.name"
-                  class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-3 px-5 border-r border-border/20 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
+                  class="text-[10.5px] font-bold uppercase tracking-tight text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-1.5 px-3 border-r border-border/20 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
                   :class="{ 'text-right': isNumericColumn(col) }"
                   :aria-sort="getSortAria(col.name)"
                   @click="sortBy(col.name)"
@@ -244,7 +244,7 @@
                     </span>
                   </div>
                 </TableHead>
-                <TableHead v-if="isProcesslist" class="w-[70px] text-center text-[11px] font-semibold text-muted-foreground bg-muted/80 backdrop-blur-md">Action</TableHead>
+                <TableHead v-if="isProcesslist" class="w-[70px] text-center text-[10.5px] font-semibold text-muted-foreground bg-muted/80 backdrop-blur-md">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -262,7 +262,7 @@
                 <TableRow
                   v-for="item in filteredRows"
                   :key="item.key"
-                  class="text-[12px] font-mono group transition-colors border-b border-border/40"
+                  class="text-[11px] font-sans group transition-colors border-b border-border/40"
                   :class="[
                     item.index % 2 === 0 ? 'bg-transparent' : 'bg-muted/10',
                     resultStore.selectedRows.has(item.key) ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/40'
@@ -276,22 +276,23 @@
                       :checked="resultStore.selectedRows.has(item.key)"
                       @change="resultStore.toggleRowSelection(item.key)"
                       :aria-label="`Select row ${item.index + 1}`"
-                      class="accent-primary cursor-pointer w-3.5 h-3.5 rounded-sm border-input opacity-0 group-hover:opacity-100 transition-opacity"
+                      class="accent-primary cursor-pointer w-3 h-3 rounded-sm border-input opacity-0 group-hover:opacity-100 transition-opacity"
                       :class="{ 'opacity-100': resultStore.selectedRows.has(item.key) }"
                     />
                   </div>
                 </TableCell>
-                <TableCell class="text-center py-2.5 px-3.5 w-[48px] border-r border-border/20 text-[10px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
+                <TableCell class="text-center py-1 px-2 w-[36px] border-r border-border/20 text-[9.5px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
                 <TableCell
                   v-for="(col, colIndex) in currentColumns"
                   :key="col.name"
-                  class="py-2.5 px-5 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/30 select-none transition-all duration-75"
+                  class="py-1 px-3 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/20 last:border-r-0 cursor-cell hover:bg-muted/15 select-none transition-all duration-75 font-sans"
                   :class="[
                     getCellClass(item.row[col.name], col),
-                    isNumericColumn(col) ? 'text-right tabular-nums' : '',
+                    isNumericColumn(col) ? 'text-right tabular-nums font-mono text-[10px]' : '',
                     getCellSelectionClass(item.index, colIndex)
                   ]"
-                  @click="selectCell(item.index, col.name, $event)"
+                  @mousedown="onCellMouseDown(item.index, col.name, $event)"
+                  @mouseenter="onCellMouseEnter(item.index, col.name, $event)"
                   @dblclick="startEditCell(item.index, col.name, $event)"
                   @contextmenu.prevent="showContextMenu($event, item.row, item.index, col.name)"
                 >
@@ -299,7 +300,7 @@
                     <input
                       ref="editInputRef"
                       v-model="resultStore.editValue"
-                      class="w-full h-full bg-background border-2 border-primary rounded px-1 text-[12px] font-mono outline-none shadow-sm focus:ring-2 focus:ring-primary/20"
+                      class="w-full h-full bg-background border border-primary rounded px-1 py-0.5 text-[11px] font-sans outline-none shadow-sm focus:ring-1 focus:ring-primary/25"
                       @keydown.enter="commitEditCell(item.index, col.name)"
                       @keydown.escape="resultStore.cancelEditing()"
                       @blur="commitEditCell(item.index, col.name)"
@@ -307,13 +308,13 @@
                     />
                   </template>
                   <template v-else-if="item.row[col.name] === null">
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-muted text-muted-foreground/60 border border-border/50">NULL</span>
+                    <span class="text-[9.5px] italic text-muted-foreground/45 select-none">NULL</span>
                   </template>
                   <template v-else-if="col.name === 'status'">
-                    <Badge variant="outline" class="text-[10px] px-1.5 py-0 font-sans tracking-wide" :class="statusBadgeClass(String(item.row[col.name]))">{{ item.row[col.name] }}</Badge>
+                    <Badge variant="outline" class="text-[9.5px] px-1.5 py-0 font-sans tracking-wide" :class="statusBadgeClass(String(item.row[col.name]))">{{ item.row[col.name] }}</Badge>
                   </template>
                   <template v-else-if="col.type === 'boolean'">
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold" :class="item.row[col.name] ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'">{{ item.row[col.name] ? 'TRUE' : 'FALSE' }}</span>
+                    <span class="inline-flex items-center px-1 py-0.2 rounded-full text-[9.5px] font-semibold font-sans" :class="item.row[col.name] ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'">{{ item.row[col.name] ? 'TRUE' : 'FALSE' }}</span>
                   </template>
                   <template v-else>
                     <div class="flex items-center justify-between gap-1 group/fk w-full">
@@ -326,7 +327,7 @@
                         title="Preview referenced record"
                         @click.stop="(e) => showFkPreview(e, col, item.index, item.row[col.name])"
                       >
-                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
                       </button>
                     </div>
                   </template>
@@ -1123,6 +1124,7 @@ onMounted(() => {
   document.addEventListener('click', hideAllContextMenus)
   document.addEventListener('click', handleGlobalFkClick)
   document.addEventListener('keydown', handleGlobalFkKeydown)
+  window.addEventListener('mouseup', onGlobalMouseUp)
   resultStore.loadHistory()
   if (resultStore.status === 'success') {
     loadForeignKeysForColumns()
@@ -1133,6 +1135,7 @@ onUnmounted(() => {
   document.removeEventListener('click', hideAllContextMenus)
   document.removeEventListener('click', handleGlobalFkClick)
   document.removeEventListener('keydown', handleGlobalFkKeydown)
+  window.removeEventListener('mouseup', onGlobalMouseUp)
   if (observer) observer.disconnect()
   if (searchTimer) clearTimeout(searchTimer)
 })
@@ -1442,6 +1445,33 @@ function focus() {
 
 const anchorCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
 const focusCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
+const isMouseDown = ref(false)
+
+function onGlobalMouseUp() {
+  isMouseDown.value = false
+}
+
+function onCellMouseDown(rowIndex: number, colName: string, event: MouseEvent) {
+  if (event.button !== 0) return // Left click only
+  isMouseDown.value = true
+  const colIndex = currentColumns.value.findIndex(c => c.name === colName)
+  
+  if (event.shiftKey && anchorCell.value) {
+    focusCell.value = { rowIndex, colIndex }
+  } else {
+    anchorCell.value = { rowIndex, colIndex }
+    focusCell.value = { rowIndex, colIndex }
+  }
+  
+  focus()
+  event.preventDefault() // Prevents default text dragging select
+}
+
+function onCellMouseEnter(rowIndex: number, colName: string, _event: MouseEvent) {
+  if (!isMouseDown.value) return
+  const colIndex = currentColumns.value.findIndex(c => c.name === colName)
+  focusCell.value = { rowIndex, colIndex }
+}
 
 function selectCell(rowIndex: number, colName: string, event?: MouseEvent) {
   const colIndex = currentColumns.value.findIndex(c => c.name === colName)
@@ -1451,6 +1481,7 @@ function selectCell(rowIndex: number, colName: string, event?: MouseEvent) {
     anchorCell.value = { rowIndex, colIndex }
     focusCell.value = { rowIndex, colIndex }
   }
+  focus()
 }
 
 function getCellSelectionClass(rowIndex: number, colIndex: number) {
