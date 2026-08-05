@@ -12,6 +12,9 @@
         <template v-if="editorStore.activeTab?.type === 'table'">
           <TableDataViewer :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName!" />
         </template>
+        <template v-else-if="editorStore.activeTab?.type === 'schema_diagram'">
+          <SchemaDiagram :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName" />
+        </template>
         <template v-else>
           <div
             class="editor-pane"
@@ -21,6 +24,7 @@
           </div>
 
           <div
+            v-show="uiStore.resultPanelOpen"
             class="resize-handle group"
             role="separator"
             aria-label="Resize editor and result panels"
@@ -35,9 +39,22 @@
             </div>
           </div>
 
-          <div class="result-pane" :style="{ height: resultPaneHeight }">
+          <div 
+            v-show="uiStore.resultPanelOpen" 
+            class="result-pane" 
+            :style="{ height: resultPaneHeight }"
+          >
             <ResultPanel />
           </div>
+
+          <button
+            v-show="!uiStore.resultPanelOpen"
+            class="absolute bottom-2 right-4 z-20 flex items-center justify-center w-7 h-7 rounded bg-muted/90 hover:bg-muted text-muted-foreground hover:text-foreground border border-border shadow-sm transition-all cursor-pointer"
+            title="Show Result Panel"
+            @click="uiStore.toggleResultPanel()"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-up"><path d="m18 15-6-6-6 6"/></svg>
+          </button>
         </template>
       </div>
     </main>
@@ -73,6 +90,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import ThemeGalleryDialog from './components/ThemeGalleryDialog.vue'
 import TabBar from './components/TabBar.vue'
 import TableDataViewer from './components/TableDataViewer.vue'
+import SchemaDiagram from './components/SchemaDiagram.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'vue-sonner'
 import SaveQueryDialog from './components/SaveQueryDialog.vue'
@@ -167,9 +185,10 @@ let isResizing = false
 let startY = 0
 let startRatio = 0
 
-const editorPaneHeight = computed(() =>
-  `calc(${editorStore.splitRatio * 100}% - 2px)`
-)
+const editorPaneHeight = computed(() => {
+  if (!uiStore.resultPanelOpen) return '100%'
+  return `calc(${editorStore.splitRatio * 100}% - 2px)`
+})
 const resultPaneHeight = computed(() =>
   `calc(${(1 - editorStore.splitRatio) * 100}% - 2px)`
 )

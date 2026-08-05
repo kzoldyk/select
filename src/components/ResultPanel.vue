@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1">
+  <div class="result-pane-font-mono flex flex-col overflow-hidden bg-background min-h-0 flex-1 font-mono">
     <!-- Result Tabs Bar (Current vs Pinned Results) -->
     <div v-if="resultStore.pinnedResults.length > 0" class="flex items-center h-8 bg-muted/20 border-b border-border px-2 select-none gap-1 flex-shrink-0">
       <!-- Current Result Tab -->
@@ -168,6 +168,14 @@
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
             </button>
           </div>
+
+          <button
+            class="inline-flex items-center justify-center w-7 h-7 text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer border-none bg-transparent"
+            title="Hide Result Panel"
+            @click="uiStore.toggleResultPanel()"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
         </div>
       </div>
 
@@ -262,7 +270,7 @@
                 <TableRow
                   v-for="item in filteredRows"
                   :key="item.key"
-                  class="text-[11px] font-sans group transition-colors border-b border-border/40"
+                  class="text-[11px] font-mono group transition-colors border-b border-border/40"
                   :class="[
                     item.index % 2 === 0 ? 'bg-transparent' : 'bg-muted/10',
                     resultStore.selectedRows.has(item.key) ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/40'
@@ -285,8 +293,11 @@
                 <TableCell
                   v-for="(col, colIndex) in currentColumns"
                   :key="col.name"
-                  class="py-1 px-3 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/30 last:border-r-0 cursor-cell hover:bg-muted/15 select-none transition-all duration-75 font-sans"
+                  class="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/30 last:border-r-0 cursor-cell hover:bg-muted/15 select-none transition-all duration-75 font-mono"
                   :class="[
+                    resultStore.editingCell?.rowIndex === item.index && resultStore.editingCell?.colName === col.name 
+                      ? 'p-0 ring-2 ring-primary ring-inset z-10 relative bg-background' 
+                      : 'py-1 px-3',
                     getCellClass(item.row[col.name], col),
                     isNumericColumn(col) ? 'text-right tabular-nums font-mono text-[10px]' : '',
                     getCellSelectionClass(item.index, colIndex)
@@ -300,7 +311,10 @@
                     <input
                       ref="editInputRef"
                       v-model="resultStore.editValue"
-                      class="w-full h-full bg-background border border-primary rounded px-1 py-0.5 text-[11px] font-sans outline-none shadow-sm focus:ring-1 focus:ring-primary/25"
+                      class="w-full h-full bg-transparent border-none outline-none px-3 py-1 font-mono shadow-none focus:ring-0 focus:outline-none"
+                      :class="[
+                        isNumericColumn(col) ? 'text-right text-[10px]' : 'text-[11px]'
+                      ]"
                       @keydown.enter="commitEditCell(item.index, col.name)"
                       @keydown.escape="resultStore.cancelEditing()"
                       @blur="commitEditCell(item.index, col.name)"
@@ -311,10 +325,10 @@
                     <span class="text-[9.5px] italic text-muted-foreground/45 select-none">NULL</span>
                   </template>
                   <template v-else-if="col.name === 'status'">
-                    <Badge variant="outline" class="text-[9.5px] px-1.5 py-0 font-sans tracking-wide" :class="statusBadgeClass(String(item.row[col.name]))">{{ item.row[col.name] }}</Badge>
+                    <Badge variant="outline" class="text-[9.5px] px-1.5 py-0 font-mono tracking-wide" :class="statusBadgeClass(String(item.row[col.name]))">{{ item.row[col.name] }}</Badge>
                   </template>
                   <template v-else-if="col.type === 'boolean'">
-                    <span class="inline-flex items-center px-1 py-0.2 rounded-full text-[9.5px] font-semibold font-sans" :class="item.row[col.name] ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'">{{ item.row[col.name] ? 'TRUE' : 'FALSE' }}</span>
+                    <span class="inline-flex items-center px-1 py-0.2 rounded-full text-[9.5px] font-semibold font-mono" :class="item.row[col.name] ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'">{{ item.row[col.name] ? 'TRUE' : 'FALSE' }}</span>
                   </template>
                   <template v-else>
                     <div class="flex items-center justify-between gap-1 group/fk w-full">
@@ -469,7 +483,7 @@
     <Teleport to="body">
       <div
         v-if="contextMenu.visible"
-        class="fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 w-[180px] text-xs"
+        class="result-panel-context-menu fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 w-[180px] text-xs"
         :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
         @click.stop
         @contextmenu.prevent
@@ -485,7 +499,7 @@
 
       <div
         v-if="headerContextMenu.visible"
-        class="fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 w-[180px] text-xs"
+        class="result-panel-context-menu fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 w-[180px] text-xs"
         :style="{ left: headerContextMenu.x + 'px', top: headerContextMenu.y + 'px' }"
         @click.stop
         @contextmenu.prevent
@@ -498,7 +512,7 @@
     </Teleport>
     
     <Dialog v-model:open="showUpdateModal">
-      <DialogContent class="sm:max-w-[600px] bg-background border-border">
+      <DialogContent class="result-panel-dialog sm:max-w-[600px] bg-background border-border">
         <DialogHeader>
           <DialogTitle>Confirm Update</DialogTitle>
           <DialogDescription>
@@ -525,7 +539,7 @@
       <div 
         v-if="activeFkPreview" 
         id="fk-preview-popover"
-        class="fixed z-[1000] w-85 bg-popover text-popover-foreground border border-border rounded-lg shadow-xl p-4 text-[12px] font-sans pointer-events-auto transition-all"
+        class="fixed z-[1000] w-85 bg-popover text-popover-foreground border border-border rounded-lg shadow-xl p-4 text-[12px] font-mono pointer-events-auto transition-all"
         :style="{ left: `${activeFkPreview.x}px`, top: `${activeFkPreview.y + 4}px` }"
         @click.stop
       >
@@ -722,6 +736,12 @@ function detectTableFromSql(sql: string): string | null {
   return null
 }
 
+function getRawTableName(name: string): string {
+  if (!name) return ''
+  const parts = name.split('.')
+  return parts[parts.length - 1].replace(/[`"\[\]']/g, '').trim()
+}
+
 const editableTableName = computed(() => {
   return detectTableFromSql(currentSql.value)
 })
@@ -730,7 +750,10 @@ const pkColumns = computed<string[]>(() => {
   const tableName = editableTableName.value
   console.log('[pkColumns] editableTableName:', tableName)
   if (!tableName) return []
-  const tableKey = Object.keys(schemaStore.detailsByTable).find(k => k.toLowerCase() === tableName.toLowerCase())
+  const rawName = getRawTableName(tableName).toLowerCase()
+  const tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
+    return getRawTableName(k).toLowerCase() === rawName
+  })
   console.log('[pkColumns] found tableKey:', tableKey)
   if (!tableKey) {
     console.log('[pkColumns] detailsByTable keys:', Object.keys(schemaStore.detailsByTable))
@@ -764,12 +787,17 @@ async function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) 
   }
 
   const tableName = editableTableName.value
-  let tableKey = Object.keys(schemaStore.detailsByTable).find(k => k.toLowerCase() === tableName.toLowerCase())
+  const rawName = getRawTableName(tableName).toLowerCase()
+  let tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
+    return getRawTableName(k).toLowerCase() === rawName
+  })
   
   if (!tableKey) {
     try {
-      await schemaStore.fetchTableDetails(tableName)
-      tableKey = Object.keys(schemaStore.detailsByTable).find(k => k.toLowerCase() === tableName.toLowerCase())
+      await schemaStore.fetchTableDetails(getRawTableName(tableName))
+      tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
+        return getRawTableName(k).toLowerCase() === rawName
+      })
     } catch (e) {
       console.error('Failed to fetch table details for editing:', e)
     }
@@ -786,8 +814,10 @@ async function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) 
     const el = editInputRef.value
     if (Array.isArray(el)) {
       el[0]?.focus()
+      el[0]?.select()
     } else {
       el?.focus()
+      el?.select()
     }
   })
 }
@@ -1464,7 +1494,7 @@ function onCellMouseDown(rowIndex: number, colName: string, event: MouseEvent) {
   }
   
   focus()
-  event.preventDefault() // Prevents default text dragging select
+  // event.preventDefault() // Prevents default text dragging select
 }
 
 function onCellMouseEnter(rowIndex: number, colName: string, _event: MouseEvent) {
@@ -1599,3 +1629,16 @@ watch(() => resultStore.rows, () => {
 
 defineExpose({ focus })
 </script>
+
+<style>
+.result-pane-font-mono,
+.result-pane-font-mono *,
+.result-panel-context-menu,
+.result-panel-context-menu *,
+.result-panel-dialog,
+.result-panel-dialog *,
+#fk-preview-popover,
+#fk-preview-popover * {
+  font-family: var(--font-mono), monospace !important;
+}
+</style>

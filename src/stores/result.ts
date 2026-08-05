@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
 import { useConnectionStore } from './connection'
+import { useUiStore } from './ui'
 
 export interface Column {
   name: string
@@ -180,6 +181,7 @@ export const useResultStore = defineStore('result', {
     },
 
     async runQuery(_sql: string) {
+      useUiStore().setResultPanelOpen(true)
       this.activeResultTabId = 'current'
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
@@ -506,6 +508,7 @@ export const useResultStore = defineStore('result', {
       this.loadHistory()
     },
     async explainQuery(sql: string) {
+      useUiStore().setResultPanelOpen(true)
       this.activeResultTabId = 'current'
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }

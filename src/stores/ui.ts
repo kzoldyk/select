@@ -16,6 +16,7 @@ export const useUiStore = defineStore('ui', {
     themeGalleryOpen: false,
     theme: ((typeof window !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'system',
     systemIsDark: false,
+    resultPanelOpen: typeof window !== 'undefined' ? localStorage.getItem('resultPanelOpen') !== 'false' : true,
   }),
 
   getters: {
@@ -118,6 +119,18 @@ export const useUiStore = defineStore('ui', {
     applyTheme() {
       if (typeof window !== 'undefined') {
         document.documentElement.classList.toggle('dark', this.isDark)
+      }
+    },
+    toggleResultPanel() {
+      this.resultPanelOpen = !this.resultPanelOpen
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('resultPanelOpen', String(this.resultPanelOpen))
+      }
+    },
+    setResultPanelOpen(open: boolean) {
+      this.resultPanelOpen = open
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('resultPanelOpen', String(open))
       }
     },
     closeAll() {

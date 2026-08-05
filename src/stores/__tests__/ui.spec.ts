@@ -112,4 +112,17 @@ describe("ui store", () => {
     expect(store.paletteOpen).toBe(false);
     expect(store.inspectorOpen).toBe(false);
   });
+
+  it("manages resultPanelOpen visibility and persistence", () => {
+    const store = useUiStore();
+    expect(store.resultPanelOpen).toBe(true);
+
+    store.toggleResultPanel();
+    expect(store.resultPanelOpen).toBe(false);
+    expect(localStorage.getItem("resultPanelOpen")).toBe("false");
+
+    store.setResultPanelOpen(true);
+    expect(store.resultPanelOpen).toBe(true);
+    expect(localStorage.getItem("resultPanelOpen")).toBe("true");
+  });
 });
