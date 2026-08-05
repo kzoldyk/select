@@ -1624,12 +1624,48 @@ pub async fn change_database(
         return Err("Database name is required.".into());
     }
 
-    let (_conn_id, pool) = resolve_connection(&state, id).await?;
+    let (conn_id, old_pool) = resolve_connection(&state, id).await?;
 
-    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    let mut conn = old_pool.get_conn().await.map_err(|e| safe_error(&e))?;
     conn.query_drop(format!("USE {}", quote_identifier(&database)))
         .await
-        .map_err(|e| safe_error(&e))
+        .map_err(|e| safe_error(&e))?;
+
+    drop(conn);
+
+    let old_url = {
+        let urls = state.connection_urls.lock().await;
+        urls.get(&conn_id).cloned().ok_or("No URL found for active connection")?
+    };
+
+    let base_part = match old_url.split_once('?') {
+        Some((before, after)) => (before, Some(after)),
+        None => (&old_url[..], None),
+    };
+    let (prefix, _) = base_part.0.rsplit_once('/').ok_or("Invalid connection URL")?;
+    let encoded_db = encode_url_part(&database);
+    let new_url = match base_part.1 {
+        Some(query) => format!("{}/{encoded_db}?{}", prefix, query),
+        None => format!("{}/{}", prefix, encoded_db),
+    };
+
+    let opts = Opts::from_url(&new_url).map_err(|e| safe_error(&e))?;
+    let new_pool = Pool::new(opts);
+
+    {
+        let mut pools = state.pools.lock().await;
+        pools.insert(conn_id.clone(), new_pool);
+    }
+    {
+        let mut urls = state.connection_urls.lock().await;
+        urls.insert(conn_id.clone(), new_url);
+    }
+
+    tokio::spawn(async move {
+        let _ = old_pool.disconnect().await;
+    });
+
+    Ok(())
 }
 
 #[tauri::command]

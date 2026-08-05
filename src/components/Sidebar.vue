@@ -69,6 +69,16 @@
 
     <ScrollArea class="flex-1">
       <div class="py-2 flex flex-col gap-1.5 px-2">
+        <!-- Schema Diagram Option -->
+        <button
+          v-if="connStore.status === 'connected'"
+          class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none bg-transparent mb-1 font-semibold"
+          @click="editorStore.addSchemaDiagramTab()"
+        >
+          <Workflow class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+          <span class="flex-1">Schema Diagram</span>
+        </button>
+
         <!-- Tables -->
         <div v-if="connStore.status === 'connected' || schemaStore.tables.length || schemaStore.isLoading" class="flex flex-col">
           <button
@@ -365,6 +375,14 @@
           v-if="ctxMenu.objectType === 'table' || ctxMenu.objectType === 'view'"
           class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left"
           role="menuitem"
+          @click="ctxAction('visualize')"
+        >
+          <Workflow class="w-3 h-3 text-indigo-400" /> Visualize Relations
+        </button>
+        <button
+          v-if="ctxMenu.objectType === 'table' || ctxMenu.objectType === 'view'"
+          class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left"
+          role="menuitem"
           @click="ctxAction('ddl')"
         >
           <FileText class="w-3 h-3" /> View DDL
@@ -429,6 +447,7 @@ import {
   Hash,
   Play,
   Activity,
+  Workflow,
 } from '@lucide/vue'
 import { useSchemaStore } from '../stores/schema'
 import { useConnectionStore } from '../stores/connection'
@@ -694,6 +713,7 @@ function ctxAction(action: string) {
     }
     case 'copy': navigator.clipboard.writeText(name); break
     case 'ddl': schemaStore.setActiveTable(name); uiStore.openInspector(name); break
+    case 'visualize': editorStore.addSchemaDiagramTab(name); break
   }
 }
 

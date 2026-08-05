@@ -226,6 +226,32 @@ export const useEditorStore = defineStore('editor', {
       this.saveTabState()
       return tab.id
     },
+    addSchemaDiagramTab(focusTable?: string) {
+      const tabName = focusTable ? `Diagram: ${focusTable}` : 'Schema Diagram'
+      let tab = this.tabs.find(t => t.type === 'schema_diagram' && t.tableName === focusTable)
+      if (!tab) {
+        if (this.tabs.length >= MAX_TABS) return ''
+        tab = {
+          id: `tab-schema-${Date.now()}`,
+          name: tabName,
+          sql: '',
+          connectionId: null,
+          isUnsaved: false,
+          savedQueryId: null,
+          cursorLine: 1,
+          cursorCol: 1,
+          selectionAnchor: 0,
+          selectionHead: 0,
+          selectedTextCount: 0,
+          type: 'schema_diagram',
+          tableName: focusTable,
+        }
+        this.tabs.push(tab)
+      }
+      this.activeTabId = tab.id
+      this.saveTabState()
+      return tab.id
+    },
     closeTab(id: string) {
       const tab = this.tabs.find(t => t.id === id)
       if (!tab) return

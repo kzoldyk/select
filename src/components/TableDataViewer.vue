@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col flex-1 h-full bg-background overflow-hidden select-none animate-in fade-in duration-150">
+  <div class="result-pane-font-mono flex flex-col flex-1 h-full bg-background overflow-hidden select-none animate-in fade-in duration-150 font-mono">
     <!-- Toolbar -->
     <div class="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/20 flex-shrink-0 text-xs">
       <!-- Left Side: Insert, Refresh, Filter, Sort, Export -->
@@ -279,7 +279,7 @@
           <tr 
             v-for="(row, rowIndex) in rows" 
             :key="row._tempId || rowIndex"
-            class="text-[11px] font-sans group transition-colors border-b border-border/40"
+            class="text-[11px] font-mono group transition-colors border-b border-border/40"
             :class="[
               rowIndex % 2 === 0 ? 'bg-transparent' : 'bg-muted/10',
               selectedRowKeys.has(row._tempId || String(rowIndex)) ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/15',
@@ -309,8 +309,11 @@
             <td
               v-for="(col, colIndex) in columns"
               :key="col.name"
-              class="py-1 px-3 max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/30 last:border-r-0 cursor-cell select-none transition-all duration-75 font-sans"
+              class="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/30 last:border-r-0 cursor-cell select-none transition-all duration-75 font-mono"
               :class="[
+                editingCell?.rowIndex === rowIndex && editingCell?.colName === col.name 
+                  ? 'p-0 ring-2 ring-primary ring-inset z-10 relative bg-background' 
+                  : 'py-1 px-3',
                 getCellClass(row[col.name], col, rowIndex),
                 isNumericColumn(col) ? 'text-right tabular-nums font-mono text-[10px]' : '',
                 getCellSelectionClass(rowIndex, colIndex)
@@ -324,7 +327,10 @@
                 <input
                   ref="editInputRef"
                   v-model="editValue"
-                  class="w-full h-full bg-background border border-primary rounded px-1 py-0.5 text-[11px] font-sans outline-none shadow-sm focus:ring-1 focus:ring-primary/25"
+                  class="w-full h-full bg-transparent border-none outline-none px-3 py-1 font-mono shadow-none focus:ring-0 focus:outline-none"
+                  :class="[
+                    isNumericColumn(col) ? 'text-right text-[10px]' : 'text-[11px]'
+                  ]"
                   @keydown.enter="commitEditingCell(rowIndex, col.name)"
                   @keydown.escape="cancelEditingCell"
                   @blur="commitEditingCell(rowIndex, col.name)"
@@ -337,10 +343,10 @@
                 <span class="text-[9.5px] italic text-muted-foreground/45 select-none">NULL</span>
               </template>
               <template v-else-if="col.name === 'status'">
-                <Badge variant="outline" class="text-[9.5px] px-1.5 py-0 font-sans tracking-wide" :class="statusBadgeClass(String(row[col.name]))">{{ row[col.name] }}</Badge>
+                <Badge variant="outline" class="text-[9.5px] px-1.5 py-0 font-mono tracking-wide" :class="statusBadgeClass(String(row[col.name]))">{{ row[col.name] }}</Badge>
               </template>
               <template v-else-if="col.type === 'boolean'">
-                <span class="inline-flex items-center px-1 py-0.2 rounded-full text-[9.5px] font-semibold font-sans" :class="row[col.name] ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'">{{ row[col.name] ? 'TRUE' : 'FALSE' }}</span>
+                <span class="inline-flex items-center px-1 py-0.2 rounded-full text-[9.5px] font-semibold font-mono" :class="row[col.name] ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'">{{ row[col.name] ? 'TRUE' : 'FALSE' }}</span>
               </template>
               <template v-else>
                 <div class="flex items-center justify-between gap-1 w-full">
@@ -373,7 +379,7 @@
       <div 
         v-if="activeFkPreview" 
         id="fk-viewer-popover"
-        class="fixed z-[1000] w-85 bg-popover text-popover-foreground border border-border rounded-lg shadow-xl p-4 text-[12px] font-sans pointer-events-auto transition-all"
+        class="fixed z-[1000] w-85 bg-popover text-popover-foreground border border-border rounded-lg shadow-xl p-4 text-[12px] font-mono pointer-events-auto transition-all"
         :style="{ left: `${activeFkPreview.x}px`, top: `${activeFkPreview.y + 4}px` }"
         @click.stop
       >
@@ -623,9 +629,18 @@ function formatCell(val: CellValue, _col: Column): string {
   return s
 }
 
+function getRawTableName(name: string): string {
+  if (!name) return ''
+  const parts = name.split('.')
+  return parts[parts.length - 1].replace(/[`"\[\]']/g, '').trim()
+}
+
 // Primary Keys
 const pkColumns = computed<string[]>(() => {
-  const tableKey = Object.keys(schemaStore.detailsByTable).find(k => k.toLowerCase() === props.tableName.toLowerCase())
+  const rawName = getRawTableName(props.tableName).toLowerCase()
+  const tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
+    return getRawTableName(k).toLowerCase() === rawName
+  })
   if (!tableKey) return []
   const details = schemaStore.detailsByTable[tableKey]
   if (!details) return []
@@ -649,7 +664,7 @@ function onCellMouseDown(rowIndex: number, colName: string, event: MouseEvent) {
     focusCell.value = { rowIndex, colIndex }
   }
   focusGrid()
-  event.preventDefault()
+  // event.preventDefault()
 }
 
 function onCellMouseEnter(rowIndex: number, colName: string, _event: MouseEvent) {
@@ -778,12 +793,27 @@ function insertRow() {
 }
 
 async function startEditingCell(rowIndex: number, colName: string, _e: Event) {
-  const pks = pkColumns.value
   const isNew = Boolean(rows.value[rowIndex]?._tempId)
   
-  if (pks.length === 0 && !isNew) {
-    toast.error('Cannot edit row', { description: 'The table must have at least one primary key to modify records.' })
-    return
+  if (!isNew) {
+    const rawName = getRawTableName(props.tableName).toLowerCase()
+    let tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
+      return getRawTableName(k).toLowerCase() === rawName
+    })
+    
+    if (!tableKey) {
+      try {
+        await schemaStore.fetchTableDetails(props.tableName)
+      } catch (e) {
+        console.error('Failed to fetch table details for editing:', e)
+      }
+    }
+    
+    const pks = pkColumns.value
+    if (pks.length === 0) {
+      toast.error('Cannot edit row', { description: 'The table must have at least one primary key to modify records.' })
+      return
+    }
   }
   
   editingCell.value = { rowIndex, colName }
@@ -794,7 +824,14 @@ async function startEditingCell(rowIndex: number, colName: string, _e: Event) {
   editValue.value = currentVal === null ? '' : String(currentVal)
   
   nextTick(() => {
-    editInputRef.value?.focus()
+    const el = editInputRef.value
+    if (Array.isArray(el)) {
+      el[0]?.focus()
+      el[0]?.select()
+    } else {
+      el?.focus()
+      el?.select()
+    }
   })
 }
 
@@ -1178,16 +1215,19 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleGlobalFkKeydown)
 })
 
-watch(() => props.tableName, () => {
-  columns.value = []
-  rows.value = []
-  page.value = 1
-  dirtyCells.value = {}
-  newRows.value.clear()
-  schemaStore.fetchTableDetails(props.tableName).then(() => {
-    loadData()
-  })
-})
+watch(
+  () => [props.tableName, connStore.activeConnection?.database, connStore.activeId],
+  () => {
+    columns.value = []
+    rows.value = []
+    page.value = 1
+    dirtyCells.value = {}
+    newRows.value.clear()
+    schemaStore.fetchTableDetails(props.tableName, true).then(() => {
+      loadData()
+    })
+  }
+)
 </script>
 
 <style scoped>
@@ -1195,5 +1235,15 @@ watch(() => props.tableName, () => {
 #table-viewer-grid :deep(.ring-primary) {
   box-shadow: inset 0 0 0 2px var(--primary);
   outline: none;
+}
+</style>
+
+<style>
+/* Ensure all inputs, select lists, buttons, tooltips under the viewer use monospaced font */
+.result-pane-font-mono,
+.result-pane-font-mono *,
+#fk-viewer-popover,
+#fk-viewer-popover * {
+  font-family: var(--font-mono), monospace !important;
 }
 </style>

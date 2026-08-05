@@ -29,7 +29,7 @@
           @click="editorStore.selectTab(tab.id)"
         >
           <component 
-            :is="tab.type === 'table' ? PhTable : PhFileCode" 
+            :is="tab.type === 'table' ? PhTable : (tab.type === 'schema_diagram' ? PhGitBranch : PhFileCode)" 
             class="w-3.5 h-3.5 opacity-70 flex-shrink-0"
           />
           <span class="max-w-[120px] overflow-hidden text-ellipsis">{{ tab.name }}</span>
@@ -161,7 +161,7 @@ import { useUiStore } from '../stores/ui'
 import { Button } from '@/components/ui/button'
 import { 
   PhSidebar, PhPlus, PhMinus, PhMagnifyingGlass, PhCode, PhFileText, PhGear, PhPlay, PhX,
-  PhTable, PhFileCode
+  PhTable, PhFileCode, PhGitBranch
 } from '@phosphor-icons/vue'
 
 defineEmits<{
