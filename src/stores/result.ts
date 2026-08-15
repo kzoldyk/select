@@ -4,6 +4,14 @@ import { useConnectionStore } from './connection'
 import { useUiStore } from './ui'
 import { playSound } from '../lib/cuelume'
 
+function cloneSnapshot<T>(value: T): T {
+  try {
+    return structuredClone(value)
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T
+  }
+}
+
 export interface Column {
   name: string
   type: string
@@ -125,6 +133,23 @@ export interface PendingWriteQuery {
   resolve: (confirmed: boolean) => void
 }
 
+function loadStoredPins(): PinnedResult[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = localStorage.getItem('select_pinned_results')
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function saveStoredPins(pins: PinnedResult[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem('select_pinned_results', JSON.stringify(pins.slice(0, 10)))
+  } catch {}
+}
+
 export const useResultStore = defineStore('result', {
   state: () => ({
     rows: [] as ResultRow[],
@@ -156,7 +181,7 @@ export const useResultStore = defineStore('result', {
     cancelling: false,
     multiResults: [] as SingleQueryResult[],
     activeResultIndex: 0,
-    pinnedResults: [] as PinnedResult[],
+    pinnedResults: loadStoredPins() as PinnedResult[],
     activeResultTabId: 'current' as string,
   }),
 
@@ -237,7 +262,7 @@ export const useResultStore = defineStore('result', {
         })
         if (requestId !== this.requestId) return
         this.rows = result.rows as ResultRow[]
-        this.originalRows = JSON.parse(JSON.stringify(result.rows))
+        this.originalRows = structuredClone(result.rows)
         this.columns = result.columns
         this.planRows = []
         this.planColumns = []
@@ -276,6 +301,16 @@ export const useResultStore = defineStore('result', {
       }
       _sql = fixBacktickedIdentifiers(_sql)
       const connStore = useConnectionStore()
+
+      if (connStore.activeConnection?.readOnly && isDestructiveQuery(_sql)) {
+        this.error = { code: 'READ_ONLY_CONNECTION', message: 'Connection is in read-only mode. Write queries are blocked.' }
+        this.status = 'error'
+        playSound('error')
+        this.messages = ['Error: Connection is in read-only mode. Write queries are blocked.']
+        this.activeView = 'messages'
+        return
+      }
+
       const requestId = ++this.requestId
       this.status = 'running'
       playSound('loading')
@@ -307,7 +342,7 @@ export const useResultStore = defineStore('result', {
           }
         } else if (first && first.columns) {
           this.rows = first.rows as ResultRow[]
-          this.originalRows = JSON.parse(JSON.stringify(first.rows))
+          this.originalRows = structuredClone(first.rows)
           this.columns = first.columns
           this.duration = (first as any).durationMs ?? first.duration_ms
           this.status = 'success'
@@ -375,7 +410,7 @@ export const useResultStore = defineStore('result', {
         })
         const newRows = result.rows as ResultRow[]
         this.rows.push(...newRows)
-        this.originalRows.push(...JSON.parse(JSON.stringify(newRows)))
+        this.originalRows.push(...structuredClone(newRows))
         this.hasMore = result.has_more
         this.pageOffset += newRows.length
         this.duration += (result as any).durationMs ?? result.duration_ms
@@ -430,28 +465,35 @@ export const useResultStore = defineStore('result', {
     },
 
     revertAllEdits() {
-      this.rows = JSON.parse(JSON.stringify(this.originalRows))
+      this.rows = structuredClone(this.originalRows)
       this.dirtyCells = {}
     },
 
-    async saveEdits(tableName: string, pkColumns: string[]): Promise<boolean> {
-      if (pkColumns.length === 0) {
-        this.messages.push('Error: No primary key columns found for this table. Edits cannot be saved.')
-        return false
-      }
+    async saveEdits(tableName: string, keyColumns?: string[]): Promise<boolean> {
       this.savingEdits = true
       let success = true
       try {
+        const effectiveKeys = (keyColumns && keyColumns.length > 0)
+          ? keyColumns
+          : this.columns.map(c => c.name)
+
         for (const [rowKey, cells] of Object.entries(this.dirtyCells)) {
           const rowIndex = parseInt(rowKey)
-          const row = this.rows[rowIndex]
-          if (!row) continue
+          const originalRow = this.originalRows[rowIndex] ?? this.rows[rowIndex]
+          if (!originalRow) continue
+
           const pks: { column: string; value: CellValue }[] = []
-          for (const pk of pkColumns) {
-            if (row[pk] !== undefined) {
-              pks.push({ column: pk, value: row[pk] })
+          for (const keyCol of effectiveKeys) {
+            if (originalRow[keyCol] !== undefined) {
+              pks.push({ column: keyCol, value: originalRow[keyCol] })
             }
           }
+
+          if (pks.length === 0) {
+            this.messages.push(`Warning: Row ${rowIndex + 1} has no matchable column values.`)
+            continue
+          }
+
           const updates: { column: string; value: CellValue }[] = []
           for (const [col, val] of Object.entries(cells)) {
             updates.push({ column: col, value: val })
@@ -468,7 +510,7 @@ export const useResultStore = defineStore('result', {
           }
         }
         this.dirtyCells = {}
-        this.originalRows = JSON.parse(JSON.stringify(this.rows))
+        this.originalRows = structuredClone(this.rows)
         this.messages.push('Edits saved successfully.')
       } catch (err) {
         this.messages.push(`Error saving edits: ${String(err)}`)
@@ -489,31 +531,44 @@ export const useResultStore = defineStore('result', {
         return
       }
       _sql = fixBacktickedIdentifiers(_sql)
+      const connStore = useConnectionStore()
+      if (connStore.activeConnection?.readOnly) {
+        this.error = { code: 'READ_ONLY_CONNECTION', message: 'Connection is in read-only mode. Write queries are blocked.' }
+        this.status = 'error'
+        playSound('error')
+        this.messages = ['Error: Connection is in read-only mode. Write queries are blocked.']
+        this.activeView = 'messages'
+        return
+      }
       const requestId = ++this.requestId
       this.status = 'running'
       playSound('loading')
       this.error = null
       this.selectedRows = new Set()
+      this.lastSql = _sql
+      this.lastDatabase = connStore.activeConnection?.database ?? ''
+      this.multiResults = []
       try {
-        const connId = useConnectionStore().activeId
-        const result = await invoke<{ affected_rows: number, duration_ms: number, warning: string | null }>('run_write_query', { sql: _sql, id: connId })
+        const connId = connStore.activeId
+        const result = await invoke<{ affected_rows: number; duration_ms: number; warning: string | null }>('run_write_query', {
+          sql: _sql,
+          id: connId,
+        })
         if (requestId !== this.requestId) return
         this.lastAffectedRows = result.affected_rows
-        this.rows = []
-        this.columns = []
-        this.multiResults = []
-        this.planRows = []
-        this.planColumns = []
-        this.duration = (result as any).durationMs ?? result.duration_ms
+        this.duration = result.duration_ms
         this.status = 'success'
         playSound('success')
-        const msg = `Query executed successfully. ${result.affected_rows} rows affected in ${this.duration}ms.`
-        this.messages = result.warning ? [msg, `Warning: ${result.warning}`] : [msg]
+        const msgs = [`Query OK, ${result.affected_rows} rows affected in ${result.duration_ms}ms.`]
+        if (result.warning) {
+          msgs.push(`Warning: ${result.warning}`)
+        }
+        this.messages = msgs
         this.activeView = 'messages'
       } catch (err) {
         if (requestId !== this.requestId) return
         this.error = {
-          code: 'WRITE_QUERY_ERROR',
+          code: 'WRITE_ERROR',
           message: String(err),
         }
         this.status = 'error'
@@ -523,6 +578,7 @@ export const useResultStore = defineStore('result', {
       }
       this.loadHistory()
     },
+
     async explainQuery(sql: string) {
       useUiStore().setResultPanelOpen(true)
       this.activeResultTabId = 'current'
@@ -543,20 +599,20 @@ export const useResultStore = defineStore('result', {
       const cleanSql = sql.trim().replace(/;+$/, '')
       const explainSql = cleanSql.toUpperCase().startsWith('EXPLAIN') ? cleanSql : `EXPLAIN ${cleanSql}`
 
-	      try {
-	        const connId = useConnectionStore().activeId
-	        const result = await invoke<{ columns: Column[], rows: ResultRow[], duration_ms: number, row_count: number }>('run_query', { sql: explainSql, id: connId })
-	        if (requestId !== this.requestId) return
-	        this.planRows = result.rows
+      try {
+        const connId = useConnectionStore().activeId
+        const result = await invoke<{ columns: Column[]; rows: ResultRow[]; duration_ms: number; row_count: number }>('run_query', { sql: explainSql, id: connId })
+        if (requestId !== this.requestId) return
+        this.planRows = result.rows
         this.planColumns = result.columns
         this.duration = (result as any).durationMs ?? result.duration_ms
         this.status = 'success'
         playSound('success')
         this.messages = [`Execution plan returned ${result.row_count} rows in ${this.duration}ms.`]
         this.activeView = 'plan'
-	      } catch (err) {
-	        if (requestId !== this.requestId) return
-	        this.error = {
+      } catch (err) {
+        if (requestId !== this.requestId) return
+        this.error = {
           code: 'EXPLAIN_ERROR',
           message: String(err),
         }
@@ -566,14 +622,15 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'messages'
       }
     },
+
     setActiveView(view: ResultView) {
       this.activeView = view
     },
-    toggleRowSelection(rowKey: string) {
-      if (this.selectedRows.has(rowKey)) {
-        this.selectedRows.delete(rowKey)
+    toggleRowSelection(rowId: string) {
+      if (this.selectedRows.has(rowId)) {
+        this.selectedRows.delete(rowId)
       } else {
-        this.selectedRows.add(rowKey)
+        this.selectedRows.add(rowId)
       }
     },
     selectAllRows() {
@@ -612,15 +669,16 @@ export const useResultStore = defineStore('result', {
       const pinned: PinnedResult = {
         id,
         sql: this.lastSql,
-        columns: JSON.parse(JSON.stringify(this.columns)),
-        rows: JSON.parse(JSON.stringify(this.rows)),
+        columns: cloneSnapshot(this.columns),
+        rows: cloneSnapshot(this.rows),
         duration: this.duration,
-        error: JSON.parse(JSON.stringify(this.error)),
+        error: this.error ? cloneSnapshot(this.error) : null,
         messages: [...this.messages],
         lastDatabase: this.lastDatabase,
         pinnedAt: new Date().toISOString(),
       }
       this.pinnedResults.push(pinned)
+      saveStoredPins(this.pinnedResults)
       this.activeResultTabId = id
     },
 
@@ -628,6 +686,7 @@ export const useResultStore = defineStore('result', {
       const idx = this.pinnedResults.findIndex(p => p.id === id)
       if (idx >= 0) {
         this.pinnedResults.splice(idx, 1)
+        saveStoredPins(this.pinnedResults)
         if (this.activeResultTabId === id) {
           this.activeResultTabId = 'current'
         }

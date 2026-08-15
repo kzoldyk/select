@@ -59,7 +59,13 @@ export const useConnectionStore = defineStore('connection', {
       
       const saved = await loadConnections()
       if (saved && saved.length > 0) {
-        this.connections = await decryptConnections(saved as Connection[])
+        try {
+          this.connections = await decryptConnections(saved as Connection[])
+        } catch (e) {
+          console.warn('Failed to decrypt saved connections, using stored values:', e)
+          this.lastError = `Could not decrypt saved passwords. Re-enter them in Manage Connections.`
+          this.connections = saved as Connection[]
+        }
       } else {
         this.connections = [{
           id: 'conn-1',
@@ -206,6 +212,15 @@ export const useConnectionStore = defineStore('connection', {
         this.lastError = String(e)
       }
     },
+    async ping(): Promise<boolean> {
+      if (this.status !== 'connected' || !this.activeId) return false
+      try {
+        await invoke('run_query', { sql: 'SELECT 1', id: this.activeId })
+        return true
+      } catch {
+        return false
+      }
+    },
   },
 })
 
@@ -223,32 +238,10 @@ function validateConnection(conn: Partial<Connection>): string | null {
 
 async function encryptConnections(connections: Connection[]): Promise<Connection[]> {
   if (!connections.length) return connections
-  try {
-    const encrypted = await Promise.all(connections.map(async (c) => {
-      if (!c.password) return c
-      const encPw = await invoke<string>('encrypt_password', { plaintext: c.password })
-      return { ...c, password: encPw }
-    }))
-    return encrypted
-  } catch (e) {
-    console.warn('Password encryption failed, storing in plaintext:', e)
-    return connections
-  }
+  return await invoke<Connection[]>('seal_connections_for_storage', { connections })
 }
 
 async function decryptConnections(connections: Connection[]): Promise<Connection[]> {
   if (!connections.length) return connections
-  try {
-    const decrypted = await Promise.all(connections.map(async (c) => {
-      if (!c.password || c.password.startsWith('enc:')) return c
-      const isEncrypted = c.password.length > 40 && /^[A-Za-z0-9+/=]+$/.test(c.password)
-      if (!isEncrypted) return c
-      const decPw = await invoke<string>('decrypt_password', { ciphertextB64: c.password })
-      return { ...c, password: decPw }
-    }))
-    return decrypted
-  } catch (e) {
-    console.warn('Password decryption failed, using stored value:', e)
-    return connections
-  }
+  return await invoke<Connection[]>('unseal_connections_from_storage', { connections })
 }

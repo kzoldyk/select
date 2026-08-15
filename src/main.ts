@@ -22,6 +22,9 @@ const cuelumeDirective: Directive<HTMLElement, string | undefined> = {
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
+if (typeof window !== 'undefined') {
+  ;(window as any).$pinia = pinia
+}
 app.directive('cuelume', cuelumeDirective)
 
 initCuelume()

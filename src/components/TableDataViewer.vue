@@ -71,12 +71,35 @@
           </div>
         </div>
 
+        <Button 
+          variant="outline" 
+          size="sm" 
+          class="h-7 px-2 gap-1 text-[11px] font-medium bg-background text-muted-foreground hover:text-foreground"
+          :title="keyStatusTooltip"
+          @click="uiStore.openVirtualKeyDialog(props.tableName)"
+        >
+          <PhKey class="w-3.5 h-3.5" :class="keyStatusIconClass" />
+          <span class="text-[10px] font-mono">{{ keyStatusLabel }}</span>
+        </Button>
+
         <!-- Dirty changes actions -->
         <div v-if="hasChanges" class="flex items-center gap-1.5 ml-2 border-l border-border pl-3">
           <Badge class="bg-amber-500/10 text-amber-500 hover:bg-amber-500/15 border-amber-500/30 text-[10px] h-6 px-2 gap-1 font-semibold rounded-sm select-none">
             <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
             Changes: {{ changesCount }}
           </Badge>
+          <Button 
+            v-if="undoStack.length > 0"
+            variant="outline" 
+            size="sm" 
+            class="h-7 px-2 text-[10px] font-semibold gap-1 bg-background"
+            :disabled="saving"
+            @click="undoLastEdit"
+            title="Undo last edit"
+          >
+            <PhArrowCounterClockwise class="w-3 h-3" />
+            Undo
+          </Button>
           <Button 
             variant="default" 
             size="sm" 
@@ -94,8 +117,8 @@
             :disabled="saving"
             @click="discardEdits"
           >
-            <PhArrowCounterClockwise class="w-3 h-3" />
-            Revert
+            <PhX class="w-3 h-3" />
+            Revert All
           </Button>
         </div>
       </div>
@@ -386,7 +409,7 @@
         <div class="flex items-center justify-between border-b border-border pb-2 mb-2">
           <span class="font-semibold text-muted-foreground">Referenced Row Preview</span>
           <span class="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px] text-foreground select-all">
-            {{ activeFkPreview.referencedTable }}
+            {{ activeFkPreview.referencedSchema ? `${activeFkPreview.referencedSchema}.${activeFkPreview.referencedTable}` : activeFkPreview.referencedTable }}
           </span>
         </div>
 
@@ -426,6 +449,7 @@ import { ref, computed, reactive, onMounted, onUnmounted, nextTick, watch } from
 import { invoke } from '@tauri-apps/api/core'
 import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
+import { useUiStore } from '../stores/ui'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -444,6 +468,7 @@ const props = defineProps<{
 
 const connStore = useConnectionStore()
 const schemaStore = useSchemaStore()
+const uiStore = useUiStore()
 
 // State
 const columns = ref<Column[]>([])
@@ -635,16 +660,34 @@ function getRawTableName(name: string): string {
   return parts[parts.length - 1].replace(/[`"\[\]']/g, '').trim()
 }
 
-// Primary Keys
+// Key Resolution (PK -> Unique Key -> Virtual Key -> All-Columns Fallback)
+const keyInfo = computed(() => {
+  return schemaStore.getKeyColumnsForTable(getRawTableName(props.tableName))
+})
+
 const pkColumns = computed<string[]>(() => {
-  const rawName = getRawTableName(props.tableName).toLowerCase()
-  const tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
-    return getRawTableName(k).toLowerCase() === rawName
-  })
-  if (!tableKey) return []
-  const details = schemaStore.detailsByTable[tableKey]
-  if (!details) return []
-  return details.columns.filter(c => c.pk).map(c => c.name)
+  return keyInfo.value.columns
+})
+
+const keyStatusLabel = computed(() => {
+  if (keyInfo.value.keyType === 'primary') return `PK: ${keyInfo.value.columns.join(', ')}`
+  if (keyInfo.value.keyType === 'unique') return `UK: ${keyInfo.value.columns.join(', ')}`
+  if (keyInfo.value.keyType === 'virtual') return `VK: ${keyInfo.value.columns.join(', ')}`
+  return 'Key: All-Cols (Auto)'
+})
+
+const keyStatusIconClass = computed(() => {
+  if (keyInfo.value.keyType === 'primary') return 'text-emerald-500'
+  if (keyInfo.value.keyType === 'unique') return 'text-blue-500'
+  if (keyInfo.value.keyType === 'virtual') return 'text-purple-500'
+  return 'text-amber-500'
+})
+
+const keyStatusTooltip = computed(() => {
+  if (keyInfo.value.keyType === 'primary') return `Physical Primary Key: ${keyInfo.value.columns.join(', ')}`
+  if (keyInfo.value.keyType === 'unique') return `Unique Index: ${keyInfo.value.columns.join(', ')}`
+  if (keyInfo.value.keyType === 'virtual') return `Virtual Unique Key: ${keyInfo.value.columns.join(', ')} (Click to modify)`
+  return 'No Primary Key found. Using full row matching (Click to define a Virtual Key)'
 })
 
 // Cell Selection & Drag
@@ -808,12 +851,6 @@ async function startEditingCell(rowIndex: number, colName: string, _e: Event) {
         console.error('Failed to fetch table details for editing:', e)
       }
     }
-    
-    const pks = pkColumns.value
-    if (pks.length === 0) {
-      toast.error('Cannot edit row', { description: 'The table must have at least one primary key to modify records.' })
-      return
-    }
   }
   
   editingCell.value = { rowIndex, colName }
@@ -842,6 +879,9 @@ function commitEditingCell(rowIndex: number, colName: string) {
   if (!row) return
   
   const originalValue = row[colName]
+  const prevVal = dirtyCells.value[rowIndex]?.[colName] !== undefined
+    ? dirtyCells.value[rowIndex][colName]
+    : originalValue
   const val = editValue.value === '' && originalValue !== '' ? null : editValue.value
   
   if (String(originalValue ?? '') !== String(val ?? '')) {
@@ -849,6 +889,7 @@ function commitEditingCell(rowIndex: number, colName: string) {
       dirtyCells.value[rowIndex] = {}
     }
     dirtyCells.value[rowIndex][colName] = val
+    undoStack.value.push({ rowIndex, colName, prevVal, newVal: val })
   } else {
     // If reverted to original value
     if (dirtyCells.value[rowIndex]) {
@@ -861,6 +902,26 @@ function commitEditingCell(rowIndex: number, colName: string) {
   cancelEditingCell()
 }
 
+const undoStack = ref<{ rowIndex: number; colName: string; prevVal: any; newVal: any }[]>([])
+
+function undoLastEdit() {
+  const last = undoStack.value.pop()
+  if (!last) return
+  const originalValue = rows.value[last.rowIndex]?.[last.colName]
+  if (String(last.prevVal ?? '') === String(originalValue ?? '')) {
+    if (dirtyCells.value[last.rowIndex]) {
+      delete dirtyCells.value[last.rowIndex][last.colName]
+      if (Object.keys(dirtyCells.value[last.rowIndex]).length === 0) {
+        delete dirtyCells.value[last.rowIndex]
+      }
+    }
+  } else {
+    if (!dirtyCells.value[last.rowIndex]) dirtyCells.value[last.rowIndex] = {}
+    dirtyCells.value[last.rowIndex][last.colName] = last.prevVal
+  }
+  toast.info('Undid last cell change')
+}
+
 function cancelEditingCell() {
   editingCell.value = null
 }
@@ -868,6 +929,7 @@ function cancelEditingCell() {
 function discardEdits() {
   dirtyCells.value = {}
   newRows.value.clear()
+  undoStack.value = []
   loadData()
   toast.success('Discarded all pending edits')
 }
@@ -877,7 +939,9 @@ async function saveEdits() {
   saving.value = true
   
   const tableName = props.tableName
-  const pks = pkColumns.value
+  const keyCols = keyInfo.value.columns.length > 0
+    ? keyInfo.value.columns
+    : columns.value.map(c => c.name)
   const statements: string[] = []
 
   // 1. Process modified cells of existing rows
@@ -897,7 +961,7 @@ async function saveEdits() {
     if (setClauses.length === 0) continue
     
     const whereClauses: string[] = []
-    for (const pk of pks) {
+    for (const pk of keyCols) {
       const colDef = columns.value.find(c => c.name === pk)
       const pkType = colDef ? colDef.type : 'string'
       const pkVal = row[pk]
@@ -908,7 +972,7 @@ async function saveEdits() {
       }
     }
     
-    statements.push(`UPDATE ${escapeId(tableName)} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')};`)
+    statements.push(`UPDATE ${escapeId(tableName)} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')} LIMIT 1;`)
   }
 
   // 2. Process inserted/new rows
@@ -1104,25 +1168,12 @@ function copyAllTsv() {
 }
 
 // Foreign Key Support
-const foreignKeysCache = ref<Record<string, { column_name: string; referenced_table: string; referenced_column: string }[]>>({})
-
 async function loadForeignKeys() {
-  if (foreignKeysCache.value[props.tableName]) return
-  try {
-    const fks = await invoke<any[]>('fetch_table_foreign_keys', {
-      table: props.tableName,
-      id: connStore.activeId,
-      database: connStore.activeConnection?.database || null
-    })
-    foreignKeysCache.value[props.tableName] = fks
-  } catch (e) {
-    console.error(`Failed to load foreign keys for table ${props.tableName}:`, e)
-    foreignKeysCache.value[props.tableName] = []
-  }
+  await schemaStore.fetchForeignKeys(props.tableName)
 }
 
 function getColumnForeignKey(col: Column) {
-  const fks = foreignKeysCache.value[props.tableName]
+  const fks = schemaStore.foreignKeysByTable[props.tableName]
   if (!fks) return null
   return fks.find(fk => fk.column_name.toLowerCase() === col.name.toLowerCase()) || null
 }
@@ -1131,6 +1182,7 @@ const activeFkPreview = ref<{
   rowIndex: number
   colName: string
   colValue: string
+  referencedSchema?: string | null
   referencedTable: string
   referencedColumn: string
   loading: boolean
@@ -1146,13 +1198,17 @@ async function showFkPreview(event: MouseEvent, col: Column, rowIndex: number, c
   if (!fk) return
 
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const refSchema = fk.referencedTableSchema || fk.referenced_table_schema || null
+  const refTable = fk.referencedTable || fk.referenced_table || ''
+  const refCol = fk.referencedColumn || fk.referenced_column || ''
   
   activeFkPreview.value = {
     rowIndex,
     colName: col.name,
     colValue: String(cellValue),
-    referencedTable: fk.referenced_table,
-    referencedColumn: fk.referenced_column,
+    referencedSchema: refSchema,
+    referencedTable: refTable,
+    referencedColumn: refCol,
     loading: true,
     data: null,
     error: null,
@@ -1162,11 +1218,11 @@ async function showFkPreview(event: MouseEvent, col: Column, rowIndex: number, c
 
   try {
     const data = await invoke<any>('fetch_referenced_row', {
-      table: fk.referenced_table,
-      column: fk.referenced_column,
+      table: refSchema ? `${refSchema}.${refTable}` : refTable,
+      column: refCol,
       value: String(cellValue),
       id: connStore.activeId,
-      database: connStore.activeConnection?.database || null
+      database: refSchema || connStore.activeConnection?.database || null
     })
     if (activeFkPreview.value && activeFkPreview.value.rowIndex === rowIndex && activeFkPreview.value.colName === col.name) {
       activeFkPreview.value.data = data

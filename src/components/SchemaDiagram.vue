@@ -176,9 +176,11 @@
               :opacity="getLineOpacity(rel)"
               fill="none"
               :marker-end="getLineMarker(rel)"
-              class="transition-all duration-200"
+              class="transition-all duration-200 cursor-pointer"
               :class="{ 'relation-line-active': isLineHighlighted(rel) }"
-            />
+            >
+              <title>{{ formatRelationTooltip(rel) }}</title>
+            </path>
           </g>
         </svg>
 
@@ -204,10 +206,20 @@
           >
             <div class="flex items-center gap-1.5 truncate">
               <Table class="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
-              <span class="truncate font-semibold tracking-tight" :title="table.name">{{ table.name }}</span>
+              <span class="truncate font-semibold tracking-tight" :title="table.schema ? `${table.schema}.${table.name}` : table.name">
+                {{ table.name }}
+              </span>
+              <Badge 
+                v-if="table.schema && table.schema !== (connStore.activeConnection?.database || '')"
+                variant="outline" 
+                class="text-[9px] px-1 py-0 border-sky-500/40 text-sky-400 bg-sky-500/10 font-mono shrink-0"
+                :title="`Database: ${table.schema}`"
+              >
+                {{ table.schema }}
+              </Badge>
             </div>
             <Badge variant="outline" class="text-[9px] px-1.5 py-0 border-border/60 text-muted-foreground/80 font-normal">
-              {{ schemaStore.detailsByTable[table.name]?.columns.length ?? '?' }}
+              {{ schemaStore.detailsByTable[table.name]?.columns.length ?? schemaStore.detailsByTable[table.name.toLowerCase()]?.columns.length ?? '?' }}
             </Badge>
           </div>
 
@@ -286,35 +298,88 @@ const draggedTable = ref<string | null>(null)
 const tableDragStart = reactive({ x: 0, y: 0 })
 
 // Foreign Key Relations schema data
-interface FKRelation {
+export interface DiagramTable {
+  name: string
+  type: 'table' | 'view'
+  schema?: string
+}
+
+export interface FKRelation {
+  sourceSchema?: string
   sourceTable: string
   sourceColumn: string
+  targetSchema?: string
   targetTable: string
   targetColumn: string
   isFocus: boolean
 }
 const relations = ref<FKRelation[]>([])
 
-// Visible tables in this diagram
-const visibleTables = computed(() => {
+// Visible tables in this diagram (supports local & cross-schema tables)
+const visibleTables = computed<DiagramTable[]>(() => {
+  const currentDb = connStore.activeConnection?.database || ''
+
   if (!props.tableName) {
-    return schemaStore.tables
+    // Global mode: include all schemaStore.tables, plus any cross-schema related tables
+    const map = new Map<string, DiagramTable>()
+    schemaStore.tables.forEach(t => {
+      map.set(t.name.toLowerCase(), { name: t.name, type: t.type, schema: currentDb })
+    })
+
+    relations.value.forEach(r => {
+      const srcKey = r.sourceTable.toLowerCase()
+      if (!map.has(srcKey)) {
+        map.set(srcKey, { name: r.sourceTable, type: 'table', schema: r.sourceSchema || currentDb })
+      }
+      const tgtKey = r.targetTable.toLowerCase()
+      if (!map.has(tgtKey)) {
+        map.set(tgtKey, { name: r.targetTable, type: 'table', schema: r.targetSchema || currentDb })
+      }
+    })
+
+    return Array.from(map.values())
   }
   
+  // Focused mode: show focus table + all related (both outbound and inbound, including cross-schema)
   const target = props.tableName.toLowerCase()
-  const set = new Set<string>()
-  set.add(target)
+  const bareTarget = target.includes('.') ? target.split('.').pop()! : target
+  const map = new Map<string, DiagramTable>()
+  
+  // Add focus table
+  const focusTableObj = schemaStore.tables.find(t => t.name.toLowerCase() === bareTarget)
+  map.set(bareTarget, {
+    name: focusTableObj?.name || bareTarget,
+    type: focusTableObj?.type || 'table',
+    schema: target.includes('.') ? target.split('.')[0] : currentDb
+  })
   
   relations.value.forEach(r => {
-    if (r.sourceTable.toLowerCase() === target) {
-      set.add(r.targetTable.toLowerCase())
+    const srcLower = r.sourceTable.toLowerCase()
+    const tgtLower = r.targetTable.toLowerCase()
+    
+    if (srcLower === bareTarget || srcLower === target) {
+      if (!map.has(tgtLower)) {
+        const found = schemaStore.tables.find(t => t.name.toLowerCase() === tgtLower)
+        map.set(tgtLower, {
+          name: found?.name || r.targetTable,
+          type: found?.type || 'table',
+          schema: r.targetSchema || currentDb
+        })
+      }
     }
-    if (r.targetTable.toLowerCase() === target) {
-      set.add(r.sourceTable.toLowerCase())
+    if (tgtLower === bareTarget || tgtLower === target) {
+      if (!map.has(srcLower)) {
+        const found = schemaStore.tables.find(t => t.name.toLowerCase() === srcLower)
+        map.set(srcLower, {
+          name: found?.name || r.sourceTable,
+          type: found?.type || 'table',
+          schema: r.sourceSchema || currentDb
+        })
+      }
     }
   })
   
-  return schemaStore.tables.filter(t => set.has(t.name.toLowerCase()))
+  return Array.from(map.values())
 })
 
 // Build final computed list of relations for drawing lines
@@ -325,7 +390,10 @@ const relationsList = computed(() => {
   relations.value.forEach(rel => {
     if (visibleNames.has(rel.sourceTable.toLowerCase()) && visibleNames.has(rel.targetTable.toLowerCase())) {
       const isFocus = props.tableName 
-        ? (rel.sourceTable.toLowerCase() === props.tableName.toLowerCase() || rel.targetTable.toLowerCase() === props.tableName.toLowerCase())
+        ? (rel.sourceTable.toLowerCase() === props.tableName.toLowerCase() || 
+           rel.targetTable.toLowerCase() === props.tableName.toLowerCase() ||
+           rel.sourceTable.toLowerCase() === props.tableName.split('.').pop()?.toLowerCase() ||
+           rel.targetTable.toLowerCase() === props.tableName.split('.').pop()?.toLowerCase())
         : true
       result.push({
         ...rel,
@@ -527,7 +595,7 @@ async function loadSchemaDetails() {
     const collectedRelations: FKRelation[] = []
 
     if (props.tableName) {
-      // Focused mode: fetch FKs for target table
+      // Focused mode: fetch FKs for target table (both outbound & inbound)
       try {
         const fks = await invoke<any[]>('fetch_table_foreign_keys', {
           table: props.tableName,
@@ -537,11 +605,20 @@ async function loadSchemaDetails() {
         if (currentSeq !== loadSequence) return
 
         fks.forEach(fk => {
+          const srcTbl = fk.tableName || fk.table_name || props.tableName!
+          const srcCol = fk.columnName || fk.column_name
+          const tgtTbl = fk.referencedTable || fk.referenced_table
+          const tgtCol = fk.referencedColumn || fk.referenced_column
+          const srcSchema = fk.tableSchema || fk.table_schema || activeDb || undefined
+          const tgtSchema = fk.referencedTableSchema || fk.referenced_table_schema || activeDb || undefined
+
           collectedRelations.push({
-            sourceTable: props.tableName!,
-            sourceColumn: fk.column_name,
-            targetTable: fk.referenced_table,
-            targetColumn: fk.referenced_column,
+            sourceSchema: srcSchema,
+            sourceTable: srcTbl,
+            sourceColumn: srcCol,
+            targetSchema: tgtSchema,
+            targetTable: tgtTbl,
+            targetColumn: tgtCol,
             isFocus: true
           })
         })
@@ -558,11 +635,20 @@ async function loadSchemaDetails() {
         if (currentSeq !== loadSequence) return
 
         allFks.forEach(fk => {
+          const srcTbl = fk.tableName || fk.table_name
+          const srcCol = fk.columnName || fk.column_name
+          const tgtTbl = fk.referencedTable || fk.referenced_table
+          const tgtCol = fk.referencedColumn || fk.referenced_column
+          const srcSchema = fk.tableSchema || fk.table_schema || activeDb || undefined
+          const tgtSchema = fk.referencedTableSchema || fk.referenced_table_schema || activeDb || undefined
+
           collectedRelations.push({
-            sourceTable: fk.tableName || fk.table_name,
-            sourceColumn: fk.columnName || fk.column_name,
-            targetTable: fk.referencedTable || fk.referenced_table,
-            targetColumn: fk.referencedColumn || fk.referenced_column,
+            sourceSchema: srcSchema,
+            sourceTable: srcTbl,
+            sourceColumn: srcCol,
+            targetSchema: tgtSchema,
+            targetTable: tgtTbl,
+            targetColumn: tgtCol,
             isFocus: false
           })
         })
@@ -578,10 +664,12 @@ async function loadSchemaDetails() {
             })
             fks.forEach(fk => {
               collectedRelations.push({
-                sourceTable: table.name,
-                sourceColumn: fk.column_name,
-                targetTable: fk.referenced_table,
-                targetColumn: fk.referenced_column,
+                sourceSchema: fk.tableSchema || fk.table_schema || activeDb || undefined,
+                sourceTable: fk.tableName || fk.table_name || table.name,
+                sourceColumn: fk.columnName || fk.column_name,
+                targetSchema: fk.referencedTableSchema || fk.referenced_table_schema || activeDb || undefined,
+                targetTable: fk.referencedTable || fk.referenced_table,
+                targetColumn: fk.referencedColumn || fk.referenced_column,
                 isFocus: false
               })
             })
@@ -598,7 +686,7 @@ async function loadSchemaDetails() {
     const uniqueRelations: FKRelation[] = []
     const relKeySet = new Set<string>()
     for (const r of collectedRelations) {
-      const key = `${r.sourceTable.toLowerCase()}.${r.sourceColumn.toLowerCase()}->${r.targetTable.toLowerCase()}.${r.targetColumn.toLowerCase()}`
+      const key = `${r.sourceSchema || ''}.${r.sourceTable.toLowerCase()}.${r.sourceColumn.toLowerCase()}->${r.targetSchema || ''}.${r.targetTable.toLowerCase()}.${r.targetColumn.toLowerCase()}`
       if (!relKeySet.has(key)) {
         relKeySet.add(key)
         uniqueRelations.push(r)
@@ -609,17 +697,18 @@ async function loadSchemaDetails() {
     relations.value = uniqueRelations
 
     // Fetch column details for visible tables (batched, max 6 concurrent)
-    const tablesToFetch = visibleTables.value.filter(t => !schemaStore.detailsByTable[t.name])
+    const tablesToFetch = visibleTables.value.filter(t => !schemaStore.detailsByTable[t.name.toLowerCase()])
     await runWithConcurrency(tablesToFetch, 6, async (table) => {
       if (currentSeq !== loadSequence) return
-      await schemaStore.fetchTableDetails(table.name).catch(() => null)
+      const qualifiedName = table.schema ? `${table.schema}.${table.name}` : table.name
+      await schemaStore.fetchTableDetails(qualifiedName).catch(() => null)
     })
 
     if (currentSeq !== loadSequence) return
 
     // Update fk indicators on columns
     for (const rel of uniqueRelations) {
-      const srcDetails = schemaStore.detailsByTable[rel.sourceTable]
+      const srcDetails = schemaStore.detailsByTable[rel.sourceTable] || schemaStore.detailsByTable[rel.sourceTable.toLowerCase()]
       if (srcDetails) {
         const srcCol = srcDetails.columns.find(c => c.name.toLowerCase() === rel.sourceColumn.toLowerCase())
         if (srcCol) srcCol.fk = true
@@ -698,12 +787,17 @@ function onMouseUp() {
 
 // Connector Path Calculator
 function computeOrthogonalPath(rel: FKRelation): string {
-  const sPos = positions.value[rel.sourceTable]
-  const tPos = positions.value[rel.targetTable]
+  const sName = rel.sourceTable
+  const tName = rel.targetTable
+  const sPos = positions.value[sName] || positions.value[sName.toLowerCase()]
+  const tPos = positions.value[tName] || positions.value[tName.toLowerCase()]
   if (!sPos || !tPos) return ''
 
-  const srcCols = schemaStore.detailsByTable[rel.sourceTable]?.columns || []
-  const tgtCols = schemaStore.detailsByTable[rel.targetTable]?.columns || []
+  const srcDetails = schemaStore.detailsByTable[sName] || schemaStore.detailsByTable[sName.toLowerCase()] || (rel.sourceSchema ? schemaStore.detailsByTable[`${rel.sourceSchema}.${sName}`.toLowerCase()] : null)
+  const tgtDetails = schemaStore.detailsByTable[tName] || schemaStore.detailsByTable[tName.toLowerCase()] || (rel.targetSchema ? schemaStore.detailsByTable[`${rel.targetSchema}.${tName}`.toLowerCase()] : null)
+
+  const srcCols = srcDetails?.columns || []
+  const tgtCols = tgtDetails?.columns || []
   
   const sColIdx = srcCols.findIndex(c => c.name.toLowerCase() === rel.sourceColumn.toLowerCase())
   const tColIdx = tgtCols.findIndex(c => c.name.toLowerCase() === rel.targetColumn.toLowerCase())
@@ -760,9 +854,15 @@ function isLineHighlighted(rel: FKRelation): boolean {
   return rel.sourceTable.toLowerCase() === sel || rel.targetTable.toLowerCase() === sel
 }
 
+function formatRelationTooltip(rel: FKRelation): string {
+  const src = `${rel.sourceSchema ? rel.sourceSchema + '.' : ''}${rel.sourceTable}.${rel.sourceColumn}`
+  const tgt = `${rel.targetSchema ? rel.targetSchema + '.' : ''}${rel.targetTable}.${rel.targetColumn}`
+  return `${src} → ${tgt}`
+}
+
 function getLineStroke(rel: FKRelation): string {
   if (!selectedTable.value) {
-    return rel.isFocus ? '#f8fafc' : 'var(--border)'
+    return rel.isFocus ? '#38bdf8' : 'var(--border)'
   }
   return isLineHighlighted(rel) ? 'var(--primary)' : 'var(--border)'
 }
@@ -797,9 +897,9 @@ onMounted(() => {
   loadSchemaDetails()
 })
 
-// Watch props and active connection/database instead of visibleTables to avoid feedback loops
+// Watch props, active connection/database, and schemaStore.tables to eliminate mount race conditions
 watch(
-  [() => props.tableName, () => connStore.activeId, () => connStore.activeConnection?.database],
+  [() => props.tableName, () => connStore.activeId, () => connStore.activeConnection?.database, () => schemaStore.tables.length],
   () => {
     loadSchemaDetails()
   }

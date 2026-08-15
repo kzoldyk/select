@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 describe("result store", () => {
   beforeEach(() => {
+    localStorage.clear();
     setActivePinia(createPinia());
     mockInvoke.mockReset();
     mockInvoke.mockResolvedValue([]);

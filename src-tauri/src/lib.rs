@@ -10,6 +10,9 @@ pub struct AppState {
     pub active_connection_id: Arc<Mutex<Option<String>>>,
     pub connection_urls: Arc<Mutex<HashMap<String, String>>>,
     pub thread_ids: Arc<Mutex<HashMap<String, u32>>>,
+    pub read_only_connections: Arc<Mutex<HashMap<String, bool>>>,
+    pub history_cache: Arc<Mutex<commands::HistoryCacheState>>,
+    pub queries_cache: Arc<Mutex<Option<commands::SavedQueriesCacheState>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -20,6 +23,12 @@ pub fn run() {
             active_connection_id: Arc::new(Mutex::new(None)),
             connection_urls: Arc::new(Mutex::new(HashMap::new())),
             thread_ids: Arc::new(Mutex::new(HashMap::new())),
+            read_only_connections: Arc::new(Mutex::new(HashMap::new())),
+            history_cache: Arc::new(Mutex::new(commands::HistoryCacheState {
+                items: Vec::new(),
+                loaded: false,
+            })),
+            queries_cache: Arc::new(Mutex::new(None)),
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -54,8 +63,8 @@ pub fn run() {
             commands::select_folder,
             commands::export_csv,
             commands::kill_session,
-            commands::encrypt_password,
-            commands::decrypt_password,
+            commands::crypto::seal_connections_for_storage,
+            commands::crypto::unseal_connections_from_storage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

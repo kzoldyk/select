@@ -73,6 +73,7 @@
       <SettingsDialog />
       <ThemeGalleryDialog />
       <QueriesDirDialog />
+      <VirtualKeyDialog />
       <Toaster />
     </div>
   </div>
@@ -99,6 +100,7 @@ import DestructiveQueryDialog from './components/DestructiveQueryDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import ExportDialog from './components/ExportDialog.vue'
 import QueriesDirDialog from './components/QueriesDirDialog.vue'
+import VirtualKeyDialog from './components/VirtualKeyDialog.vue'
 import { initThemeSystem } from './theme'
 
 import { useConnectionStore } from './stores/connection'

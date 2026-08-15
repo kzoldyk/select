@@ -7,33 +7,22 @@
   >
     <div class="px-3 py-3 border-b border-border flex flex-col gap-2.5 flex-shrink-0 bg-background/50 backdrop-blur-sm z-10">
       <template v-if="connStore.status === 'connected'">
-        <select
-          v-if="schemaStore.databases.length"
-          class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all shadow-sm"
-          aria-label="Select database"
-          :value="connStore.activeConnection?.database"
-          @change="async (e) => {
-            await connStore.changeDatabase((e.target as HTMLSelectElement).value)
-            await schemaStore.fetchDatabases(connStore.activeId ?? undefined)
-            await schemaStore.refreshSchema(connStore.activeId ?? undefined)
-          }"
-        >
-          <option value="" disabled>Select Database...</option>
-          <option v-for="db in schemaStore.databases" :key="db" :value="db">{{ db }}</option>
-        </select>
-
         <div class="flex items-center gap-1.5">
           <select
-            v-if="schemaStore.databases.length"
+            v-if="schemaStore.databases?.length"
             class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shadow-sm"
-            aria-label="Select schema"
-            :disabled="connStore.activeConnection?.dbType === 'mysql'"
+            aria-label="Select database"
+            :value="connStore.activeConnection?.database"
+            @change="async (e) => {
+              await connStore.changeDatabase((e.target as HTMLSelectElement).value)
+              await schemaStore.fetchDatabases(connStore.activeId ?? undefined)
+              await schemaStore.refreshSchema(connStore.activeId ?? undefined)
+            }"
           >
-            <option v-if="connStore.activeConnection?.dbType === 'mysql'" value="def">MySQL (Schema = DB)</option>
-            <option v-else value="public">public</option>
+            <option value="" disabled>Select Database...</option>
+            <option v-for="db in schemaStore.databases" :key="db" :value="db">{{ db }}</option>
           </select>
           <button
-            v-if="connStore.status === 'connected'"
             class="flex items-center justify-center w-7 h-7 rounded hover:bg-accent text-muted-foreground hover:text-foreground bg-background border border-input cursor-pointer flex-shrink-0 shadow-sm transition-colors"
             title="Refresh schema"
             :disabled="schemaStore.isLoading"
@@ -44,21 +33,42 @@
             </svg>
           </button>
         </div>
+
+        <div v-if="schemaStore.schemaError" class="p-2 bg-destructive/10 border border-destructive/20 rounded text-[11px] text-destructive flex items-center justify-between gap-1">
+          <span class="truncate">{{ schemaStore.schemaError }}</span>
+          <button
+            class="px-1.5 py-0.5 bg-destructive/20 hover:bg-destructive/30 rounded text-[10px] font-semibold cursor-pointer border-none"
+            @click="schemaStore.refreshSchema(connStore.activeId ?? undefined)"
+          >
+            Retry
+          </button>
+        </div>
       </template>
 
-      <div v-else-if="connStore.status === 'connecting'" class="text-[10px] text-muted-foreground text-center py-2">
+      <div v-else-if="connStore.status === 'connecting'" class="text-[11px] text-muted-foreground text-center py-2">
         Connecting...
       </div>
-      <div v-else-if="connStore.status === 'error'" class="text-[10px] text-red-500 text-center py-2">
-        Connection error
+      <div v-else-if="connStore.status === 'error'" class="flex flex-col gap-1.5 py-1">
+        <div class="text-[11px] text-destructive text-center font-medium">Connection Error</div>
+        <button
+          class="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border-none"
+          @click="uiStore.openConnectionManager()"
+        >
+          Manage Connections
+        </button>
       </div>
-      <div v-else class="text-[10px] text-muted-foreground text-center py-2">
-        No active connection
+      <div v-else class="flex flex-col gap-2 py-1">
+        <button
+          class="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border-none"
+          @click="uiStore.openConnectionManager()"
+        >
+          Connect to Database
+        </button>
       </div>
 
       <input
         id="sidebar-search-input"
-        class="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-[12px] ring-offset-background placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all shadow-sm mt-1"
+        class="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-[12px] ring-offset-background placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all shadow-sm mt-0.5"
         type="text"
         placeholder="Search schema objects…"
         aria-label="Search schema objects"
@@ -324,7 +334,7 @@
             <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.saved }" />
             <FileText class="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
             <span class="flex-1">Saved Queries</span>
-            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ editorStore.savedQueries.length }}</span>
+            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ editorStore.savedQueries?.length || 0 }}</span>
           </button>
           <div 
             class="grid transition-all duration-200 ease-in-out"
@@ -332,7 +342,7 @@
           >
             <div class="overflow-hidden">
               <button
-                v-for="sq in editorStore.savedQueries"
+                v-for="sq in (editorStore.savedQueries || [])"
                 :key="sq.id"
                 class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
                 :title="sq.name"
@@ -341,7 +351,7 @@
               >
                 <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ sq.name }}</span>
               </button>
-              <div v-if="!editorStore.savedQueries.length" class="px-6 py-2 text-[11px] text-muted-foreground/50">
+              <div v-if="!editorStore.savedQueries?.length" class="px-6 py-2 text-[11px] text-muted-foreground/50">
                 No saved queries
               </div>
             </div>

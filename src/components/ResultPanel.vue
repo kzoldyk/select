@@ -89,6 +89,16 @@
             </span>
           </div>
 
+          <button
+            v-if="editableTableName && currentStatus === 'success'"
+            class="h-7 px-2 flex items-center gap-1 rounded border border-border/60 bg-background hover:bg-muted/40 text-[10px] text-muted-foreground hover:text-foreground font-mono transition-colors cursor-pointer shadow-sm"
+            :title="resultKeyTooltip"
+            @click="uiStore.openVirtualKeyDialog(editableTableName)"
+          >
+            <Key class="w-3 h-3" :class="resultKeyIconClass" />
+            <span>{{ resultKeyLabel }}</span>
+          </button>
+
           <div class="flex items-center border border-border rounded-md bg-background overflow-hidden shadow-sm">
             <select
               v-if="currentColumns.length"
@@ -512,21 +522,21 @@
     </Teleport>
     
     <Dialog v-model:open="showUpdateModal">
-      <DialogContent class="result-panel-dialog sm:max-w-[600px] bg-background border-border">
-        <DialogHeader>
+      <DialogContent class="result-panel-dialog max-w-[680px] max-h-[85vh] flex flex-col p-6 bg-background border-border overflow-hidden shadow-2xl">
+        <DialogHeader class="shrink-0">
           <DialogTitle>Confirm Update</DialogTitle>
           <DialogDescription>
             The following queries will be executed. Please review them carefully.
           </DialogDescription>
         </DialogHeader>
-        <div class="py-4">
-          <ScrollArea class="h-[200px] w-full rounded-md border border-border bg-muted/30 p-4">
-            <pre class="text-xs font-mono text-foreground whitespace-pre-wrap">{{ pendingUpdateSql }}</pre>
-          </ScrollArea>
+        <div class="py-3 flex-1 min-h-0 overflow-hidden flex flex-col">
+          <div class="flex-1 min-h-[100px] max-h-[360px] overflow-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs text-foreground select-text">
+            <pre class="whitespace-pre-wrap break-all">{{ pendingUpdateSql }}</pre>
+          </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" @click="showUpdateModal = false" :disabled="resultStore.savingEdits">Cancel</Button>
-          <Button class="bg-emerald-500 hover:bg-emerald-600 text-white" @click="confirmSaveEdits" :disabled="resultStore.savingEdits">
+        <DialogFooter class="shrink-0 pt-3 border-t border-border/40 flex justify-end gap-2">
+          <Button variant="outline" size="sm" @click="showUpdateModal = false" :disabled="resultStore.savingEdits">Cancel</Button>
+          <Button size="sm" class="bg-emerald-500 hover:bg-emerald-600 text-white" @click="confirmSaveEdits" :disabled="resultStore.savingEdits">
             <template v-if="resultStore.savingEdits">Executing&hellip;</template>
             <template v-else>Run Update</template>
           </Button>
@@ -547,7 +557,7 @@
         <div class="flex items-center justify-between border-b border-border pb-2 mb-2">
           <span class="font-semibold text-muted-foreground">Referenced Row Preview</span>
           <span class="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px] text-foreground select-all">
-            {{ activeFkPreview.referencedTable }}
+            {{ activeFkPreview.referencedSchema ? `${activeFkPreview.referencedSchema}.${activeFkPreview.referencedTable}` : activeFkPreview.referencedTable }}
           </span>
         </div>
 
@@ -605,7 +615,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Download, Search, Copy } from '@lucide/vue'
+import { Download, Search, Copy, Key } from '@lucide/vue'
 import { useResultStore, type ResultView, type Column, type CellValue, type ResultRow } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
 import { useSchemaStore } from '../stores/schema'
@@ -615,6 +625,32 @@ import { toast } from 'vue-sonner'
 const resultStore = useResultStore()
 const schemaStore = useSchemaStore()
 const uiStore = useUiStore()
+
+const resultKeyInfo = computed(() => {
+  if (!editableTableName.value) return { columns: [], keyType: 'all_columns' as const }
+  return schemaStore.getKeyColumnsForTable(getRawTableName(editableTableName.value))
+})
+
+const resultKeyLabel = computed(() => {
+  if (resultKeyInfo.value.keyType === 'primary') return `PK: ${resultKeyInfo.value.columns.join(', ')}`
+  if (resultKeyInfo.value.keyType === 'unique') return `UK: ${resultKeyInfo.value.columns.join(', ')}`
+  if (resultKeyInfo.value.keyType === 'virtual') return `VK: ${resultKeyInfo.value.columns.join(', ')}`
+  return 'Key: All-Cols (Auto)'
+})
+
+const resultKeyIconClass = computed(() => {
+  if (resultKeyInfo.value.keyType === 'primary') return 'text-emerald-500'
+  if (resultKeyInfo.value.keyType === 'unique') return 'text-blue-500'
+  if (resultKeyInfo.value.keyType === 'virtual') return 'text-purple-500'
+  return 'text-amber-500'
+})
+
+const resultKeyTooltip = computed(() => {
+  if (resultKeyInfo.value.keyType === 'primary') return `Physical Primary Key: ${resultKeyInfo.value.columns.join(', ')} (Click to view/define Virtual Key)`
+  if (resultKeyInfo.value.keyType === 'unique') return `Unique Index: ${resultKeyInfo.value.columns.join(', ')} (Click to view/define Virtual Key)`
+  if (resultKeyInfo.value.keyType === 'virtual') return `Virtual Unique Key: ${resultKeyInfo.value.columns.join(', ')} (Click to modify)`
+  return 'No Primary Key detected. Using full row matching with LIMIT 1 (Click to define a Virtual Key)'
+})
 
 const currentColumns = computed(() => {
   if (resultStore.activeResultTabId === 'current') return resultStore.columns
@@ -748,21 +784,21 @@ const editableTableName = computed(() => {
 
 const pkColumns = computed<string[]>(() => {
   const tableName = editableTableName.value
-  console.log('[pkColumns] editableTableName:', tableName)
   if (!tableName) return []
   const rawName = getRawTableName(tableName).toLowerCase()
   const tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
     return getRawTableName(k).toLowerCase() === rawName
   })
-  console.log('[pkColumns] found tableKey:', tableKey)
-  if (!tableKey) {
-    console.log('[pkColumns] detailsByTable keys:', Object.keys(schemaStore.detailsByTable))
-    return []
-  }
+  if (!tableKey) return []
   const details = schemaStore.detailsByTable[tableKey]
   if (!details) return []
   const pks = details.columns.filter(c => c.pk).map(c => c.name)
-  console.log('[pkColumns] final primary keys:', pks)
+  if (pks.length === 0 && details.indexes) {
+    const uniqueIdx = details.indexes.find(idx => idx.unique)
+    if (uniqueIdx) {
+      return uniqueIdx.columns.split(',').map(s => s.trim().replace(/[`"']/g, ''))
+    }
+  }
   return pks
 })
 
@@ -773,15 +809,13 @@ const hasDirtyEdits = computed(() => {
 
 async function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) {
   if (resultStore.activeResultTabId !== 'current') return
-  console.log('[startEditCell] Clicked cell. lastSql is:', currentSql.value)
   const manualDetect = detectTableFromSql(currentSql.value)
-  console.log('[startEditCell] manualDetect returned:', manualDetect)
   
   if (!editableTableName.value) {
     if (!/\bSELECT\b/i.test(resultStore.lastSql)) {
       toast.error('Cannot edit data', { description: 'Data can only be edited from a SELECT query on a physical table.' })
     } else {
-      toast.error('Cannot edit data', { description: `Could not detect the table name from the query. Regex detected: ${manualDetect}` })
+      toast.error('Cannot edit data', { description: `Could not detect table name from the query. Multi-table joins and computed queries are read-only.` })
     }
     return
   }
@@ -789,26 +823,34 @@ async function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) 
   const tableName = editableTableName.value
   const rawName = getRawTableName(tableName).toLowerCase()
   let tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
-    return getRawTableName(k).toLowerCase() === rawName
+    const lk = k.toLowerCase()
+    return lk === rawName || lk === tableName.toLowerCase() || lk.endsWith(`.${rawName}`)
   })
   
   if (!tableKey) {
     try {
-      await schemaStore.fetchTableDetails(getRawTableName(tableName))
+      await schemaStore.fetchTableDetails(tableName)
       tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
-        return getRawTableName(k).toLowerCase() === rawName
+        const lk = k.toLowerCase()
+        return lk === rawName || lk === tableName.toLowerCase() || lk.endsWith(`.${rawName}`)
       })
     } catch (e) {
       console.error('Failed to fetch table details for editing:', e)
     }
   }
   
-  const pkCols = pkColumns.value
-  console.log('[startEditCell] pkCols:', pkCols)
-  if (pkCols.length === 0) {
-    toast.error('Cannot edit data', { description: 'The table must have at least one primary key column.' })
-    return
+  const keyInfo = schemaStore.getKeyColumnsForTable(tableName)
+  if (keyInfo.columns.length > 0) {
+    const resultColNames = resultStore.columns.map(c => (c.orgName || c.name).toLowerCase())
+    const missingPkCols = keyInfo.columns.filter(pk => !resultColNames.includes(pk.toLowerCase()))
+    if (missingPkCols.length > 0) {
+      toast.error('Cannot edit cell', {
+        description: `Key column '${missingPkCols.join(', ')}' is not in this query result. Add '${missingPkCols.join(', ')}' to your SELECT query or define a Virtual Key to edit.`,
+      })
+      return
+    }
   }
+
   resultStore.startEditing(rowIndex, colName)
   nextTick(() => {
     const el = editInputRef.value
@@ -841,11 +883,10 @@ async function saveEdits() {
   const tableName = editableTableName.value
   if (!tableName) return
   
-  const pks = pkColumns.value
-  if (pks.length === 0) {
-    toast.error('Cannot generate SQL', { description: 'The table must have at least one primary key column.' })
-    return
-  }
+  const keyInfo = schemaStore.getKeyColumnsForTable(tableName)
+  const effectiveKeys = keyInfo.columns.length > 0
+    ? keyInfo.columns
+    : resultStore.columns.map(c => c.orgName || c.name)
 
   const statements: string[] = []
   
@@ -870,15 +911,16 @@ async function saveEdits() {
     if (setClauses.length === 0) continue
     
     const whereClauses: string[] = []
-    for (const pk of pks) {
+    const originalRow = resultStore.originalRows[rowIndex] ?? row
+    for (const pk of effectiveKeys) {
       const colDef = resultStore.columns.find(c => {
         const bareOrgTable = c.orgTable ? (c.orgTable.includes('.') ? c.orgTable.split('.').pop() : c.orgTable) : '';
         const bareTableName = tableName.includes('.') ? tableName.split('.').pop() : tableName;
-        return (c.orgName || c.name) === pk && (!c.orgTable || bareOrgTable?.toLowerCase() === bareTableName?.toLowerCase());
+        return (c.orgName || c.name).toLowerCase() === pk.toLowerCase() && (!c.orgTable || bareOrgTable?.toLowerCase() === bareTableName?.toLowerCase());
       })
       const pkType = colDef ? colDef.type : 'string'
       const gridColName = colDef ? colDef.name : pk
-      const pkVal = row[gridColName]
+      const pkVal = originalRow[gridColName]
       if (pkVal === null || pkVal === undefined) {
          whereClauses.push(`${escapeId(pk)} IS NULL`)
       } else {
@@ -886,7 +928,7 @@ async function saveEdits() {
       }
     }
     
-    const sql = `UPDATE ${escapeId(tableName)} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')};`
+    const sql = `UPDATE ${escapeId(tableName)} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')} LIMIT 1;`
     statements.push(sql)
   }
   
@@ -903,7 +945,8 @@ async function confirmSaveEdits() {
   const tableName = editableTableName.value
   if (!tableName) return
   
-  const success = await resultStore.saveEdits(tableName, pkColumns.value)
+  const keyInfo = schemaStore.getKeyColumnsForTable(tableName)
+  const success = await resultStore.saveEdits(tableName, keyInfo.columns)
   showUpdateModal.value = false
   if (success) {
     toast.success('Edits saved successfully')
@@ -1357,12 +1400,11 @@ import { useConnectionStore } from '../stores/connection'
 
 const connStore = useConnectionStore()
 
-const foreignKeysCache = ref<Record<string, { column_name: string; referenced_table: string; referenced_column: string }[]>>({})
-
 const activeFkPreview = ref<{
   rowIndex: number
   colName: string
   colValue: string
+  referencedSchema?: string | null
   referencedTable: string
   referencedColumn: string
   loading: boolean
@@ -1381,27 +1423,16 @@ async function loadForeignKeysForColumns() {
   }
 
   for (const table of tablesToLoad) {
-    if (foreignKeysCache.value[table]) continue
-    try {
-      const fks = await invoke<any[]>('fetch_table_foreign_keys', {
-        table,
-        id: connStore.activeId,
-        database: connStore.activeConnection?.database || null
-      })
-      foreignKeysCache.value[table] = fks
-    } catch (e) {
-      console.error(`Failed to load foreign keys for table ${table}:`, e)
-      foreignKeysCache.value[table] = []
-    }
+    await schemaStore.fetchForeignKeys(table)
   }
 }
 
 function getColumnForeignKey(col: Column) {
   if (!col.orgTable) return null
-  const fks = foreignKeysCache.value[col.orgTable]
+  const fks = schemaStore.foreignKeysByTable[col.orgTable]
   if (!fks) return null
   const colName = col.orgName || col.name
-  return fks.find(fk => fk.column_name.toLowerCase() === colName.toLowerCase()) || null
+  return fks.find(fk => (fk.column_name || fk.columnName || '').toLowerCase() === colName.toLowerCase()) || null
 }
 
 async function showFkPreview(event: MouseEvent, col: Column, rowIndex: number, cellValue: CellValue) {
@@ -1410,13 +1441,17 @@ async function showFkPreview(event: MouseEvent, col: Column, rowIndex: number, c
   if (!fk) return
 
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const refSchema = fk.referencedTableSchema || fk.referenced_table_schema || null
+  const refTable = fk.referencedTable || fk.referenced_table || ''
+  const refCol = fk.referencedColumn || fk.referenced_column || ''
   
   activeFkPreview.value = {
     rowIndex,
     colName: col.name,
     colValue: String(cellValue),
-    referencedTable: fk.referenced_table,
-    referencedColumn: fk.referenced_column,
+    referencedSchema: refSchema,
+    referencedTable: refTable,
+    referencedColumn: refCol,
     loading: true,
     data: null,
     error: null,
@@ -1426,11 +1461,11 @@ async function showFkPreview(event: MouseEvent, col: Column, rowIndex: number, c
 
   try {
     const data = await invoke<any>('fetch_referenced_row', {
-      table: fk.referenced_table,
-      column: fk.referenced_column,
+      table: refSchema ? `${refSchema}.${refTable}` : refTable,
+      column: refCol,
       value: String(cellValue),
       id: connStore.activeId,
-      database: connStore.activeConnection?.database || null
+      database: refSchema || connStore.activeConnection?.database || null
     })
     if (activeFkPreview.value && activeFkPreview.value.rowIndex === rowIndex && activeFkPreview.value.colName === col.name) {
       activeFkPreview.value.data = data

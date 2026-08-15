@@ -6,6 +6,8 @@ export function initThemeSystem() {
   // Load saved theme configuration
   loadThemeState()
 
+  if (!window.matchMedia) return
+
   // Track system preference
   const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
 

@@ -81,7 +81,7 @@
                 <rect x="240" y="240" width="64" height="64" rx="16" fill="#3F3F46"/>
               </svg>
             </div>
-            <span class="text-[10px] text-muted-foreground/60 font-mono mt-1">Version 2.6.8</span>
+            <span class="text-[10px] text-muted-foreground/60 font-mono mt-1">v0.1.0</span>
           </div>
 
           <!-- Search Input -->
@@ -538,6 +538,19 @@
                       placeholder="e.g. /tmp/mysql.sock"
                       class="h-8 text-xs font-mono bg-[#090A0C] border-[#242629]"
                     />
+                  </div>
+
+                  <div class="pt-3 border-t border-[#242629]/60">
+                    <div class="flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <Label class="text-xs font-medium text-muted-foreground">SSH Tunnel</Label>
+                        <span class="text-[10px] font-semibold bg-muted text-muted-foreground/80 px-1.5 py-0.5 rounded border border-border/40">Coming Soon</span>
+                      </div>
+                      <input type="checkbox" disabled class="opacity-40 cursor-not-allowed" />
+                    </div>
+                    <p class="text-[11px] text-muted-foreground/60 mt-1 leading-normal">
+                      Direct SSH bastion host tunneling and private key authentication are scheduled for an upcoming release.
+                    </p>
                   </div>
                 </div>
               </div>

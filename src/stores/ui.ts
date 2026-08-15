@@ -21,6 +21,8 @@ export const useUiStore = defineStore('ui', {
     shortcutsOpen: false,
     exportOpen: false,
     themeGalleryOpen: false,
+    virtualKeyDialogOpen: false,
+    virtualKeyTable: null as string | null,
     theme: ((typeof window !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'system',
     systemIsDark: false,
     resultPanelOpen: typeof window !== 'undefined' ? localStorage.getItem('resultPanelOpen') !== 'false' : true,
@@ -89,6 +91,14 @@ export const useUiStore = defineStore('ui', {
     },
     toggleThemeGallery() {
       this.themeGalleryOpen = !this.themeGalleryOpen
+    },
+    openVirtualKeyDialog(tableName: string) {
+      this.virtualKeyTable = tableName
+      this.virtualKeyDialogOpen = true
+    },
+    closeVirtualKeyDialog() {
+      this.virtualKeyDialogOpen = false
+      this.virtualKeyTable = null
     },
     setTheme(theme: Theme) {
       this.theme = theme

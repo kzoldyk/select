@@ -1,14 +1,14 @@
 use crate::AppState;
-use aes_gcm::{aead::Aead, AeadCore, Aes256Gcm, Key, KeyInit, Nonce};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use crate::commands::cache::{
+    dir_mtime, load_history_from_disk, save_history_to_disk, SavedQueriesCacheState,
+};
+
 use chrono::Utc;
 use mysql_async::prelude::*;
 use mysql_async::{params, Conn, Opts, OptsBuilder, Pool};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{Manager, State};
@@ -17,13 +17,6 @@ use uuid::Uuid;
 const MAX_RESULT_ROWS: usize = 10_000;
 const MAX_PAGE_SIZE: usize = 500;
 const QUERY_TIMEOUT_SECS: u64 = 600;
-
-fn history_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    path.push("query_history.json");
-    Ok(path)
-}
 
 fn now_iso() -> String {
     Utc::now().to_rfc3339()
@@ -259,35 +252,50 @@ fn resolve_unique_query_path(dir: &PathBuf, name: &str) -> PathBuf {
     }
 }
 
-fn load_history_from_disk(app: &tauri::AppHandle) -> Vec<QueryHistoryItem> {
-    let path = match history_path(app) {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
-    };
-    if !path.exists() {
-        return Vec::new();
+fn invalidate_queries_cache(state: &AppState) {
+    if let Ok(mut cache) = state.queries_cache.try_lock() {
+        *cache = None;
     }
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
+}
+
+async fn load_queries_cached(app: &tauri::AppHandle, state: &AppState) -> Vec<SavedQuery> {
+    let dir = match queries_dir(app) {
+        Ok(d) => d,
         Err(_) => return Vec::new(),
     };
-    serde_json::from_str(&content).unwrap_or_default()
+    let mtime = dir_mtime(&dir);
+
+    {
+        let cache_guard = state.queries_cache.lock().await;
+        if let Some(cached) = cache_guard.as_ref() {
+            if cached.dir_mtime == mtime {
+                return cached.items.clone();
+            }
+        }
+    }
+
+    let items = load_queries_from_disk(app);
+    let mut cache_guard = state.queries_cache.lock().await;
+    *cache_guard = Some(SavedQueriesCacheState {
+        items: items.clone(),
+        dir_mtime: mtime,
+    });
+    items
 }
 
-fn save_history_to_disk(
+async fn append_history(
     app: &tauri::AppHandle,
-    history: &[QueryHistoryItem],
+    state: &AppState,
+    item: QueryHistoryItem,
 ) -> Result<(), String> {
-    let path = history_path(app)?;
-    let content = serde_json::to_string(history).map_err(|e| e.to_string())?;
-    std::fs::write(&path, content).map_err(|e| e.to_string())
-}
-
-fn append_history(app: &tauri::AppHandle, item: QueryHistoryItem) -> Result<(), String> {
-    let mut history = load_history_from_disk(app);
-    history.insert(0, item);
-    history.truncate(100);
-    save_history_to_disk(app, &history)
+    let mut cache = state.history_cache.lock().await;
+    if !cache.loaded {
+        cache.items = load_history_from_disk(app);
+        cache.loaded = true;
+    }
+    cache.items.insert(0, item);
+    cache.items.truncate(100);
+    save_history_to_disk(app, &cache.items)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -304,6 +312,8 @@ pub struct ConnectionConfig {
     pub ssl_mode: Option<String>,
     pub connect_timeout_secs: Option<u64>,
     pub charset: Option<String>,
+    pub socket_path: Option<String>,
+    pub read_only: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -690,6 +700,12 @@ fn get_connection_opts(config: &ConnectionConfig) -> Result<(Opts, String), Stri
     let url = build_connection_url(config);
     let opts = Opts::from_url(&url).map_err(|e| safe_error(&e))?;
     let mut builder = OptsBuilder::from_opts(opts);
+    if let Some(ref socket) = config.socket_path {
+        let trimmed = socket.trim();
+        if !trimmed.is_empty() {
+            builder = builder.socket(Some(trimmed));
+        }
+    }
     if let Some(ref cs) = config.charset {
         if !cs.trim().is_empty() {
             let cs_trimmed = cs.trim();
@@ -765,6 +781,7 @@ pub async fn run_query(
     if let Err(err) = validate_read_only_query(&sql) {
         let _ = append_history(
             &app,
+            &state,
             QueryHistoryItem {
                 id: format!("qh-{}", Uuid::new_v4()),
                 sql,
@@ -773,7 +790,7 @@ pub async fn run_query(
                 row_count: 0,
                 error: Some(err.clone()),
             },
-        );
+        ).await;
         return Err(err);
     }
 
@@ -878,8 +895,9 @@ pub async fn run_query(
         Ok(result) => result,
         Err(err) => {
             let _ = append_history(
-                &app,
-                QueryHistoryItem {
+            &app,
+            &state,
+            QueryHistoryItem {
                     id: format!("qh-{}", Uuid::new_v4()),
                     sql,
                     executed_at: now_iso(),
@@ -887,15 +905,16 @@ pub async fn run_query(
                     row_count: 0,
                     error: Some(err.clone()),
                 },
-            );
+            ).await;
             return Err(err);
         }
     };
 
     let row_count = json_rows.len() as u64;
     let _ = append_history(
-        &app,
-        QueryHistoryItem {
+            &app,
+            &state,
+            QueryHistoryItem {
             id: format!("qh-{}", Uuid::new_v4()),
             sql,
             executed_at: now_iso(),
@@ -903,7 +922,7 @@ pub async fn run_query(
             row_count,
             error: None,
         },
-    );
+    ).await;
 
     Ok(QueryResult {
         row_count,
@@ -959,6 +978,14 @@ pub async fn run_multi_query(
     }
 
     let (conn_id, pool) = resolve_connection(&state, id).await?;
+    let is_read_only = state.read_only_connections.lock().await.get(&conn_id).copied().unwrap_or(false);
+    if is_read_only {
+        for stmt in &statements {
+            if validate_read_only_query(stmt).is_err() {
+                return Err("Connection is configured as read-only. Mutating operations are blocked.".into());
+            }
+        }
+    }
 
     let thread_ids = state.thread_ids.clone();
 
@@ -1079,8 +1106,9 @@ pub async fn run_multi_query(
         match result {
             Ok(res) => {
                 let _ = append_history(
-                    &app,
-                    QueryHistoryItem {
+            &app,
+            &state,
+            QueryHistoryItem {
                         id: format!("qh-{}", Uuid::new_v4()),
                         sql: stmt.clone(),
                         executed_at: now_iso(),
@@ -1088,13 +1116,14 @@ pub async fn run_multi_query(
                         row_count: res.row_count.unwrap_or(res.affected_rows.unwrap_or(0)),
                         error: None,
                     },
-                );
+                ).await;
                 results.push(res);
             }
             Err(e) => {
                 let _ = append_history(
-                    &app,
-                    QueryHistoryItem {
+            &app,
+            &state,
+            QueryHistoryItem {
                         id: format!("qh-{}", Uuid::new_v4()),
                         sql: stmt.clone(),
                         executed_at: now_iso(),
@@ -1102,7 +1131,7 @@ pub async fn run_multi_query(
                         row_count: 0,
                         error: Some(e.clone()),
                     },
-                );
+                ).await;
                 results.push(SingleQueryResult {
                     sql: stmt.clone(),
                     columns: None,
@@ -1153,6 +1182,7 @@ pub async fn run_query_paged(
     if let Err(err) = validate_read_only_query(&sql) {
         let _ = append_history(
             &app,
+            &state,
             QueryHistoryItem {
                 id: format!("qh-{}", Uuid::new_v4()),
                 sql,
@@ -1161,7 +1191,7 @@ pub async fn run_query_paged(
                 row_count: 0,
                 error: Some(err.clone()),
             },
-        );
+        ).await;
         return Err(err);
     }
 
@@ -1172,9 +1202,11 @@ pub async fn run_query_paged(
     let fetch_limit = page_size + 1;
     let clean_sql = sql.trim().trim_end_matches(';');
     let paged_sql = format!("{} LIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
+    let subquery_sql = format!("SELECT * FROM ({}) AS _sub LIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
 
     let clean_sql_clone = clean_sql.to_string();
     let paged_sql_clone = paged_sql.clone();
+    let subquery_sql_clone = subquery_sql.clone();
 
     let query_future = async move {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -1188,9 +1220,13 @@ pub async fn run_query_paged(
             Err(e) => {
                 let err_msg = safe_error(&e);
                 if err_msg.to_lowercase().contains("syntax") || err_msg.to_lowercase().contains("parse") {
-                    // Fallback to original query (user might already have LIMIT)
-                    result_is_fallback = true;
-                    conn.query_iter(&clean_sql_clone).await.map_err(|e| safe_error(&e))?
+                    match conn.query_iter(&subquery_sql_clone).await {
+                        Ok(r) => r,
+                        Err(_) => {
+                            result_is_fallback = true;
+                            conn.query_iter(&clean_sql_clone).await.map_err(|e| safe_error(&e))?
+                        }
+                    }
                 } else {
                     return Err(err_msg);
                 }
@@ -1289,8 +1325,9 @@ pub async fn run_query_paged(
     let duration = start.elapsed().as_millis() as u64;
 
     let _ = append_history(
-        &app,
-        QueryHistoryItem {
+            &app,
+            &state,
+            QueryHistoryItem {
             id: format!("qh-{}", Uuid::new_v4()),
             sql,
             executed_at: now_iso(),
@@ -1298,7 +1335,7 @@ pub async fn run_query_paged(
             row_count: row_count as u64,
             error: None,
         },
-    );
+    ).await;
 
     Ok(PagedQueryResult {
         columns,
@@ -1353,6 +1390,10 @@ pub async fn run_write_query(
     }
 
     let (conn_id, pool) = resolve_connection(&state, id).await?;
+    let is_read_only = state.read_only_connections.lock().await.get(&conn_id).copied().unwrap_or(false);
+    if is_read_only {
+        return Err("Connection is configured as read-only. Mutating operations are blocked.".into());
+    }
 
     let thread_ids = state.thread_ids.clone();
 
@@ -1383,8 +1424,9 @@ pub async fn run_write_query(
     let duration = start.elapsed().as_millis() as u64;
 
     let _ = append_history(
-        &app,
-        QueryHistoryItem {
+            &app,
+            &state,
+            QueryHistoryItem {
             id: format!("qh-{}", Uuid::new_v4()),
             sql,
             executed_at: now_iso(),
@@ -1392,7 +1434,7 @@ pub async fn run_write_query(
             row_count: affected,
             error: warning.clone(),
         },
-    );
+    ).await;
 
     Ok(WriteQueryResult {
         affected_rows: affected,
@@ -1428,6 +1470,10 @@ pub async fn update_rows(
     }
 
     let (conn_id, pool) = resolve_connection(&state, id).await?;
+    let is_read_only = state.read_only_connections.lock().await.get(&conn_id).copied().unwrap_or(false);
+    if is_read_only {
+        return Err("Connection is configured as read-only. Mutating operations are blocked.".into());
+    }
 
     if let Ok(mut c) = pool.get_conn().await {
         if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
@@ -1437,13 +1483,25 @@ pub async fn update_rows(
         }
     }
 
-    fn json_to_sql(val: &serde_json::Value, _col: &str) -> String {
+    fn json_to_mysql_val(val: &serde_json::Value) -> mysql_async::Value {
         match val {
-            serde_json::Value::Null => "NULL".into(),
-            serde_json::Value::Bool(b) => if *b { "1".into() } else { "0".into() },
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "\\'")),
-            _ => format!("'{}'", val.to_string().replace('\'', "\\'")),
+            serde_json::Value::Null => mysql_async::Value::NULL,
+            serde_json::Value::Bool(b) => mysql_async::Value::from(*b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    mysql_async::Value::Int(i)
+                } else if let Some(u) = n.as_u64() {
+                    mysql_async::Value::UInt(u)
+                } else if let Some(f) = n.as_f64() {
+                    mysql_async::Value::Double(f)
+                } else {
+                    mysql_async::Value::Bytes(n.to_string().into_bytes())
+                }
+            }
+            serde_json::Value::String(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
+            serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                mysql_async::Value::Bytes(val.to_string().into_bytes())
+            }
         }
     }
 
@@ -1458,16 +1516,30 @@ pub async fn update_rows(
         }
     }
 
-    let set_clause: Vec<String> = updates.iter().map(|u| {
-        format!("{} = {}", escape_identifier(&u.column), json_to_sql(&u.value, &u.column))
-    }).collect();
+    let mut params_vec: Vec<mysql_async::Value> = Vec::new();
 
-    let where_clause: Vec<String> = pks.iter().map(|pk| {
-        format!("{} = {}", escape_identifier(&pk.column), json_to_sql(&pk.value, &pk.column))
-    }).collect();
+    let set_clause: Vec<String> = updates
+        .iter()
+        .map(|u| {
+            params_vec.push(json_to_mysql_val(&u.value));
+            format!("{} = ?", escape_identifier(&u.column))
+        })
+        .collect();
+
+    let where_clause: Vec<String> = pks
+        .iter()
+        .map(|pk| {
+            if pk.value.is_null() {
+                format!("{} IS NULL", escape_identifier(&pk.column))
+            } else {
+                params_vec.push(json_to_mysql_val(&pk.value));
+                format!("{} = ?", escape_identifier(&pk.column))
+            }
+        })
+        .collect();
 
     let sql = format!(
-        "UPDATE {} SET {} WHERE {}",
+        "UPDATE {} SET {} WHERE {} LIMIT 1",
         escape_identifier(&table),
         set_clause.join(", "),
         where_clause.join(" AND ")
@@ -1476,7 +1548,7 @@ pub async fn update_rows(
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
 
     let result = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
-        conn.query_iter(&sql).await.map_err(|e| safe_error(&e))
+        conn.exec_iter(sql, params_vec).await.map_err(|e| safe_error(&e))
     })
     .await
     .map_err(|_| format!("Query timed out after {} seconds.", QUERY_TIMEOUT_SECS))
@@ -1530,6 +1602,7 @@ pub async fn connect(
     if let Some(old) = old_pool {
         let _ = old.disconnect().await;
     }
+    state.read_only_connections.lock().await.insert(id.clone(), config.read_only.unwrap_or(false));
     *state.active_connection_id.lock().await = Some(id.clone());
     Ok(id)
 }
@@ -1587,6 +1660,7 @@ pub async fn disconnect(id: String, state: State<'_, AppState>) -> Result<(), St
     }
     state.connection_urls.lock().await.remove(&id);
     state.thread_ids.lock().await.remove(&id);
+    state.read_only_connections.lock().await.remove(&id);
     let mut active_id = state.active_connection_id.lock().await;
     if active_id.as_deref() == Some(&id) {
         *active_id = None;
@@ -2002,8 +2076,12 @@ pub async fn fetch_table_details(
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ForeignKey {
+    pub table_schema: Option<String>,
+    pub table_name: Option<String>,
     pub column_name: String,
+    pub referenced_table_schema: Option<String>,
     pub referenced_table: String,
     pub referenced_column: String,
 }
@@ -2028,18 +2106,35 @@ pub async fn fetch_table_foreign_keys(
     let fks = conn
         .exec_map(
             r#"
-        SELECT column_name, referenced_table_name, referenced_column_name
+        SELECT 
+            table_schema,
+            table_name,
+            column_name, 
+            referenced_table_schema,
+            referenced_table_name, 
+            referenced_column_name
         FROM information_schema.key_column_usage
-        WHERE (
-            (:schema = '' AND table_schema = DATABASE()) OR
-            (:schema != '' AND table_schema = :schema)
-        ) AND table_name = :table
-          AND referenced_table_name IS NOT NULL
+        WHERE referenced_table_name IS NOT NULL
+          AND (
+            ((:schema = '' AND table_schema = DATABASE()) OR (:schema != '' AND table_schema = :schema)) AND table_name = :table
+            OR
+            ((:schema = '' AND referenced_table_schema = DATABASE()) OR (:schema != '' AND referenced_table_schema = :schema)) AND referenced_table_name = :table
+          )
         ORDER BY ordinal_position
         "#,
             params! { "schema" => schema_param, "table" => &table_name },
-            |(column_name, referenced_table, referenced_column): (String, String, String)| ForeignKey {
+            |(table_schema, table_name, column_name, referenced_table_schema, referenced_table, referenced_column): (
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                String,
+                String,
+            )| ForeignKey {
+                table_schema,
+                table_name: Some(table_name),
                 column_name,
+                referenced_table_schema,
                 referenced_table,
                 referenced_column,
             },
@@ -2053,8 +2148,10 @@ pub async fn fetch_table_foreign_keys(
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct TableForeignKey {
+    pub table_schema: Option<String>,
     pub table_name: String,
     pub column_name: String,
+    pub referenced_table_schema: Option<String>,
     pub referenced_table: String,
     pub referenced_column: String,
 }
@@ -2073,7 +2170,13 @@ pub async fn fetch_all_foreign_keys(
     let fks = conn
         .exec_map(
             r#"
-        SELECT table_name, column_name, referenced_table_name, referenced_column_name
+        SELECT 
+            table_schema,
+            table_name, 
+            column_name, 
+            referenced_table_schema,
+            referenced_table_name, 
+            referenced_column_name
         FROM information_schema.key_column_usage
         WHERE (
             (:schema = '' AND table_schema = DATABASE()) OR
@@ -2083,9 +2186,18 @@ pub async fn fetch_all_foreign_keys(
         ORDER BY table_name, ordinal_position
         "#,
             params! { "schema" => schema_param },
-            |(table_name, column_name, referenced_table, referenced_column): (String, String, String, String)| TableForeignKey {
+            |(table_schema, table_name, column_name, referenced_table_schema, referenced_table, referenced_column): (
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                String,
+                String,
+            )| TableForeignKey {
+                table_schema,
                 table_name,
                 column_name,
+                referenced_table_schema,
                 referenced_table,
                 referenced_column,
             },
@@ -2197,13 +2309,22 @@ pub async fn fetch_referenced_row(
 }
 
 #[tauri::command]
-pub async fn get_history(app: tauri::AppHandle) -> Result<Vec<QueryHistoryItem>, String> {
-    Ok(load_history_from_disk(&app))
+pub async fn get_history(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<QueryHistoryItem>, String> {
+    let mut cache = state.history_cache.lock().await;
+    if !cache.loaded {
+        cache.items = load_history_from_disk(&app);
+        cache.loaded = true;
+    }
+    Ok(cache.items.clone())
 }
 
 #[tauri::command]
 pub async fn save_query(
     app: tauri::AppHandle,
+    state: State<'_, AppState>,
     name: String,
     sql: String,
     id: Option<String>,
@@ -2245,17 +2366,23 @@ pub async fn save_query(
 
     write_query_file(&target_path, &sql)?;
 
-    saved_query_from_file(&target_path).ok_or_else(|| "Failed to read saved query file".into())
+    let saved = saved_query_from_file(&target_path).ok_or_else(|| "Failed to read saved query file".to_string())?;
+    invalidate_queries_cache(&state);
+    Ok(saved)
 }
 
 #[tauri::command]
-pub async fn load_queries(app: tauri::AppHandle) -> Result<Vec<SavedQuery>, String> {
-    Ok(load_queries_from_disk(&app))
+pub async fn load_queries(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<SavedQuery>, String> {
+    Ok(load_queries_cached(&app, &state).await)
 }
 
 #[tauri::command]
 pub async fn rename_query(
     app: tauri::AppHandle,
+    state: State<'_, AppState>,
     id: String,
     new_name: String,
 ) -> Result<SavedQuery, String> {
@@ -2284,18 +2411,26 @@ pub async fn rename_query(
         safe_rename(&old_path, &new_path)?;
     }
 
-    saved_query_from_file(&new_path).ok_or_else(|| "Failed to read renamed query file".into())
+    let saved = saved_query_from_file(&new_path).ok_or_else(|| "Failed to read renamed query file".to_string())?;
+    invalidate_queries_cache(&state);
+    Ok(saved)
 }
 
 #[tauri::command]
-pub async fn delete_query(app: tauri::AppHandle, id: String) -> Result<(), String> {
+pub async fn delete_query(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
     let dir = queries_dir(&app)?;
     let safe_id = get_safe_filename(&id)?;
     let path = dir.join(&safe_id);
     if !path.exists() || !path.is_file() {
         return Err("Query not found".into());
     }
-    std::fs::remove_file(&path).map_err(|e| e.to_string())
+    std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    invalidate_queries_cache(&state);
+    Ok(())
 }
 
 /// Returns the absolute path to the queries folder (for UI / reveal in Finder).
@@ -2312,7 +2447,11 @@ pub async fn get_custom_queries_dir(app: tauri::AppHandle) -> Result<Option<Stri
 }
 
 #[tauri::command]
-pub async fn set_custom_queries_dir(app: tauri::AppHandle, path: String) -> Result<(), String> {
+pub async fn set_custom_queries_dir(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
     let new_dir = PathBuf::from(path.trim());
     if !new_dir.exists() || !new_dir.is_dir() {
         return Err("The selected path does not exist or is not a directory".into());
@@ -2342,6 +2481,7 @@ pub async fn set_custom_queries_dir(app: tauri::AppHandle, path: String) -> Resu
     }
     
     write_queries_dir_to_config(&app, &new_dir.to_string_lossy())?;
+    invalidate_queries_cache(&state);
     Ok(())
 }
 
@@ -2407,78 +2547,6 @@ pub async fn kill_session(
         .await
         .map_err(|e| safe_error(&e))?;
     Ok(format!("Killed session {}", thread_id))
-}
-
-// ── Password Encryption ──────────────────────────────────────────────────────
-
-fn encryption_key_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let mut path = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    path.push(".select-key");
-    Ok(path)
-}
-
-fn get_or_create_encryption_key(app: &tauri::AppHandle) -> Result<Vec<u8>, String> {
-    let path = encryption_key_path(app)?;
-    if path.exists() {
-        let content = std::fs::read(&path).map_err(|e| e.to_string())?;
-        if content.len() == 32 {
-            return Ok(content);
-        }
-    }
-    let mut key = vec![0u8; 32];
-    OsRng.fill_bytes(&mut key);
-    let hash = Sha256::digest(&key);
-    let obfuscated = hash.as_slice().to_vec();
-    std::fs::write(&path, &obfuscated).map_err(|e| e.to_string())?;
-    Ok(obfuscated)
-}
-
-fn encrypt_with_key(key_bytes: &[u8], plaintext: &str) -> Result<String, String> {
-    let key = Key::<Aes256Gcm>::from_slice(key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce_bytes = Aes256Gcm::generate_nonce(&mut OsRng);
-    let ciphertext = cipher
-        .encrypt(&nonce_bytes, plaintext.as_bytes())
-        .map_err(|e| format!("Encryption failed: {}", e))?;
-    let mut combined = nonce_bytes.to_vec();
-    combined.extend_from_slice(&ciphertext);
-    Ok(BASE64.encode(&combined))
-}
-
-fn decrypt_with_key(key_bytes: &[u8], ciphertext_b64: &str) -> Result<String, String> {
-    let key = Key::<Aes256Gcm>::from_slice(key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let combined = BASE64
-        .decode(ciphertext_b64)
-        .map_err(|e| format!("Invalid base64: {}", e))?;
-    if combined.len() < 12 {
-        return Err("Invalid ciphertext".into());
-    }
-    let (nonce_bytes, ct) = combined.split_at(12);
-    let nonce = Nonce::from_slice(nonce_bytes);
-    let plaintext = cipher
-        .decrypt(nonce, ct)
-        .map_err(|e| format!("Decryption failed: {}", e))?;
-    String::from_utf8(plaintext).map_err(|e| format!("Invalid UTF-8: {}", e))
-}
-
-#[tauri::command]
-pub async fn encrypt_password(
-    app: tauri::AppHandle,
-    plaintext: String,
-) -> Result<String, String> {
-    let key_bytes = get_or_create_encryption_key(&app)?;
-    encrypt_with_key(&key_bytes, &plaintext)
-}
-
-#[tauri::command]
-pub async fn decrypt_password(
-    app: tauri::AppHandle,
-    ciphertext_b64: String,
-) -> Result<String, String> {
-    let key_bytes = get_or_create_encryption_key(&app)?;
-    decrypt_with_key(&key_bytes, &ciphertext_b64)
 }
 
 #[cfg(test)]
@@ -2563,6 +2631,8 @@ mod tests {
             ssl_mode: None,
             connect_timeout_secs: None,
             charset: None,
+            socket_path: None,
+            read_only: None,
         };
 
         let url = build_connection_url(&config);
@@ -2585,6 +2655,8 @@ mod tests {
             ssl_mode: Some("required".into()),
             connect_timeout_secs: Some(15),
             charset: Some("utf8mb4".into()),
+            socket_path: None,
+            read_only: None,
         };
 
         let (opts, url) = get_connection_opts(&config).unwrap();
@@ -2592,33 +2664,6 @@ mod tests {
         assert!(url.contains("verify_ca=false"));
         assert!(url.contains("verify_identity=false"));
         assert_eq!(opts.init(), &["SET NAMES 'utf8mb4'".to_string()]);
-    }
-
-    #[test]
-    fn password_encryption_roundtrip() {
-        let key = [0x42u8; 32];
-        let plaintext = "MyS3cret!P@ssw0rd#123";
-        let encrypted = encrypt_with_key(&key, plaintext).unwrap();
-        assert_ne!(encrypted, plaintext);
-        let decrypted = decrypt_with_key(&key, &encrypted).unwrap();
-        assert_eq!(decrypted, plaintext);
-    }
-
-    #[test]
-    fn password_encryption_produces_different_outputs() {
-        let key = [0x42u8; 32];
-        let plaintext = "password123";
-        let a = encrypt_with_key(&key, plaintext).unwrap();
-        let b = encrypt_with_key(&key, plaintext).unwrap();
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn password_encryption_rejects_wrong_key() {
-        let key_a = [0x42u8; 32];
-        let key_b = [0x99u8; 32];
-        let encrypted = encrypt_with_key(&key_a, "secret").unwrap();
-        assert!(decrypt_with_key(&key_b, &encrypted).is_err());
     }
 
     #[test]
@@ -2657,5 +2702,27 @@ mod tests {
     fn is_mutating_query_ignores_keywords_in_literals() {
         assert!(!is_mutating_query("SELECT 'DROP TABLE users' AS warning"));
         assert!(!is_mutating_query("SELECT `DELETE` FROM t"));
+    }
+
+    #[test]
+    fn connection_opts_supports_unix_socket() {
+        let config = ConnectionConfig {
+            name: "socket_test".into(),
+            host: "localhost".into(),
+            port: 3306,
+            database: "testdb".into(),
+            username: "root".into(),
+            password: "".into(),
+            db_type: "mysql".into(),
+            ssl: false,
+            ssl_mode: None,
+            connect_timeout_secs: None,
+            charset: None,
+            socket_path: Some("/tmp/mysql.sock".into()),
+            read_only: Some(true),
+        };
+
+        let (opts, _url) = get_connection_opts(&config).unwrap();
+        assert_eq!(opts.socket(), Some("/tmp/mysql.sock"));
     }
 }

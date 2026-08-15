@@ -15,6 +15,7 @@
           <span 
             class="w-2 h-2 rounded-full flex-shrink-0 transition-all duration-300"
             :style="dotStyle"
+            :title="connectionHealthTitle"
           ></span>
           
           <span class="font-semibold tracking-tight max-w-[130px] truncate text-[11px]">
@@ -127,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { PhSun, PhMoon, PhMonitor, PhCaretDown, PhPlug, PhCheck, PhPower, PhSpeakerHigh, PhSpeakerSlash } from '@phosphor-icons/vue'
 import { useConnectionStore } from '../stores/connection'
 import { useResultStore } from '../stores/result'
@@ -141,6 +142,14 @@ const uiStore = useUiStore()
 
 const showConnMenu = ref(false)
 const connMenuRef = ref<HTMLDivElement | null>(null)
+const connectionHealthy = ref(true)
+let pingTimer: ReturnType<typeof setInterval> | null = null
+
+const connectionHealthTitle = computed(() => {
+  if (connStore.status !== 'connected') return activeConnLabel.value
+  if (!connectionHealthy.value) return 'Connection lost — click to reconnect'
+  return activeConnLabel.value
+})
 
 const activeDotColor = computed(() => {
   if (connStore.status === 'connected') {
@@ -156,10 +165,11 @@ const activeDotColor = computed(() => {
 const dotStyle = computed(() => {
   const color = activeDotColor.value
   const isGlowing = connStore.status === 'connected' || connStore.status === 'connecting' || connStore.status === 'error'
+  const effectiveColor = connStore.status === 'connected' && !connectionHealthy.value ? '#EF4444' : color
   return {
-    backgroundColor: color,
+    backgroundColor: effectiveColor,
     boxShadow: isGlowing
-      ? `0 0 8px ${color}, 0 0 14px ${color}80`
+      ? `0 0 8px ${effectiveColor}, 0 0 14px ${effectiveColor}80`
       : 'none',
   }
 })
@@ -204,6 +214,14 @@ async function disconnect() {
   await connStore.disconnect()
 }
 
+async function checkConnectionHealth() {
+  if (connStore.status !== 'connected') {
+    connectionHealthy.value = true
+    return
+  }
+  connectionHealthy.value = await connStore.ping()
+}
+
 function handleClickOutside(e: MouseEvent) {
   if (connMenuRef.value && !connMenuRef.value.contains(e.target as Node)) {
     showConnMenu.value = false
@@ -212,9 +230,19 @@ function handleClickOutside(e: MouseEvent) {
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside)
+  pingTimer = setInterval(() => { void checkConnectionHealth() }, 60_000)
+  // Defer the first ping so startup connect/schema load isn't racing it.
+  setTimeout(() => { void checkConnectionHealth() }, 5_000)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  if (pingTimer) clearInterval(pingTimer)
+})
+
+watch(() => connStore.status, (status) => {
+  if (status !== 'connected') {
+    connectionHealthy.value = true
+  }
 })
 </script>

@@ -31,13 +31,16 @@ vi.stubGlobal("localStorage", {
 });
 
 //
-// Mock IntersectionObserver
+// Mock IntersectionObserver and ResizeObserver
 //
-vi.stubGlobal("IntersectionObserver", vi.fn(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-})));
+class MockObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
+vi.stubGlobal("IntersectionObserver", MockObserver);
+vi.stubGlobal("ResizeObserver", MockObserver);
 
 //
 // Mock clipboard API

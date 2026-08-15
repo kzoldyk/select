@@ -10,7 +10,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, shallowRef, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick } from 'vue'
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine,
   drawSelection, dropCursor, rectangularSelection
@@ -53,7 +53,7 @@ function onWheel(e: WheelEvent) {
   }
 }
 
-function collectColumns(): { name: string; table: string; type: string }[] {
+const cachedColumns = computed(() => {
   const result: { name: string; table: string; type: string }[] = []
   for (const [tableName, details] of Object.entries(schemaStore.detailsByTable)) {
     for (const col of details.columns) {
@@ -61,7 +61,7 @@ function collectColumns(): { name: string; table: string; type: string }[] {
     }
   }
   return result
-}
+})
 
 function getContext(sql: string, pos: number): { afterFrom: boolean; afterJoin: boolean; afterDot: boolean; dotPrefix: string } {
   const before = sql.slice(0, pos)
@@ -109,7 +109,7 @@ function getSqlAutocomplete() {
             }
           }
 
-          const allCols = collectColumns()
+          const allCols = cachedColumns.value
           let matched: { name: string; table: string; type: string }[] = []
           for (const col of allCols) {
             if (col.table.toLowerCase() === lowerPrefix) {
@@ -119,17 +119,18 @@ function getSqlAutocomplete() {
           if (matched.length === 0) {
             matched = allCols.filter(c => c.name.toLowerCase().startsWith(q))
           }
+
           return {
             from: word.from,
-            options: matched.map(col => ({
-              label: col.name,
-              type: 'property',
-              detail: `${col.type}  ·  ${col.table}`,
+            options: matched.map(c => ({
+              label: c.name,
+              type: 'variable',
+              detail: `${c.type}  ·  ${c.table}`,
             })).slice(0, 20),
           }
         }
 
-        const allCols = collectColumns()
+        const allCols = cachedColumns.value
         const tables = [...schemaStore.tables, ...schemaStore.views].map(item => item.name)
 
         const options: { label: string; type: string; detail: string; apply?: string | ((view: EditorView, completion: any, from: number, to: number) => void) }[] = []

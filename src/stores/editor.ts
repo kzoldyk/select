@@ -14,7 +14,7 @@ export interface Tab {
   selectionAnchor?: number
   selectionHead?: number
   selectedTextCount?: number
-  type?: 'query' | 'table'
+  type?: 'query' | 'table' | 'schema_diagram'
   tableName?: string
 }
 
