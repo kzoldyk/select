@@ -28,6 +28,7 @@ import { useEditorStore } from '../stores/editor'
 import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
 import { useUiStore } from '../stores/ui'
+import { getSqlCompletionOptions } from '../lib/sqlAutocomplete'
 
 
 const emit = defineEmits<{ explain: []; run: [sql?: string] }>()
@@ -63,117 +64,29 @@ const cachedColumns = computed(() => {
   return result
 })
 
-function getContext(sql: string, pos: number): { afterFrom: boolean; afterJoin: boolean; afterDot: boolean; dotPrefix: string } {
-  const before = sql.slice(0, pos)
-  const words = before.split(/[\s\n\r,()]+/).filter(Boolean)
-  const lastWord = words[words.length - 1]?.toUpperCase() ?? ''
-  const secondLast = words[words.length - 2]?.toUpperCase() ?? ''
-
-  const afterFrom = ['FROM', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'CROSS', 'FULL', 'NATURAL', 'COMMA'].includes(lastWord)
-  const afterJoin = lastWord === 'ON' || lastWord === 'USING'
-
-  const delimiter = lastWord.endsWith('.')
-  const dotPrefix = delimiter ? lastWord.slice(0, -1) : ''
-
-  return { afterFrom, afterJoin, afterDot: delimiter, dotPrefix }
-}
-
 function getSqlAutocomplete() {
-  const keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'INNER JOIN', 'RIGHT JOIN', 'FULL JOIN', 'CROSS JOIN', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET', 'SHOW', 'DESCRIBE', 'EXPLAIN', 'WITH', 'COUNT', 'SUM', 'MAX', 'MIN', 'AVG', 'COALESCE', 'DISTINCT', 'AS', 'ON', 'AND', 'OR', 'NOT', 'IN', 'IS NULL', 'IS NOT NULL', 'LIKE', 'BETWEEN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'INSERT', 'INTO', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'TABLE', 'CREATE', 'ALTER', 'DROP', 'INDEX', 'KEY', 'PRIMARY', 'FOREIGN', 'REFERENCES', 'CASCADE', 'UNIQUE', 'CHECK', 'DEFAULT', 'NULL', 'NOT NULL', 'AUTO_INCREMENT', 'ENGINE']
-
   return autocompletion({
     override: [
       async (context) => {
         const word = context.matchBefore(/\w*/)
-        const isAfterDot = context.matchBefore(/\.\w*/) !== null
-        if (!word || (word.from === word.to && !context.explicit && !isAfterDot)) return null
-        const q = word.text.toLowerCase()
+        const isAfterDot = context.matchBefore(/[\w`"\]]+\.\s*\w*/) !== null
+        const isAfterOn = context.matchBefore(/\bON\s+\w*/) !== null
+        if (!word || (word.from === word.to && !context.explicit && !isAfterDot && !isAfterOn)) return null
+        const q = word.text
 
         const doc = context.state.doc.toString()
-        const ctx = getContext(doc, word.from)
+        const options = await getSqlCompletionOptions(doc, context.pos, q, schemaStore)
 
-        if (ctx.afterDot) {
-          const lowerPrefix = ctx.dotPrefix.toLowerCase()
-          const isDatabase = schemaStore.databases.some(d => d.toLowerCase() === lowerPrefix)
+        if (options.length === 0) return null
 
-          if (isDatabase) {
-            const tables = await schemaStore.fetchTablesForSchema(ctx.dotPrefix)
-            let matched = tables.filter(t => t.toLowerCase().startsWith(q))
-            return {
-              from: word.from,
-              options: matched.map(t => ({
-                label: t,
-                type: 'type',
-                detail: `table  ·  ${ctx.dotPrefix}`,
-              })).slice(0, 20),
-            }
-          }
-
-          const allCols = cachedColumns.value
-          let matched: { name: string; table: string; type: string }[] = []
-          for (const col of allCols) {
-            if (col.table.toLowerCase() === lowerPrefix) {
-              matched.push(col)
-            }
-          }
-          if (matched.length === 0) {
-            matched = allCols.filter(c => c.name.toLowerCase().startsWith(q))
-          }
-
-          return {
-            from: word.from,
-            options: matched.map(c => ({
-              label: c.name,
-              type: 'variable',
-              detail: `${c.type}  ·  ${c.table}`,
-            })).slice(0, 20),
-          }
+        return {
+          from: word.from,
+          options: options.slice(0, 30),
         }
-
-        const allCols = cachedColumns.value
-        const tables = [...schemaStore.tables, ...schemaStore.views].map(item => item.name)
-
-        const options: { label: string; type: string; detail: string; apply?: string | ((view: EditorView, completion: any, from: number, to: number) => void) }[] = []
-
-        options.push(...schemaStore.databases.filter(d => d.toLowerCase().startsWith(q)).map(d => ({
-          label: d,
-          type: 'namespace',
-          detail: 'schema',
-          apply: (view: EditorView, completion: any, from: number, to: number) => {
-            view.dispatch({
-              changes: { from, to, insert: `${d}.` },
-            })
-            setTimeout(() => startCompletion(view), 10)
-          }
-        })))
-
-        if (ctx.afterFrom || ctx.afterJoin) {
-          options.push(...tables.filter(t => t.toLowerCase().startsWith(q)).map(t => ({
-            label: t, type: 'type', detail: 'table'
-          })))
-        } else {
-          options.push(...tables.filter(t => t.toLowerCase().startsWith(q)).map(t => ({
-            label: t, type: 'type', detail: 'table'
-          })))
-
-          const seen = new Set<string>()
-          for (const col of allCols) {
-            if (col.name.toLowerCase().startsWith(q) && !seen.has(col.name)) {
-              seen.add(col.name)
-              options.push({ label: col.name, type: 'property', detail: `${col.type}  ·  ${col.table}` })
-            }
-          }
-        }
-
-        options.push(...keywords.filter(k => k.toLowerCase().startsWith(q)).map(k => ({
-          label: k, type: 'keyword', apply: `${k} `,
-        })))
-
-        return { from: word.from, options: options.slice(0, 20) }
       },
     ],
     activateOnTyping: true,
-    maxRenderedOptions: 20,
+    maxRenderedOptions: 30,
   })
 }
 
