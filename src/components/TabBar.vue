@@ -21,6 +21,7 @@
         <button
           v-for="tab in editorStore.tabs"
           :key="tab.id"
+          v-cuelume:toggle
           class="group inline-flex items-center gap-2 px-3 h-7 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/50 border border-transparent rounded-t-md cursor-pointer whitespace-nowrap flex-shrink-0 relative transition-all"
           :class="{ 'bg-background text-foreground border-border border-b-transparent font-medium shadow-xs': editorStore.activeTabId === tab.id }"
           role="tab"
@@ -48,6 +49,7 @@
         </button>
 
         <button
+          v-cuelume:press
           class="inline-flex items-center justify-center w-6 h-6 mb-0.5 rounded bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer flex-shrink-0 transition-colors border-none"
           aria-label="Add new query tab (⌘T)"
           title="New tab (⌘T)"

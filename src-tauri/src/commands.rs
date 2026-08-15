@@ -1526,7 +1526,10 @@ pub async fn connect(
         state.thread_ids.lock().await.insert(id.clone(), thread_id);
     }
 
-    state.pools.lock().await.insert(id.clone(), pool);
+    let old_pool = state.pools.lock().await.insert(id.clone(), pool);
+    if let Some(old) = old_pool {
+        let _ = old.disconnect().await;
+    }
     *state.active_connection_id.lock().await = Some(id.clone());
     Ok(id)
 }
@@ -2036,6 +2039,52 @@ pub async fn fetch_table_foreign_keys(
         "#,
             params! { "schema" => schema_param, "table" => &table_name },
             |(column_name, referenced_table, referenced_column): (String, String, String)| ForeignKey {
+                column_name,
+                referenced_table,
+                referenced_column,
+            },
+        )
+        .await
+        .map_err(|e| safe_error(&e))?;
+
+    Ok(fks)
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TableForeignKey {
+    pub table_name: String,
+    pub column_name: String,
+    pub referenced_table: String,
+    pub referenced_column: String,
+}
+
+#[tauri::command]
+pub async fn fetch_all_foreign_keys(
+    id: Option<String>,
+    database: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<TableForeignKey>, String> {
+    let (_conn_id, pool) = resolve_connection(&state, id).await?;
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+
+    let schema_param = database.as_deref().unwrap_or("");
+
+    let fks = conn
+        .exec_map(
+            r#"
+        SELECT table_name, column_name, referenced_table_name, referenced_column_name
+        FROM information_schema.key_column_usage
+        WHERE (
+            (:schema = '' AND table_schema = DATABASE()) OR
+            (:schema != '' AND table_schema = :schema)
+        )
+          AND referenced_table_name IS NOT NULL
+        ORDER BY table_name, ordinal_position
+        "#,
+            params! { "schema" => schema_param },
+            |(table_name, column_name, referenced_table, referenced_column): (String, String, String, String)| TableForeignKey {
+                table_name,
                 column_name,
                 referenced_table,
                 referenced_column,

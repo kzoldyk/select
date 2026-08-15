@@ -251,6 +251,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { toast } from 'vue-sonner'
 import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
 import { Button } from '@/components/ui/button'
@@ -300,19 +301,20 @@ const visibleTables = computed(() => {
     return schemaStore.tables
   }
   
+  const target = props.tableName.toLowerCase()
   const set = new Set<string>()
-  set.add(props.tableName)
+  set.add(target)
   
   relations.value.forEach(r => {
-    if (r.sourceTable.toLowerCase() === props.tableName!.toLowerCase()) {
-      set.add(r.targetTable)
+    if (r.sourceTable.toLowerCase() === target) {
+      set.add(r.targetTable.toLowerCase())
     }
-    if (r.targetTable.toLowerCase() === props.tableName!.toLowerCase()) {
-      set.add(r.sourceTable)
+    if (r.targetTable.toLowerCase() === target) {
+      set.add(r.sourceTable.toLowerCase())
     }
   })
   
-  return schemaStore.tables.filter(t => set.has(t.name))
+  return schemaStore.tables.filter(t => set.has(t.name.toLowerCase()))
 })
 
 // Build final computed list of relations for drawing lines
@@ -490,68 +492,154 @@ function onWheel(e: WheelEvent) {
   }
 }
 
+let loadSequence = 0
+
+// Helper to batch async operations with concurrency limit
+async function runWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = []
+  const executing: Promise<void>[] = []
+  for (const item of items) {
+    const p = Promise.resolve().then(() => fn(item)).then(res => {
+      results.push(res)
+    })
+    const e: Promise<void> = p.then(() => {
+      executing.splice(executing.indexOf(e), 1)
+    })
+    executing.push(e)
+    if (executing.length >= limit) {
+      await Promise.race(executing)
+    }
+  }
+  await Promise.all(executing)
+  return results
+}
+
 // Fetch schema data & foreign keys
 async function loadSchemaDetails() {
   if (!connStore.activeId) return
   
+  const currentSeq = ++loadSequence
   loading.value = true
   
-  // Clear relations list to prevent duplicates accumulating
-  relations.value = []
-  
   try {
-    // 1. Fetch details of visible tables to identify keys
-    const loadDetailsPromises = visibleTables.value.map(async (table) => {
-      if (!schemaStore.detailsByTable[table.name]) {
-        await schemaStore.fetchTableDetails(table.name).catch(() => null)
-      }
-    })
-    await Promise.all(loadDetailsPromises)
+    const activeConnId = connStore.activeId
+    const activeDb = connStore.activeConnection?.database || null
+    const collectedRelations: FKRelation[] = []
 
-    // 2. Fetch all foreign keys for visible tables
-    const loadFksPromises = visibleTables.value.map(async (table) => {
+    if (props.tableName) {
+      // Focused mode: fetch FKs for target table
       try {
         const fks = await invoke<any[]>('fetch_table_foreign_keys', {
-          table: table.name,
-          id: connStore.activeId,
-          database: connStore.activeConnection?.database || null
+          table: props.tableName,
+          id: activeConnId,
+          database: activeDb
         })
-        
+        if (currentSeq !== loadSequence) return
+
         fks.forEach(fk => {
-          const exists = relations.value.some(r => 
-            r.sourceTable.toLowerCase() === table.name.toLowerCase() && 
-            r.sourceColumn.toLowerCase() === fk.column_name.toLowerCase() &&
-            r.targetTable.toLowerCase() === fk.referenced_table.toLowerCase() &&
-            r.targetColumn.toLowerCase() === fk.referenced_column.toLowerCase()
-          )
-          
-          if (!exists) {
-            relations.value.push({
-              sourceTable: table.name,
-              sourceColumn: fk.column_name,
-              targetTable: fk.referenced_table,
-              targetColumn: fk.referenced_column,
-              isFocus: false
-            })
-            
-            const srcDetails = schemaStore.detailsByTable[table.name]
-            if (srcDetails) {
-              const srcCol = srcDetails.columns.find(c => c.name.toLowerCase() === fk.column_name.toLowerCase())
-              if (srcCol) srcCol.fk = true
-            }
-          }
+          collectedRelations.push({
+            sourceTable: props.tableName!,
+            sourceColumn: fk.column_name,
+            targetTable: fk.referenced_table,
+            targetColumn: fk.referenced_column,
+            isFocus: true
+          })
         })
       } catch (e) {
-        console.error(`Failed to load foreign keys for ${table.name}:`, e)
+        console.error(`Failed to load foreign keys for ${props.tableName}:`, e)
       }
+    } else {
+      // Global mode: fetch all foreign keys in one query
+      try {
+        const allFks = await invoke<any[]>('fetch_all_foreign_keys', {
+          id: activeConnId,
+          database: activeDb
+        })
+        if (currentSeq !== loadSequence) return
+
+        allFks.forEach(fk => {
+          collectedRelations.push({
+            sourceTable: fk.tableName || fk.table_name,
+            sourceColumn: fk.columnName || fk.column_name,
+            targetTable: fk.referencedTable || fk.referenced_table,
+            targetColumn: fk.referencedColumn || fk.referenced_column,
+            isFocus: false
+          })
+        })
+      } catch (e) {
+        console.warn('fetch_all_foreign_keys failed, falling back to batched fetch:', e)
+        await runWithConcurrency(schemaStore.tables, 5, async (table) => {
+          if (currentSeq !== loadSequence) return
+          try {
+            const fks = await invoke<any[]>('fetch_table_foreign_keys', {
+              table: table.name,
+              id: activeConnId,
+              database: activeDb
+            })
+            fks.forEach(fk => {
+              collectedRelations.push({
+                sourceTable: table.name,
+                sourceColumn: fk.column_name,
+                targetTable: fk.referenced_table,
+                targetColumn: fk.referenced_column,
+                isFocus: false
+              })
+            })
+          } catch (err) {
+            console.error(`Failed to load foreign keys for ${table.name}:`, err)
+          }
+        })
+      }
+    }
+
+    if (currentSeq !== loadSequence) return
+
+    // Deduplicate relations
+    const uniqueRelations: FKRelation[] = []
+    const relKeySet = new Set<string>()
+    for (const r of collectedRelations) {
+      const key = `${r.sourceTable.toLowerCase()}.${r.sourceColumn.toLowerCase()}->${r.targetTable.toLowerCase()}.${r.targetColumn.toLowerCase()}`
+      if (!relKeySet.has(key)) {
+        relKeySet.add(key)
+        uniqueRelations.push(r)
+      }
+    }
+
+    // Atomically update relations without intermediate clearing
+    relations.value = uniqueRelations
+
+    // Fetch column details for visible tables (batched, max 6 concurrent)
+    const tablesToFetch = visibleTables.value.filter(t => !schemaStore.detailsByTable[t.name])
+    await runWithConcurrency(tablesToFetch, 6, async (table) => {
+      if (currentSeq !== loadSequence) return
+      await schemaStore.fetchTableDetails(table.name).catch(() => null)
     })
-    
-    await Promise.all(loadFksPromises)
+
+    if (currentSeq !== loadSequence) return
+
+    // Update fk indicators on columns
+    for (const rel of uniqueRelations) {
+      const srcDetails = schemaStore.detailsByTable[rel.sourceTable]
+      if (srcDetails) {
+        const srcCol = srcDetails.columns.find(c => c.name.toLowerCase() === rel.sourceColumn.toLowerCase())
+        if (srcCol) srcCol.fk = true
+      }
+    }
+
     resetLayout()
+  } catch (err) {
+    if (currentSeq === loadSequence) {
+      console.error('Error loading schema diagram:', err)
+      toast.error('Failed to load schema diagram: ' + (err instanceof Error ? err.message : String(err)))
+    }
   } finally {
-    setTimeout(() => {
-      loading.value = false
-    }, 250)
+    if (currentSeq === loadSequence) {
+      setTimeout(() => {
+        if (currentSeq === loadSequence) {
+          loading.value = false
+        }
+      }, 150)
+    }
   }
 }
 
@@ -709,9 +797,13 @@ onMounted(() => {
   loadSchemaDetails()
 })
 
-watch(() => visibleTables.value, () => {
-  loadSchemaDetails()
-})
+// Watch props and active connection/database instead of visibleTables to avoid feedback loops
+watch(
+  [() => props.tableName, () => connStore.activeId, () => connStore.activeConnection?.database],
+  () => {
+    loadSchemaDetails()
+  }
+)
 
 // Auto-recalculate layout only when new unpositioned tables arrive
 watch(() => schemaStore.detailsByTable, () => {

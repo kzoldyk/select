@@ -20,6 +20,8 @@ const props = withDefaults(defineProps<Props>(), {
 <template>
   <Primitive
     data-slot="button"
+    data-cuelume-press
+    data-cuelume-release
     :data-variant="variant"
     :data-size="size"
     :as="as"

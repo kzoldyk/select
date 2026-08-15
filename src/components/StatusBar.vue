@@ -6,6 +6,8 @@
       <div class="relative" ref="connMenuRef">
         <button
           class="flex items-center gap-2 px-1.5 py-0.5 rounded hover:bg-accent/60 transition-colors text-foreground cursor-pointer border-none bg-transparent"
+          data-cuelume-press
+          data-cuelume-release
           @click="showConnMenu = !showConnMenu"
           :title="activeConnLabel"
         >
@@ -100,6 +102,19 @@
       <span class="w-px h-3 bg-border/60"></span>
       <button
         class="flex items-center justify-center hover:text-foreground transition-colors cursor-pointer border-none bg-transparent"
+        data-cuelume-toggle
+        @click="uiStore.toggleSounds()"
+        :title="uiStore.soundsEnabled ? 'Mute interaction sounds' : 'Enable interaction sounds'"
+        :aria-label="uiStore.soundsEnabled ? 'Mute interaction sounds' : 'Enable interaction sounds'"
+        :aria-pressed="!uiStore.soundsEnabled"
+      >
+        <PhSpeakerHigh v-if="uiStore.soundsEnabled" class="w-3.5 h-3.5" />
+        <PhSpeakerSlash v-else class="w-3.5 h-3.5 text-muted-foreground/60" />
+      </button>
+      <span class="w-px h-3 bg-border/60"></span>
+      <button
+        class="flex items-center justify-center hover:text-foreground transition-colors cursor-pointer border-none bg-transparent"
+        data-cuelume-toggle
         @click="uiStore.toggleTheme()"
         :title="`Theme: ${uiStore.theme.charAt(0).toUpperCase() + uiStore.theme.slice(1)}`"
       >
@@ -113,7 +128,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { PhSun, PhMoon, PhMonitor, PhCaretDown, PhPlug, PhCheck, PhPower } from '@phosphor-icons/vue'
+import { PhSun, PhMoon, PhMonitor, PhCaretDown, PhPlug, PhCheck, PhPower, PhSpeakerHigh, PhSpeakerSlash } from '@phosphor-icons/vue'
 import { useConnectionStore } from '../stores/connection'
 import { useResultStore } from '../stores/result'
 import { useEditorStore } from '../stores/editor'

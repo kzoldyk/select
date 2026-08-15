@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { saveConnections, loadConnections, saveActiveConnectionId, loadActiveConnectionId, saveRecentConnectionIds, loadRecentConnectionIds } from './storage'
 import { useResultStore } from './result'
 import { useSchemaStore } from './schema'
+import { playSound } from '../lib/cuelume'
 
 export type SslMode = 'disabled' | 'preferred' | 'required' | 'verify_ca' | 'verify_identity'
 
@@ -147,9 +148,20 @@ export const useConnectionStore = defineStore('connection', {
 	        if (!conn) throw new Error("Connection not found")
 	        const validationError = validateConnection(conn)
 	        if (validationError) throw new Error(validationError)
+
+	        // Disconnect previous active connection if switching to a different one
+	        if (this.activeId && this.activeId !== id) {
+	          try {
+	            await invoke('disconnect', { id: this.activeId })
+	          } catch (err) {
+	            console.warn('Failed to disconnect previous connection:', err)
+	          }
+	        }
+
 	        await invoke('connect', { id: conn.id, config: conn })
 	        this.activeId = id
 	        this.status = 'connected'
+	        playSound('ready')
 	        await saveActiveConnectionId(id)
 
 	        // Track connection in history (max 5)
@@ -163,6 +175,7 @@ export const useConnectionStore = defineStore('connection', {
 	      } catch (e) {
 	        this.status = 'error'
 	        this.lastError = String(e)
+	        playSound('error')
 	        return false
       }
     },

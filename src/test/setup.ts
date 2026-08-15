@@ -9,6 +9,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock("../lib/cuelume", () => ({
+  initCuelume: vi.fn(),
+  syncSoundsEnabled: vi.fn(),
+  playSound: vi.fn(),
+}));
+
 //
 // Mock localStorage
 //

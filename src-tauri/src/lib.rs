@@ -40,6 +40,7 @@ pub fn run() {
             commands::fetch_schema,
             commands::fetch_table_details,
             commands::fetch_table_foreign_keys,
+            commands::fetch_all_foreign_keys,
             commands::fetch_referenced_row,
             commands::fetch_databases,
             commands::get_history,

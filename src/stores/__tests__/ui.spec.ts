@@ -125,4 +125,30 @@ describe("ui store", () => {
     expect(store.resultPanelOpen).toBe(true);
     expect(localStorage.getItem("resultPanelOpen")).toBe("true");
   });
+
+  it("starts with sounds enabled by default", () => {
+    const store = useUiStore();
+    expect(store.soundsEnabled).toBe(true);
+  });
+
+  it("toggleSounds persists preference and syncs mute state", async () => {
+    const { syncSoundsEnabled } = await import("../../lib/cuelume");
+    const store = useUiStore();
+
+    store.toggleSounds();
+    expect(store.soundsEnabled).toBe(false);
+    expect(localStorage.getItem("soundsEnabled")).toBe("false");
+    expect(syncSoundsEnabled).toHaveBeenCalledWith(false);
+
+    store.setSoundsEnabled(true);
+    expect(store.soundsEnabled).toBe(true);
+    expect(localStorage.getItem("soundsEnabled")).toBe("true");
+    expect(syncSoundsEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("restores sounds preference from localStorage", () => {
+    localStorage.setItem("soundsEnabled", "false");
+    const store = useUiStore();
+    expect(store.soundsEnabled).toBe(false);
+  });
 });

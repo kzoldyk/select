@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
 import { useConnectionStore } from './connection'
 import { useUiStore } from './ui'
+import { playSound } from '../lib/cuelume'
 
 export interface Column {
   name: string
@@ -186,6 +187,7 @@ export const useResultStore = defineStore('result', {
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
         this.status = 'error'
+        playSound('error')
         this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
         this.activeView = 'messages'
         return
@@ -196,6 +198,7 @@ export const useResultStore = defineStore('result', {
         if (connStore.activeConnection?.readOnly) {
           this.error = { code: 'READ_ONLY_CONNECTION', message: 'Connection is in read-only mode. Write queries are blocked.' }
           this.status = 'error'
+          playSound('error')
           this.messages = ['Error: Connection is in read-only mode. Write queries are blocked.']
           this.activeView = 'messages'
           return
@@ -215,6 +218,7 @@ export const useResultStore = defineStore('result', {
 
       const requestId = ++this.requestId
       this.status = 'running'
+      playSound('loading')
       this.error = null
       this.selectedRows = new Set()
       this.lastSql = _sql
@@ -241,6 +245,7 @@ export const useResultStore = defineStore('result', {
         this.hasMore = result.has_more
         this.pageOffset = result.row_count
         this.status = 'success'
+        playSound('success')
         const more = result.has_more ? ` (scrolled for more)` : ''
         const msgs = [`Query completed successfully. ${result.row_count} rows returned in ${this.duration}ms.${more}`]
 
@@ -253,6 +258,7 @@ export const useResultStore = defineStore('result', {
           message: String(err),
         }
         this.status = 'error'
+        playSound('error')
         this.messages = [`Error: ${String(err)}`]
         this.activeView = 'messages'
       }
@@ -263,6 +269,7 @@ export const useResultStore = defineStore('result', {
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
         this.status = 'error'
+        playSound('error')
         this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
         this.activeView = 'messages'
         return
@@ -271,6 +278,7 @@ export const useResultStore = defineStore('result', {
       const connStore = useConnectionStore()
       const requestId = ++this.requestId
       this.status = 'running'
+      playSound('loading')
       this.error = null
       this.selectedRows = new Set()
       this.lastSql = _sql
@@ -291,6 +299,7 @@ export const useResultStore = defineStore('result', {
         if (first && first.error) {
           this.error = { code: 'MULTI_QUERY_ERROR', message: first.error }
           this.status = 'error'
+          playSound('error')
           this.messages = [`Error: ${first.error}`]
           this.activeView = 'messages'
           if (results.length === 1) {
@@ -302,6 +311,7 @@ export const useResultStore = defineStore('result', {
           this.columns = first.columns
           this.duration = (first as any).durationMs ?? first.duration_ms
           this.status = 'success'
+          playSound('success')
           const total = results.reduce((s, r) => s + (r.row_count ?? r.affected_rows ?? 0), 0)
           this.messages = results.length > 1
             ? [`Multi-query returned ${results.length} results, ${total} total rows.`]
@@ -310,6 +320,7 @@ export const useResultStore = defineStore('result', {
         } else if (first && first.affected_rows !== null) {
           this.lastAffectedRows = first.affected_rows
           this.status = 'success'
+          playSound('success')
           this.messages = [`Query executed successfully. ${first.affected_rows} rows affected in ${first.duration_ms}ms.`]
           this.activeView = 'messages'
         }
@@ -317,6 +328,7 @@ export const useResultStore = defineStore('result', {
         if (requestId !== this.requestId) return
         this.error = { code: 'MULTI_QUERY_ERROR', message: String(err) }
         this.status = 'error'
+        playSound('error')
         this.messages = [`Error: ${String(err)}`]
         this.activeView = 'messages'
       }
@@ -471,6 +483,7 @@ export const useResultStore = defineStore('result', {
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
         this.status = 'error'
+        playSound('error')
         this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
         this.activeView = 'messages'
         return
@@ -478,6 +491,7 @@ export const useResultStore = defineStore('result', {
       _sql = fixBacktickedIdentifiers(_sql)
       const requestId = ++this.requestId
       this.status = 'running'
+      playSound('loading')
       this.error = null
       this.selectedRows = new Set()
       try {
@@ -492,6 +506,7 @@ export const useResultStore = defineStore('result', {
         this.planColumns = []
         this.duration = (result as any).durationMs ?? result.duration_ms
         this.status = 'success'
+        playSound('success')
         const msg = `Query executed successfully. ${result.affected_rows} rows affected in ${this.duration}ms.`
         this.messages = result.warning ? [msg, `Warning: ${result.warning}`] : [msg]
         this.activeView = 'messages'
@@ -502,6 +517,7 @@ export const useResultStore = defineStore('result', {
           message: String(err),
         }
         this.status = 'error'
+        playSound('error')
         this.messages = [`Error: ${String(err)}`]
         this.activeView = 'messages'
       }
@@ -513,6 +529,7 @@ export const useResultStore = defineStore('result', {
       if (this.status === 'running') {
         this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
         this.status = 'error'
+        playSound('error')
         this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
         this.activeView = 'messages'
         return
@@ -520,6 +537,7 @@ export const useResultStore = defineStore('result', {
       sql = fixBacktickedIdentifiers(sql)
       const requestId = ++this.requestId
       this.status = 'running'
+      playSound('loading')
       this.error = null
       this.selectedRows = new Set()
       const cleanSql = sql.trim().replace(/;+$/, '')
@@ -533,6 +551,7 @@ export const useResultStore = defineStore('result', {
         this.planColumns = result.columns
         this.duration = (result as any).durationMs ?? result.duration_ms
         this.status = 'success'
+        playSound('success')
         this.messages = [`Execution plan returned ${result.row_count} rows in ${this.duration}ms.`]
         this.activeView = 'plan'
 	      } catch (err) {
@@ -542,6 +561,7 @@ export const useResultStore = defineStore('result', {
           message: String(err),
         }
         this.status = 'error'
+        playSound('error')
         this.messages = [`Explain error: ${String(err)}`]
         this.activeView = 'messages'
       }

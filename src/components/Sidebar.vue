@@ -72,6 +72,8 @@
         <!-- Schema Diagram Option -->
         <button
           v-if="connStore.status === 'connected'"
+          v-cuelume:hover
+          v-cuelume:press
           class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none bg-transparent mb-1 font-semibold"
           @click="editorStore.addSchemaDiagramTab()"
         >

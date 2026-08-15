@@ -49,6 +49,7 @@
 
           <button
             v-show="!uiStore.resultPanelOpen"
+            v-cuelume:press
             class="absolute bottom-2 right-4 z-20 flex items-center justify-center w-7 h-7 rounded bg-muted/90 hover:bg-muted text-muted-foreground hover:text-foreground border border-border shadow-sm transition-all cursor-pointer"
             title="Show Result Panel"
             @click="uiStore.toggleResultPanel()"

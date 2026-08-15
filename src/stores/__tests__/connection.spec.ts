@@ -12,6 +12,8 @@ vi.mock("../storage", () => ({
   saveConnections: vi.fn().mockResolvedValue(undefined),
   loadActiveConnectionId: vi.fn().mockResolvedValue(null),
   saveActiveConnectionId: vi.fn().mockResolvedValue(undefined),
+  loadRecentConnectionIds: vi.fn().mockResolvedValue(null),
+  saveRecentConnectionIds: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("connection store", () => {
@@ -104,5 +106,31 @@ describe("connection store", () => {
     const res2 = await store.testConnection({ host: "localhost", username: "root", port: 99999, dbType: "mysql" });
     expect(res2.ok).toBe(false);
     expect(res2.error).toContain("Port must be between");
+  });
+
+  it("connect disconnects previous active connection when switching", async () => {
+    mockInvoke.mockResolvedValue("ok");
+    const store = useConnectionStore();
+    await store.load();
+    const conn1Id = store.connections[0].id;
+    const conn2Id = await store.addConnection({
+      name: "Second DB",
+      host: "localhost",
+      port: 3306,
+      database: "second",
+      username: "root",
+      password: "",
+      dbType: "mysql",
+      ssl: false,
+    });
+
+    await store.connect(conn1Id);
+    expect(store.activeId).toBe(conn1Id);
+
+    // Switch to conn2
+    await store.connect(conn2Id);
+    expect(mockInvoke).toHaveBeenCalledWith("disconnect", { id: conn1Id });
+    expect(mockInvoke).toHaveBeenCalledWith("connect", expect.objectContaining({ id: conn2Id }));
+    expect(store.activeId).toBe(conn2Id);
   });
 });

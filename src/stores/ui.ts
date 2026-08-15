@@ -1,7 +1,14 @@
 import { defineStore } from 'pinia'
 import { setTheme as setThemeFromSystem } from '../theme/manager'
+import { syncSoundsEnabled } from '../lib/cuelume'
 
 export type Theme = 'dark' | 'light' | 'system'
+
+function readSoundsEnabled(): boolean {
+  if (typeof window === 'undefined') return true
+  const stored = localStorage.getItem('soundsEnabled')
+  return stored !== 'false'
+}
 
 export const useUiStore = defineStore('ui', {
   state: () => ({
@@ -17,6 +24,7 @@ export const useUiStore = defineStore('ui', {
     theme: ((typeof window !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'system',
     systemIsDark: false,
     resultPanelOpen: typeof window !== 'undefined' ? localStorage.getItem('resultPanelOpen') !== 'false' : true,
+    soundsEnabled: readSoundsEnabled(),
   }),
 
   getters: {
@@ -132,6 +140,16 @@ export const useUiStore = defineStore('ui', {
       if (typeof window !== 'undefined') {
         localStorage.setItem('resultPanelOpen', String(open))
       }
+    },
+    setSoundsEnabled(enabled: boolean) {
+      this.soundsEnabled = enabled
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('soundsEnabled', String(enabled))
+      }
+      syncSoundsEnabled(enabled)
+    },
+    toggleSounds() {
+      this.setSoundsEnabled(!this.soundsEnabled)
     },
     closeAll() {
       this.paletteOpen = false
