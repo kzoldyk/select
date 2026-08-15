@@ -393,3 +393,143 @@ export function getStatementAtPosition(sql: string, cursorPos: number): string {
 
   return statements[statements.length - 1]?.text || sql
 }
+
+export interface TableIdentifierMatch {
+  raw: string
+  full: string
+  schema?: string
+  table: string
+  from: number
+  to: number
+}
+
+export const RESERVED_SQL_KEYWORDS = new Set([
+  'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'FULL',
+  'GROUP', 'ORDER', 'BY', 'HAVING', 'LIMIT', 'OFFSET', 'UNION', 'ALL', 'DISTINCT',
+  'ON', 'USING', 'SET', 'VALUES', 'INTO', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER',
+  'DROP', 'TABLE', 'VIEW', 'DATABASE', 'SCHEMA', 'INDEX', 'AS', 'AND', 'OR', 'NOT',
+  'IN', 'IS', 'NULL', 'LIKE', 'BETWEEN', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'EXISTS',
+  'ASC', 'DESC', 'SHOW', 'DESCRIBE', 'EXPLAIN', 'WITH', 'PRIMARY', 'KEY', 'FOREIGN',
+  'REFERENCES', 'CASCADE', 'UNIQUE', 'CHECK', 'DEFAULT'
+])
+
+export function isInCommentOrString(sql: string, pos: number): boolean {
+  if (pos <= 0) return false
+  let inSingle = false
+  let inDouble = false
+  let inLineComment = false
+  let inBlockComment = false
+
+  for (let i = 0; i < pos && i < sql.length; i++) {
+    const ch = sql[i]
+    const nextCh = sql[i + 1] || ''
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false
+      continue
+    }
+    if (inBlockComment) {
+      if (ch === '*' && nextCh === '/') {
+        inBlockComment = false
+        i++
+      }
+      continue
+    }
+    if (ch === '-' && nextCh === '-' && !inSingle && !inDouble) {
+      inLineComment = true
+      i++
+      continue
+    }
+    if (ch === '/' && nextCh === '*' && !inSingle && !inDouble) {
+      inBlockComment = true
+      i++
+      continue
+    }
+    if (ch === '\'' && !inLineComment && !inBlockComment) {
+      if (inSingle && nextCh === '\'') {
+        i++
+        continue
+      }
+      inSingle = !inSingle
+      continue
+    }
+  }
+
+  return inSingle || inLineComment || inBlockComment
+}
+
+/**
+ * Extracts the SQL table identifier (e.g. `users`, `other_schema.users`, `\`db\`.\`tbl\``)
+ * encompassing or adjacent to the given character position.
+ */
+export function extractTableIdentifierAt(doc: string, pos: number): TableIdentifierMatch | null {
+  if (!doc || pos < 0 || pos > doc.length) return null
+  if (isInCommentOrString(doc, pos)) return null
+
+  // Find boundaries of the current line
+  let lineStart = pos
+  while (lineStart > 0 && doc[lineStart - 1] !== '\n') {
+    lineStart--
+  }
+  let lineEnd = pos
+  while (lineEnd < doc.length && doc[lineEnd] !== '\n') {
+    lineEnd++
+  }
+  const lineText = doc.substring(lineStart, lineEnd)
+  const relPos = pos - lineStart
+
+  const partPattern = '`[^`\\r\\n]+`|"[^"\\r\\n]+"|\\[[^\\]\\r\\n]+\\]|[a-zA-Z0-9_$]+'
+  const compoundPattern = `(?:${partPattern})(?:\\s*\\.\\s*(?:${partPattern}))*`
+  const compoundRegex = new RegExp(compoundPattern, 'g')
+
+  let match: RegExpExecArray | null
+  while ((match = compoundRegex.exec(lineText)) !== null) {
+    const matchStart = match.index
+    const matchEnd = match.index + match[0].length
+
+    if (relPos >= matchStart && relPos <= matchEnd) {
+      const raw = match[0]
+      const partRegex = new RegExp(partPattern, 'g')
+      const rawParts: string[] = []
+      let pMatch: RegExpExecArray | null
+      while ((pMatch = partRegex.exec(raw)) !== null) {
+        rawParts.push(pMatch[0])
+      }
+
+      if (rawParts.length === 0) return null
+
+      const cleanParts = rawParts.map(p => cleanIdentifier(p)).filter(Boolean)
+      if (cleanParts.length === 0) return null
+
+      // Ignore pure numbers
+      if (cleanParts.length === 1 && /^\d+$/.test(cleanParts[0])) {
+        return null
+      }
+
+      // Ignore isolated SQL keywords
+      if (cleanParts.length === 1 && RESERVED_SQL_KEYWORDS.has(cleanParts[0].toUpperCase())) {
+        return null
+      }
+
+      let schema: string | undefined
+      let table = cleanParts[cleanParts.length - 1]
+      let full = cleanParts.join('.')
+
+      if (cleanParts.length >= 2) {
+        schema = cleanParts.slice(0, -1).join('.')
+        table = cleanParts[cleanParts.length - 1]
+      }
+
+      return {
+        raw,
+        full,
+        schema,
+        table,
+        from: lineStart + matchStart,
+        to: lineStart + matchEnd,
+      }
+    }
+  }
+
+  return null
+}

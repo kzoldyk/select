@@ -205,10 +205,13 @@ export const useEditorStore = defineStore('editor', {
       let tab = this.tabs.find(t => t.type === 'table' && t.tableName === tableName)
       if (!tab) {
         if (this.tabs.length >= MAX_TABS) return ''
+        const escapedTable = tableName.includes('.')
+          ? tableName.split('.').map(p => `\`${p.replace(/`/g, '``')}\``).join('.')
+          : `\`${tableName.replace(/`/g, '``')}\``
         tab = {
           id: `tab-table-${Date.now()}`,
           name: tableName,
-          sql: `SELECT * FROM \`${tableName.replace(/`/g, '``')}\``,
+          sql: `SELECT * FROM ${escapedTable}`,
           connectionId: null,
           isUnsaved: false,
           savedQueryId: null,

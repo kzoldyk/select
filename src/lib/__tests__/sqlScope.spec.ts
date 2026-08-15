@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractInScopeTables, analyzeSqlScope, sanitizeSql } from '../sqlScope'
+import { extractInScopeTables, analyzeSqlScope, sanitizeSql, extractTableIdentifierAt } from '../sqlScope'
 
 describe('sqlScope analyzer', () => {
   it('extracts simple FROM table', () => {
@@ -79,3 +79,98 @@ describe('sqlScope analyzer', () => {
     expect(tables).toEqual([{ table: 'real_table', schema: undefined, alias: 'rt' }])
   })
 })
+
+describe('extractTableIdentifierAt', () => {
+  it('extracts simple unqualified table identifier', () => {
+    const sql = 'SELECT * FROM users WHERE id = 1'
+    const match = extractTableIdentifierAt(sql, sql.indexOf('users') + 2)
+    expect(match).not.toBeNull()
+    expect(match?.table).toBe('users')
+    expect(match?.schema).toBeUndefined()
+    expect(match?.full).toBe('users')
+  })
+
+  it('extracts schema-qualified table identifier when clicking schema, dot, or table', () => {
+    const sql = 'SELECT * FROM other_schema.users WHERE id = 1'
+    const schemaPos = sql.indexOf('other_schema') + 2
+    const dotPos = sql.indexOf('.')
+    const tablePos = sql.indexOf('users') + 2
+
+    const matchSchema = extractTableIdentifierAt(sql, schemaPos)
+    expect(matchSchema).toEqual({
+      raw: 'other_schema.users',
+      full: 'other_schema.users',
+      schema: 'other_schema',
+      table: 'users',
+      from: sql.indexOf('other_schema'),
+      to: sql.indexOf('other_schema') + 'other_schema.users'.length,
+    })
+
+    const matchDot = extractTableIdentifierAt(sql, dotPos)
+    expect(matchDot?.full).toBe('other_schema.users')
+    expect(matchDot?.schema).toBe('other_schema')
+    expect(matchDot?.table).toBe('users')
+
+    const matchTable = extractTableIdentifierAt(sql, tablePos)
+    expect(matchTable?.full).toBe('other_schema.users')
+    expect(matchTable?.schema).toBe('other_schema')
+    expect(matchTable?.table).toBe('users')
+  })
+
+  it('extracts backtick quoted schema and table', () => {
+    const sql = 'SELECT * FROM `other_schema`.`users` WHERE id = 1'
+    const match = extractTableIdentifierAt(sql, sql.indexOf('users'))
+    expect(match?.full).toBe('other_schema.users')
+    expect(match?.schema).toBe('other_schema')
+    expect(match?.table).toBe('users')
+  })
+
+  it('extracts double quoted schema and table', () => {
+    const sql = 'SELECT * FROM "other_schema"."users" WHERE id = 1'
+    const match = extractTableIdentifierAt(sql, sql.indexOf('other_schema'))
+    expect(match?.full).toBe('other_schema.users')
+    expect(match?.schema).toBe('other_schema')
+    expect(match?.table).toBe('users')
+  })
+
+  it('extracts bracket quoted schema and table', () => {
+    const sql = 'SELECT * FROM [other_schema].[users] WHERE id = 1'
+    const match = extractTableIdentifierAt(sql, sql.indexOf('users'))
+    expect(match?.full).toBe('other_schema.users')
+    expect(match?.schema).toBe('other_schema')
+    expect(match?.table).toBe('users')
+  })
+
+  it('extracts mixed quoted schema.table with spaces', () => {
+    const sql = 'SELECT * FROM `other_schema` . users WHERE id = 1'
+    const match = extractTableIdentifierAt(sql, sql.indexOf('.'))
+    expect(match?.full).toBe('other_schema.users')
+    expect(match?.schema).toBe('other_schema')
+    expect(match?.table).toBe('users')
+  })
+
+  it('ignores SQL keywords when clicked standalone', () => {
+    const sql = 'SELECT * FROM other_schema.users WHERE id = 1'
+    expect(extractTableIdentifierAt(sql, sql.indexOf('SELECT'))).toBeNull()
+    expect(extractTableIdentifierAt(sql, sql.indexOf('FROM'))).toBeNull()
+    expect(extractTableIdentifierAt(sql, sql.indexOf('WHERE'))).toBeNull()
+  })
+
+  it('ignores comments and string literals', () => {
+    const sql = `
+      -- SELECT * FROM other_schema.users
+      SELECT 'other_schema.users' FROM dual
+    `
+    const commentPos = sql.indexOf('other_schema')
+    expect(extractTableIdentifierAt(sql, commentPos)).toBeNull()
+
+    const stringPos = sql.lastIndexOf('other_schema')
+    expect(extractTableIdentifierAt(sql, stringPos)).toBeNull()
+  })
+
+  it('ignores numbers', () => {
+    const sql = 'SELECT * FROM users WHERE id = 12345'
+    expect(extractTableIdentifierAt(sql, sql.indexOf('12345'))).toBeNull()
+  })
+})
+

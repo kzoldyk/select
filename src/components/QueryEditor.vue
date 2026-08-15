@@ -29,6 +29,7 @@ import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
 import { useUiStore } from '../stores/ui'
 import { getSqlCompletionOptions } from '../lib/sqlAutocomplete'
+import { extractTableIdentifierAt } from '../lib/sqlScope'
 
 
 const emit = defineEmits<{ explain: []; run: [sql?: string] }>()
@@ -188,17 +189,73 @@ function selectedSql(editorView: EditorView): string {
   return editorView.state.sliceDoc(selection.from, selection.to)
 }
 
-function getWordAt(doc: string, pos: number): string | null {
-  let start = pos
-  while (start > 0 && /[\w\d_`"']/.test(doc[start - 1])) {
-    start--
+async function openTableFromEditor(target: { full: string; schema?: string; table: string }) {
+  const schemaStore = useSchemaStore()
+  const editorStore = useEditorStore()
+
+  // 1. Unqualified table (e.g. `users`)
+  if (!target.schema) {
+    const tableName = target.table.toLowerCase()
+    const currentTable = [...schemaStore.tables, ...schemaStore.views].find(
+      t => t.name.toLowerCase() === tableName
+    )
+    if (currentTable) {
+      editorStore.addTableTab(currentTable.name)
+      return true
+    }
+
+    try {
+      const details = await schemaStore.fetchTableDetails(target.table)
+      if (details && details.columns && details.columns.length > 0) {
+        editorStore.addTableTab(target.table)
+        return true
+      }
+    } catch {
+      // not a table
+    }
+    return false
   }
-  let end = pos
-  while (end < doc.length && /[\w\d_`"']/.test(doc[end])) {
-    end++
+
+  // 2. Schema-qualified table (e.g. `other_schema.users`)
+  const schemaName = target.schema
+  const tableName = target.table
+
+  // A. Check if tables for schemaName are cached or can be fetched
+  try {
+    const schemaTables = await schemaStore.fetchTablesForSchema(schemaName)
+    if (schemaTables && schemaTables.length > 0) {
+      const matched = schemaTables.find(t => t.toLowerCase() === tableName.toLowerCase())
+      if (matched) {
+        editorStore.addTableTab(`${schemaName}.${matched}`)
+        return true
+      }
+    }
+  } catch {
+    // ignore
   }
-  if (start === end) return null
-  return doc.slice(start, end)
+
+  // B. Fallback: try fetching table details for `${schemaName}.${tableName}`
+  try {
+    const qualified = `${schemaName}.${tableName}`
+    const details = await schemaStore.fetchTableDetails(qualified)
+    if (details && details.columns && details.columns.length > 0) {
+      editorStore.addTableTab(qualified)
+      return true
+    }
+  } catch {
+    // not a table
+  }
+
+  // C. Check if schemaStore.databases contains this schema/database
+  const isKnownDb = schemaStore.databases?.some(
+    d => d.toLowerCase() === schemaName.toLowerCase()
+  )
+  if (isKnownDb) {
+    editorStore.addTableTab(`${schemaName}.${tableName}`)
+    return true
+  }
+
+  return false
 }
 
 function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) => void) {
@@ -239,26 +296,42 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
         if (event.ctrlKey || event.metaKey) {
           const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
           if (pos !== null) {
-            const word = getWordAt(view.state.doc.toString(), pos)
-            if (word) {
-              const cleanWord = word.replace(/[`"\[\]']/g, '').trim()
-              if (cleanWord) {
-                const schemaStore = useSchemaStore()
-                const editorStore = useEditorStore()
-                const matches = [...schemaStore.tables, ...schemaStore.views].some(
-                  t => t.name.toLowerCase() === cleanWord.toLowerCase()
+            const target = extractTableIdentifierAt(view.state.doc.toString(), pos)
+            if (target) {
+              const schemaStore = useSchemaStore()
+              const editorStore = useEditorStore()
+
+              // Fast synchronous path: unqualified table in current schema
+              if (!target.schema) {
+                const currentTable = [...schemaStore.tables, ...schemaStore.views].find(
+                  t => t.name.toLowerCase() === target.table.toLowerCase()
                 )
-                if (matches) {
-                  const table = [...schemaStore.tables, ...schemaStore.views].find(
-                    t => t.name.toLowerCase() === cleanWord.toLowerCase()
-                  )
-                  if (table) {
-                    editorStore.addTableTab(table.name)
+                if (currentTable) {
+                  editorStore.addTableTab(currentTable.name)
+                  event.preventDefault()
+                  return true
+                }
+              }
+
+              // Fast synchronous path: qualified table in cached schema tables
+              if (target.schema) {
+                const connStore = useConnectionStore()
+                const cacheKey = `${connStore.activeId}-${target.schema}`
+                const cachedTables = schemaStore.schemaTablesCache[cacheKey]
+                if (cachedTables) {
+                  const matched = cachedTables.find(t => t.toLowerCase() === target.table.toLowerCase())
+                  if (matched) {
+                    editorStore.addTableTab(`${target.schema}.${matched}`)
                     event.preventDefault()
                     return true
                   }
                 }
               }
+
+              // Asynchronous lookup and navigation
+              void openTableFromEditor(target)
+              event.preventDefault()
+              return true
             }
           }
         }
