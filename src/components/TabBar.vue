@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center justify-between h-9 bg-muted/40 border-b border-border flex-shrink-0 px-2 select-none">
+  <div class="flex items-center justify-between h-9 chrome-bar border-b flex-shrink-0 px-2 select-none">
     <!-- Left: Sidebar Toggle & Tabs -->
     <div class="flex items-center h-full gap-2 min-w-0 flex-1">
       <!-- Toggle Sidebar Button -->
@@ -22,8 +22,10 @@
           v-for="tab in editorStore.tabs"
           :key="tab.id"
           v-cuelume:toggle
-          class="group inline-flex items-center gap-2 px-3 h-7 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/50 border border-transparent rounded-t-md cursor-pointer whitespace-nowrap flex-shrink-0 relative transition-all"
-          :class="{ 'bg-background text-foreground border-border border-b-transparent font-medium shadow-xs': editorStore.activeTabId === tab.id }"
+          class="group inline-flex items-center gap-2 px-3 h-7 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 border border-transparent rounded-t-md cursor-pointer whitespace-nowrap flex-shrink-0 relative transition-[color,background,box-shadow] duration-normal ease-premium"
+          :class="{
+            'bg-background text-foreground border-border border-b-transparent font-medium shadow-[inset_0_-2px_0_0_var(--primary)]': editorStore.activeTabId === tab.id,
+          }"
           role="tab"
           :aria-selected="editorStore.activeTabId === tab.id"
           :title="tab.name"
@@ -61,7 +63,7 @@
     </div>
 
     <!-- Right: Integrated Controls (Command Palette, Format, Explain, Zoom, Settings, Run) -->
-    <div class="flex items-center gap-1.5 pl-2 flex-shrink-0">
+    <div class="flex items-center gap-1.5 pl-2 flex-shrink-0 rounded-lg border border-border/50 bg-background/40 p-0.5">
       <!-- Search/Command Palette trigger -->
       <Button
         variant="ghost"
@@ -146,11 +148,11 @@
       <!-- Run Button -->
       <Button 
         size="sm" 
-        class="h-6.5 px-3 gap-1 text-[11px] font-semibold shadow-xs rounded active:scale-[0.97] transition-all cursor-pointer"
+        class="h-6.5 px-3 gap-1.5 text-[11px] font-semibold rounded-md shadow-sm active:scale-[0.97] transition-[transform,box-shadow] duration-fast ease-premium cursor-pointer ring-1 ring-primary/20 hover:shadow-[0_0_12px_color-mix(in_srgb,var(--primary)_35%,transparent)]"
         title="Run Query (⌘Enter)"
         @click="$emit('run')"
       >
-        <PhPlay class="w-3 h-3 fill-current" />
+        <PhPlay class="w-3 h-3 fill-current" weight="fill" />
         Run
       </Button>
     </div>

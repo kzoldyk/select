@@ -1,10 +1,10 @@
 <template>
   <Dialog :open="uiStore.virtualKeyDialogOpen" @update:open="onClose">
-    <DialogContent class="sm:max-w-md">
+    <DialogContent class="sm:max-w-md border-border/80 shadow-2xl">
       <DialogHeader>
-        <DialogTitle class="flex items-center gap-2">
+        <DialogTitle class="flex items-center gap-2 text-[15px]">
           <span>Virtual Unique Key</span>
-          <span v-if="targetTable" class="text-xs font-mono bg-muted px-1.5 py-0.5 rounded text-foreground font-normal">
+          <span v-if="targetTable" class="text-[10px] font-mono bg-muted/60 px-1.5 py-0.5 rounded-md text-muted-foreground font-normal border border-border/50">
             {{ targetTable }}
           </span>
         </DialogTitle>

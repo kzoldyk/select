@@ -50,7 +50,7 @@
           <button
             v-show="!uiStore.resultPanelOpen"
             v-cuelume:press
-            class="absolute bottom-2 right-4 z-20 flex items-center justify-center w-7 h-7 rounded bg-muted/90 hover:bg-muted text-muted-foreground hover:text-foreground border border-border shadow-sm transition-all cursor-pointer"
+            class="absolute bottom-2 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-md bg-muted/90 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/80 shadow-md transition-[transform,box-shadow,background] duration-fast ease-premium hover:shadow-lg active:scale-95 cursor-pointer"
             title="Show Result Panel"
             @click="uiStore.toggleResultPanel()"
           >
@@ -242,12 +242,28 @@ function resetSplit() {
     "footer footer";
   height: 100vh;
   overflow: hidden;
-  transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -20%, color-mix(in srgb, var(--primary) 6%, transparent), transparent 55%),
+    var(--background);
+  transition: grid-template-columns 180ms var(--ease-out-premium);
 }
 
-.app-sidebar { grid-area: sidebar; border-right: 1px solid var(--border); overflow: hidden; }
-.app-main { grid-area: main; z-index: 10; }
-.app-footer { grid-area: footer; z-index: 20; }
+.app-sidebar {
+  grid-area: sidebar;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--background) 88%, var(--sidebar) 12%);
+}
+.app-main {
+  grid-area: main;
+  z-index: 10;
+  background: var(--background);
+}
+.app-footer {
+  grid-area: footer;
+  z-index: 20;
+  box-shadow: 0 -1px 0 var(--border);
+}
 
 .main-content {
   display: flex;
@@ -275,7 +291,7 @@ function resetSplit() {
   background: transparent;
   cursor: row-resize;
   flex-shrink: 0;
-  transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 180ms var(--ease-out-premium);
   position: relative;
   z-index: 10;
   display: flex;
@@ -288,10 +304,15 @@ function resetSplit() {
   width: 100%;
   height: 1px;
   background: var(--border);
-  transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 180ms var(--ease-out-premium), box-shadow 180ms var(--ease-out-premium);
 }
-.resize-handle:hover::after { background: var(--ring); }
-.resize-handle:hover { background: var(--ring); }
+.resize-handle:hover::after {
+  background: color-mix(in srgb, var(--primary) 40%, var(--border));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.resize-handle:hover {
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
 
 .overlays {
   position: fixed;
@@ -302,10 +323,4 @@ function resetSplit() {
 .overlays > * {
   pointer-events: auto;
 }
-
-/* Scrollbar styling */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
 </style>

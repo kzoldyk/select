@@ -1,11 +1,11 @@
 <template>
   <aside
-    class="sidebar border-r border-border bg-muted/30 flex flex-col overflow-hidden"
+    class="sidebar border-r border-border flex flex-col overflow-hidden"
     :class="{ 'w-0 border-r-0': !uiStore.sidebarOpen }"
     role="navigation"
     aria-label="Schema browser"
   >
-    <div class="px-3 py-3 border-b border-border flex flex-col gap-2.5 flex-shrink-0 bg-background/50 backdrop-blur-sm z-10">
+    <div class="px-3 py-3 border-b border-border flex flex-col gap-2.5 flex-shrink-0 chrome-bar z-10">
       <template v-if="connStore.status === 'connected'">
         <div class="flex items-center gap-1.5">
           <select
@@ -45,8 +45,9 @@
         </div>
       </template>
 
-      <div v-else-if="connStore.status === 'connecting'" class="text-[11px] text-muted-foreground text-center py-2">
-        Connecting...
+      <div v-else-if="connStore.status === 'connecting'" class="flex items-center justify-center gap-2 py-2 text-[11px] text-muted-foreground">
+        <span class="w-3.5 h-3.5 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"></span>
+        Connecting…
       </div>
       <div v-else-if="connStore.status === 'error'" class="flex flex-col gap-1.5 py-1">
         <div class="text-[11px] text-destructive text-center font-medium">Connection Error</div>
@@ -66,19 +67,41 @@
         </button>
       </div>
 
-      <input
-        id="sidebar-search-input"
-        class="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-[12px] ring-offset-background placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all shadow-sm mt-0.5"
-        type="text"
-        placeholder="Search schema objects…"
-        aria-label="Search schema objects"
-        :value="schemaStore.searchQuery"
-        @input="onSearch"
-      />
+      <div class="relative mt-0.5">
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50 pointer-events-none" />
+        <input
+          id="sidebar-search-input"
+          class="flex h-8 w-full rounded-md border border-input bg-background/80 pl-8 pr-2.5 py-1 text-[12px] ring-offset-background placeholder:text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:border-ring/40 transition-[border-color,box-shadow] duration-normal ease-premium shadow-sm"
+          type="text"
+          placeholder="Search schema objects…"
+          aria-label="Search schema objects"
+          :value="schemaStore.searchQuery"
+          @input="onSearch"
+        />
+      </div>
     </div>
 
     <ScrollArea class="flex-1">
-      <div class="py-2 flex flex-col gap-1.5 px-2">
+      <div v-if="connStore.status !== 'connected' && connStore.status !== 'connecting' && !schemaStore.isLoading" class="px-3 pt-4">
+        <EmptyState
+          title="No database connected"
+          description="Connect to browse tables, run queries, and explore schema relations."
+        >
+          <template #icon>
+            <Database class="w-5 h-5" />
+          </template>
+          <template #action>
+            <button
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-[background,transform] duration-fast ease-premium active:scale-[0.98] shadow-sm cursor-pointer border-none"
+              @click="uiStore.openConnectionManager()"
+            >
+              <Plug class="w-3.5 h-3.5" />
+              Connect
+            </button>
+          </template>
+        </EmptyState>
+      </div>
+      <div v-else class="py-2 flex flex-col gap-1.5 px-2">
         <!-- Schema Diagram Option -->
         <button
           v-if="connStore.status === 'connected'"
@@ -435,6 +458,7 @@
 <script setup lang="ts">
 import { reactive, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'vue-sonner'
 import {
@@ -460,6 +484,9 @@ import {
   Play,
   Activity,
   Workflow,
+  Search,
+  Database,
+  Plug,
 } from '@lucide/vue'
 import { useSchemaStore } from '../stores/schema'
 import { useConnectionStore } from '../stores/connection'

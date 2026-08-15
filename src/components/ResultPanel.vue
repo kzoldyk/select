@@ -34,7 +34,7 @@
     </div>
 
     <Tabs v-model="resultStore.activeView" class="flex-1 flex flex-col overflow-hidden min-h-0">
-      <div class="flex items-center h-10 bg-background border-b border-border flex-shrink-0 overflow-hidden px-2 justify-between">
+      <div class="flex items-center h-10 chrome-bar border-b flex-shrink-0 overflow-hidden px-2 justify-between">
         <TabsList class="h-8 bg-muted/40 p-0.5 rounded-md gap-0.5">
           <TabsTrigger
             v-for="view in VIEWS"
@@ -225,8 +225,28 @@
           <Button variant="ghost" size="sm" class="text-[10px] h-6 px-2" @click="clearFilters">Clear</Button>
         </div>
 
-        <div class="flex-1 min-h-0 overflow-auto bg-background" ref="scrollAreaRef">
-          <Table 
+        <div class="flex-1 min-h-0 overflow-auto bg-background relative" ref="scrollAreaRef">
+          <div
+            v-if="currentStatus === 'idle' && !currentColumns.length"
+            class="absolute inset-0 flex items-center justify-center surface-inset"
+          >
+            <EmptyState
+              title="No results yet"
+              description="Run a query to see rows here. Use the editor above or press the Run button."
+            >
+              <template #icon>
+                <Table2 class="w-5 h-5" />
+              </template>
+              <template #action>
+                <div class="flex items-center gap-2 text-[10px] text-muted-foreground/80">
+                  <span class="kbd-hint">⌘</span>
+                  <span class="kbd-hint">↵</span>
+                  <span>to run</span>
+                </div>
+              </template>
+            </EmptyState>
+          </div>
+          <Table
             id="result-grid-table"
             class="relative w-full text-left border-collapse focus:outline-none focus:ring-1 focus:ring-primary/40 rounded-sm transition-shadow"
             tabindex="0"
@@ -615,7 +635,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Download, Search, Copy, Key } from '@lucide/vue'
+import { Download, Search, Copy, Key, Table2 } from '@lucide/vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
 import { useResultStore, type ResultView, type Column, type CellValue, type ResultRow } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
 import { useSchemaStore } from '../stores/schema'

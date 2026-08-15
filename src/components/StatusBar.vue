@@ -1,5 +1,5 @@
 <template>
-  <footer class="flex items-center justify-between h-8 px-3 border-t border-border/60 bg-background text-[11px] font-medium text-muted-foreground flex-shrink-0 relative">
+  <footer class="flex items-center justify-between h-8 px-3 border-t chrome-bar text-[11px] font-medium text-muted-foreground flex-shrink-0 relative">
     <!-- Bottom-Left Connection Switcher & Status -->
     <div class="flex items-center gap-3 min-w-0">
       <!-- Connection Switcher Dropdown Trigger -->
@@ -32,7 +32,7 @@
         <!-- Dropdown Menu for Connection Switcher -->
         <div
           v-if="showConnMenu"
-          class="absolute bottom-full left-0 mb-1 z-50 w-56 py-1 bg-popover border border-border/80 rounded-md shadow-lg text-[11px] animate-in fade-in-50 zoom-in-95"
+          class="absolute bottom-full left-0 mb-1 z-50 w-56 py-1 bg-popover border border-border/80 rounded-lg shadow-xl text-[11px] animate-in fade-in-50 zoom-in-95 duration-normal"
         >
           <div class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
             Connections
