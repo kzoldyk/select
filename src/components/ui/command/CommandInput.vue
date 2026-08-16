@@ -1,12 +1,10 @@
 <script setup lang="ts">
 import type { ListboxFilterProps } from 'reka-ui'
-
 import type { HTMLAttributes } from 'vue'
-import { SearchIcon } from '@lucide/vue'
 import { reactiveOmit } from '@vueuse/core'
 import { ListboxFilter, useForwardProps } from 'reka-ui'
+import { PhMagnifyingGlass } from '@phosphor-icons/vue'
 import { cn } from '@/lib/utils'
-import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import { useCommand } from '.'
 
 defineOptions({
@@ -18,28 +16,23 @@ const props = defineProps<ListboxFilterProps & {
 }>()
 
 const delegatedProps = reactiveOmit(props, 'class')
-
 const forwardedProps = useForwardProps(delegatedProps)
-
 const { filterState } = useCommand()
 </script>
 
 <template>
   <div
     data-slot="command-input-wrapper"
-    class="p-1 pb-0"
+    class="flex items-center px-4 py-3.5 border-b border-border/80 gap-3 bg-muted/20"
   >
-    <InputGroup class="bg-input/30 border-input/30 h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!">
-      <ListboxFilter
-        v-bind="{ ...forwardedProps, ...$attrs }"
-        v-model="filterState.search"
-        data-slot="command-input"
-        auto-focus
-        :class="cn('w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50', props.class)"
-      />
-      <InputGroupAddon>
-        <SearchIcon class="size-4 shrink-0 opacity-50" />
-      </InputGroupAddon>
-    </InputGroup>
+    <PhMagnifyingGlass class="w-5 h-5 text-muted-foreground/70 shrink-0" />
+    <ListboxFilter
+      v-bind="{ ...forwardedProps, ...$attrs }"
+      v-model="filterState.search"
+      data-slot="command-input"
+      auto-focus
+      :class="cn('w-full bg-transparent text-[13.5px] font-medium placeholder:text-muted-foreground/50 placeholder:font-normal outline-none text-foreground disabled:cursor-not-allowed disabled:opacity-50', props.class)"
+    />
   </div>
 </template>
+

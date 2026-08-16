@@ -68,12 +68,11 @@ onUnmounted(() => {
     :id="id"
     ref="itemRef"
     data-slot="command-item"
-    :class="cn('data-selected:bg-muted data-selected:text-foreground data-selected:**:[svg]:text-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! [&_svg:not([class*=size-])]:size-4 group/command-item data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0', props.class)"
+    :class="cn('relative flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-xs outline-none select-none transition-colors duration-100 data-[selected=true]:bg-accent/70 data-[selected=true]:text-foreground hover:bg-accent/40 text-muted-foreground hover:text-foreground group/command-item data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50', props.class)"
     @select="() => {
       filterState.search = ''
     }"
   >
     <slot />
-    <CheckIcon class="ml-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
   </ListboxItem>
 </template>

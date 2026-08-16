@@ -1,30 +1,32 @@
 <template>
   <Dialog :open="!!resultStore.pendingWriteQuery" @update:open="onCancel">
-    <DialogContent class="sm:max-w-md" @pointer-down-outside.prevent @escape-key-down.prevent>
+    <DialogContent class="sm:max-w-md font-mono select-none" @pointer-down-outside.prevent @escape-key-down.prevent>
       <DialogHeader>
-        <DialogTitle class="flex items-center gap-2 text-destructive">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Confirm Mutating Query
+        <DialogTitle class="flex items-center gap-2 text-destructive text-sm font-semibold">
+          <PhShieldWarning class="w-5 h-5 text-red-500 flex-shrink-0" />
+          <span>{{ environmentTitle }}</span>
         </DialogTitle>
-        <DialogDescription>
-          This query will modify or destroy data in the database.
+        <DialogDescription class="text-xs text-muted-foreground">
+          This operation will mutate or delete records in the database.
         </DialogDescription>
       </DialogHeader>
 
-      <div class="grid gap-4 py-2">
-        <div class="rounded-lg bg-muted/60 border border-border/80 p-3 font-mono text-[11px] leading-relaxed overflow-auto max-h-36 shadow-inner">
+      <div class="grid gap-3 py-2 text-xs">
+        <!-- SQL Snippet Box -->
+        <div class="rounded-lg bg-black/40 border border-border/80 p-3 text-[11px] leading-relaxed overflow-auto max-h-36 select-text text-foreground/90 font-mono shadow-inner">
           {{ resultStore.pendingWriteQuery?.sql }}
         </div>
 
-        <div v-if="requiresConfirmationText" class="grid gap-2.5 pt-1">
-          <Label for="confirm-text" class="text-xs font-semibold text-destructive flex items-center gap-1.5 select-none">
-            Production/Staging Safeguard: Type <span class="font-mono bg-destructive/10 px-1 py-0.5 rounded text-destructive select-all">CONFIRM</span> to run
+        <!-- Safeguard Verification Input for Prod/Staging -->
+        <div v-if="requiresConfirmationText" class="grid gap-2 pt-1">
+          <Label for="confirm-text" class="text-[11px] font-semibold text-destructive flex items-center gap-1.5 select-none">
+            Type <span class="font-mono bg-destructive/15 text-destructive px-1.5 py-0.5 rounded font-bold">CONFIRM</span> to execute on {{ environmentName }}
           </Label>
           <Input 
             id="confirm-text" 
             v-model="confirmationText" 
             placeholder="Type CONFIRM here" 
-            class="h-8.5 text-xs border-destructive/40 focus-visible:ring-destructive/60 bg-background" 
+            class="h-8 text-xs border-destructive/40 focus-visible:ring-destructive/60 bg-background font-mono" 
             autocomplete="off"
             @keydown.enter="isConfirmed ? onConfirm() : null"
           />
@@ -32,14 +34,17 @@
       </div>
 
       <DialogFooter class="gap-2 sm:gap-0 mt-2">
-        <Button variant="outline" size="sm" class="text-xs h-8 px-4" @click="onCancel">Cancel</Button>
+        <Button variant="outline" size="sm" class="text-xs h-8 px-4 font-mono" @click="onCancel">Cancel</Button>
         <Button 
           variant="destructive" 
           size="sm" 
-          class="text-xs h-8 px-4 font-semibold shadow-sm"
+          class="text-xs h-8 px-4 font-semibold shadow-sm font-mono gap-1"
           :disabled="!isConfirmed" 
           @click="onConfirm"
-        >Execute</Button>
+        >
+          <PhWarning class="w-3.5 h-3.5" />
+          <span>Execute Mutation</span>
+        </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -51,6 +56,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PhShieldWarning, PhWarning } from '@phosphor-icons/vue'
 import { useResultStore } from '@/stores/result'
 import { useConnectionStore } from '@/stores/connection'
 
@@ -58,9 +64,21 @@ const resultStore = useResultStore()
 const connStore = useConnectionStore()
 const confirmationText = ref('')
 
-const requiresConfirmationText = computed(() => {
-  const color = connStore.activeConnection?.color?.toUpperCase()
-  return color === '#EF4444' || color === '#F59E0B' // Prod or Staging
+const isProd = computed(() => connStore.activeConnection?.color?.toUpperCase() === '#EF4444')
+const isStaging = computed(() => connStore.activeConnection?.color?.toUpperCase() === '#F59E0B')
+
+const requiresConfirmationText = computed(() => isProd.value || isStaging.value)
+
+const environmentName = computed(() => {
+  if (isProd.value) return 'PRODUCTION'
+  if (isStaging.value) return 'STAGING'
+  return 'DATABASE'
+})
+
+const environmentTitle = computed(() => {
+  if (isProd.value) return '🔴 PRODUCTION SAFEGUARD: Confirm Write Query'
+  if (isStaging.value) return '🟠 STAGING SAFEGUARD: Confirm Write Query'
+  return 'Confirm Mutating Query'
 })
 
 const isConfirmed = computed(() => {

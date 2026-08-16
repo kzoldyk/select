@@ -1,16 +1,17 @@
 <template>
   <aside
-    class="sidebar border-r border-border flex flex-col overflow-hidden"
+    class="sidebar border-r border-border/80 flex flex-col overflow-hidden select-none font-mono text-xs"
     :class="{ 'w-0 border-r-0': !uiStore.sidebarOpen }"
     role="navigation"
     aria-label="Schema browser"
   >
-    <div class="px-3 py-3 border-b border-border flex flex-col gap-2.5 flex-shrink-0 chrome-bar z-10">
+    <!-- Top Database & Search Bar -->
+    <div class="px-3 py-3 border-b border-border/80 flex flex-col gap-2 flex-shrink-0 bg-sidebar/95 z-10">
       <template v-if="connStore.status === 'connected'">
         <div class="flex items-center gap-1.5">
           <select
             v-if="schemaStore.databases?.length"
-            class="flex h-7 w-full rounded-md border border-input bg-background px-2 py-1 text-[11px] ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shadow-sm"
+            class="flex h-7 w-full rounded-md border border-border/60 bg-background/50 px-2 py-1 text-[11px] font-mono text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 shadow-2xs cursor-pointer"
             aria-label="Select database"
             :value="connStore.activeConnection?.database"
             @change="async (e) => {
@@ -22,9 +23,9 @@
             <option value="" disabled>Select Database...</option>
             <option v-for="db in schemaStore.databases" :key="db" :value="db">{{ db }}</option>
           </select>
-          <ActionTooltip text="Refresh schema">
+          <ActionTooltip text="Refresh schema (⇧⌘R)">
             <button
-              class="flex items-center justify-center w-7 h-7 rounded hover:bg-accent text-muted-foreground hover:text-foreground bg-background border border-input cursor-pointer flex-shrink-0 shadow-sm transition-colors"
+              class="flex items-center justify-center w-7 h-7 rounded hover:bg-sidebar-accent text-muted-foreground hover:text-foreground bg-background/50 border border-border/60 cursor-pointer flex-shrink-0 shadow-2xs transition-colors"
               :disabled="schemaStore.isLoading"
               aria-label="Refresh schema"
               @click="schemaStore.refreshSchema(connStore.activeId ?? undefined)"
@@ -36,10 +37,10 @@
           </ActionTooltip>
         </div>
 
-        <div v-if="schemaStore.schemaError" class="p-2 bg-destructive/10 border border-destructive/20 rounded text-[11px] text-destructive flex items-center justify-between gap-1">
+        <div v-if="schemaStore.schemaError" class="p-2 bg-destructive/10 border border-destructive/20 rounded text-[10.5px] text-destructive flex items-center justify-between gap-1">
           <span class="truncate">{{ schemaStore.schemaError }}</span>
           <button
-            class="px-1.5 py-0.5 bg-destructive/20 hover:bg-destructive/30 rounded text-[10px] font-semibold cursor-pointer border-none"
+            class="px-1.5 py-0.5 bg-destructive/20 hover:bg-destructive/30 rounded text-[9.5px] font-semibold cursor-pointer border-none"
             @click="schemaStore.refreshSchema(connStore.activeId ?? undefined)"
           >
             Retry
@@ -48,113 +49,131 @@
       </template>
 
       <div v-else-if="connStore.status === 'connecting'" class="flex items-center justify-center gap-2 py-2 text-[11px] text-muted-foreground">
-        <span class="w-3.5 h-3.5 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"></span>
+        <span class="w-3 h-3 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin"></span>
         Connecting…
       </div>
-      <div v-else-if="connStore.status === 'error'" class="flex flex-col gap-1.5 py-1">
-        <div class="text-[11px] text-destructive text-center font-medium">Connection Error</div>
+      <div v-else class="flex flex-col gap-1.5 py-1">
         <button
-          class="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border-none"
+          class="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border-none"
           @click="uiStore.openConnectionManager()"
         >
-          Manage Connections
-        </button>
-      </div>
-      <div v-else class="flex flex-col gap-2 py-1">
-        <button
-          class="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm cursor-pointer border-none"
-          @click="uiStore.openConnectionManager()"
-        >
-          Connect to Database
+          <PhPlug class="w-3.5 h-3.5" />
+          <span>Connect to Database</span>
         </button>
       </div>
 
-      <div class="relative mt-0.5">
-        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50 pointer-events-none" />
+      <!-- Quick Search Filter -->
+      <div class="relative">
+        <PhMagnifyingGlass class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 pointer-events-none" />
         <input
           id="sidebar-search-input"
-          class="flex h-8 w-full rounded-md border border-input bg-background/80 pl-8 pr-2.5 py-1 text-[12px] ring-offset-background placeholder:text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:border-ring/40 transition-[border-color,box-shadow] duration-normal ease-premium shadow-sm"
+          class="flex h-7.5 w-full rounded-md border border-border/50 bg-background/40 pl-8 pr-2.5 py-1 text-[11.5px] text-foreground font-mono placeholder:text-muted-foreground/50 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all shadow-2xs"
           type="text"
-          placeholder="Search schema objects…"
-          aria-label="Search schema objects"
+          placeholder="Filter objects… (⌘1)"
+          aria-label="Filter schema objects"
           :value="schemaStore.searchQuery"
           @input="onSearch"
         />
       </div>
     </div>
 
+    <!-- Scrollable Explorer Sections -->
     <ScrollArea class="flex-1">
-      <div v-if="connStore.status !== 'connected' && connStore.status !== 'connecting' && !schemaStore.isLoading" class="px-3 pt-4">
+      <div v-if="connStore.status !== 'connected' && connStore.status !== 'connecting' && !schemaStore.isLoading" class="px-3 pt-6">
         <EmptyState
           title="No database connected"
-          description="Connect to browse tables, run queries, and explore schema relations."
+          description="Connect to query tables, inspect schemas, and view relationships."
         >
           <template #icon>
-            <Database class="w-5 h-5" />
-          </template>
-          <template #action>
-            <button
-              class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-[background,transform] duration-fast ease-premium active:scale-[0.98] shadow-sm cursor-pointer border-none"
-              @click="uiStore.openConnectionManager()"
-            >
-              <Plug class="w-3.5 h-3.5" />
-              Connect
-            </button>
+            <PhDatabase class="w-6 h-6 text-muted-foreground/50" />
           </template>
         </EmptyState>
       </div>
-      <div v-else class="py-2 flex flex-col gap-1.5 px-2">
-        <!-- Schema Diagram Option -->
-        <button
-          v-if="connStore.status === 'connected'"
-          v-cuelume:hover
-          v-cuelume:press
-          class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none bg-transparent mb-1 font-semibold"
-          @click="editorStore.addSchemaDiagramTab()"
-        >
-          <Workflow class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-          <span class="flex-1">Schema Diagram</span>
-        </button>
+
+      <div v-else class="py-2 flex flex-col gap-1 px-2">
+        <!-- WORKSPACE SECTION -->
+        <div v-if="connStore.status === 'connected'" class="mb-2 flex flex-col">
+          <div class="px-2 py-1 text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground/60 flex items-center justify-between">
+            <span>Workspace</span>
+          </div>
+
+          <!-- New Query Tab Trigger -->
+          <button
+            class="w-full flex items-center gap-2 px-2 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors border-none cursor-pointer text-left bg-transparent"
+            @click="editorStore.addTab()"
+          >
+            <PhPlus class="w-3.5 h-3.5 text-primary flex-shrink-0" />
+            <span class="flex-1 font-medium">New Query</span>
+            <kbd class="text-[9px] text-muted-foreground/60">⌘T</kbd>
+          </button>
+
+          <!-- Schema Diagram Trigger -->
+          <button
+            class="w-full flex items-center gap-2 px-2 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors border-none cursor-pointer text-left bg-transparent"
+            @click="editorStore.addSchemaDiagramTab()"
+          >
+            <PhGitBranch class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+            <span class="flex-1 font-medium">Schema Diagram</span>
+          </button>
+
+          <!-- Pinned Query Tabs (if any) -->
+          <template v-if="resultStore.pinnedResults.length > 0">
+            <div class="px-2 pt-2 pb-0.5 text-[9px] font-semibold uppercase text-muted-foreground/60">
+              Pinned Results
+            </div>
+            <button
+              v-for="pin in resultStore.pinnedResults"
+              :key="pin.id"
+              class="w-full flex items-center gap-2 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors border-none cursor-pointer text-left bg-transparent truncate"
+              @click="resultStore.activeResultTabId = pin.id"
+            >
+              <PhPushPin class="w-3 h-3 text-primary flex-shrink-0" weight="fill" />
+              <span class="truncate flex-1">{{ formatPinnedLabel(pin.sql) }}</span>
+            </button>
+          </template>
+        </div>
+
+        <div class="h-px bg-border/40 my-1"></div>
+
+        <!-- SCHEMA SECTION -->
+        <div class="px-2 py-1 text-[9.5px] font-bold uppercase tracking-wider text-muted-foreground/60">
+          Schema Objects
+        </div>
 
         <!-- Tables -->
         <div v-if="connStore.status === 'connected' || schemaStore.tables.length || schemaStore.isLoading" class="flex flex-col">
           <button
-            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
+            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10.5px] font-bold text-muted-foreground/80 hover:text-foreground hover:bg-sidebar-accent rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
             @click="toggle('tables')"
           >
-            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.tables }" />
-            <Table class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            <PhCaretRight class="w-3.5 h-3.5 transition-transform duration-fast text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.tables }" />
+            <PhTable class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Tables</span>
-            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.tables.length }}</span>
+            <span class="text-[9px] font-mono font-semibold bg-background/50 px-1.5 py-0.2 rounded text-muted-foreground/80 border border-border/30">{{ schemaStore.tables.length }}</span>
           </button>
-          <div 
-            class="grid transition-all duration-200 ease-in-out"
-            :class="sectionsOpen.tables ? 'grid-rows-[1fr] opacity-100 mt-0.5' : 'grid-rows-[0fr] opacity-0 pointer-events-none'"
-          >
-            <div class="overflow-hidden">
-              <div v-if="schemaStore.isLoading" class="px-5 py-2 space-y-2.5 opacity-60">
-                <div class="h-3 bg-muted rounded w-3/4 animate-pulse"></div>
-                <div class="h-3 bg-muted rounded w-5/6 animate-pulse"></div>
-                <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
-              </div>
-              <template v-else-if="schemaStore.filteredTables.length">
-                <button
-                  v-for="table in schemaStore.filteredTables"
-                  :key="table.name"
-                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
-                  :class="{ 'text-primary bg-primary/10 font-medium': schemaStore.activeTable === table.name }"
-                  :title="table.name"
-                  @click="selectTable(table.name)"
-                  @contextmenu.prevent="(e) => openCtxMenu(e, table.name, 'table')"
-                >
-                  <div v-if="schemaStore.activeTable === table.name" class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-primary rounded-r-full shadow-[0_0_8px_var(--primary)]"></div>
-                  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ table.name }}</span>
-                  <span class="text-[9px] text-muted-foreground/70 font-mono flex-shrink-0">{{ formatCount(table.rowCount) }}</span>
-                </button>
-              </template>
-              <div v-else class="px-6 py-2 text-[11px] text-muted-foreground/50">
-                No matching tables
-              </div>
+          
+          <div v-show="sectionsOpen.tables" class="flex flex-col pl-2 mt-0.5 space-y-0.5">
+            <div v-if="schemaStore.isLoading" class="px-4 py-2 space-y-1.5 opacity-60">
+              <div class="h-3 bg-muted rounded w-3/4 animate-pulse"></div>
+              <div class="h-3 bg-muted rounded w-5/6 animate-pulse"></div>
+            </div>
+            <template v-else-if="schemaStore.filteredTables.length">
+              <button
+                v-for="table in schemaStore.filteredTables"
+                :key="table.name"
+                class="w-full flex items-center gap-2 px-2.5 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors duration-fast bg-transparent border-none cursor-pointer text-left relative"
+                :class="{ 'text-primary bg-primary/10 font-semibold': schemaStore.activeTable === table.name }"
+                :title="table.name"
+                @click="openTableAsQuery(table.name)"
+                @contextmenu.prevent="(e) => openCtxMenu(e, table.name, 'table')"
+              >
+                <div v-if="schemaStore.activeTable === table.name" class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3.5 bg-primary rounded-r"></div>
+                <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ table.name }}</span>
+                <span class="text-[9px] text-muted-foreground/60 font-mono flex-shrink-0">{{ formatCount(table.rowCount) }}</span>
+              </button>
+            </template>
+            <div v-else class="px-4 py-1.5 text-[10.5px] text-muted-foreground/50">
+              No matching tables
             </div>
           </div>
         </div>
@@ -162,341 +181,207 @@
         <!-- Views -->
         <div v-if="schemaStore.filteredViews.length || (schemaStore.views.length && !schemaStore.searchQuery)" class="flex flex-col">
           <button
-            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
+            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10.5px] font-bold text-muted-foreground/80 hover:text-foreground hover:bg-sidebar-accent rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
             @click="toggle('views')"
           >
-            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.views }" />
-            <Eye class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            <PhCaretRight class="w-3.5 h-3.5 transition-transform duration-fast text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.views }" />
+            <PhEye class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Views</span>
-            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.views.length }}</span>
+            <span class="text-[9px] font-mono font-semibold bg-background/50 px-1.5 py-0.2 rounded text-muted-foreground/80 border border-border/30">{{ schemaStore.views.length }}</span>
           </button>
-          <div 
-            class="grid transition-all duration-200 ease-in-out"
-            :class="sectionsOpen.views ? 'grid-rows-[1fr] opacity-100 mt-0.5' : 'grid-rows-[0fr] opacity-0 pointer-events-none'"
-          >
-            <div class="overflow-hidden">
-              <div v-if="schemaStore.isLoading" class="px-5 py-2 space-y-2.5 opacity-60">
-                <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
-                <div class="h-3 bg-muted rounded w-3/4 animate-pulse"></div>
-              </div>
-              <template v-else-if="schemaStore.filteredViews.length">
-                <button
-                  v-for="view in schemaStore.filteredViews"
-                  :key="view.name"
-                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
-                  :title="view.name"
-                  @click="selectTable(view.name)"
-                  @contextmenu.prevent="(e) => openCtxMenu(e, view.name, 'view')"
-                >
-                  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ view.name }}</span>
-                </button>
-              </template>
-              <div v-else class="px-6 py-2 text-[11px] text-muted-foreground/50">
-                No matching views
-              </div>
-            </div>
+          
+          <div v-show="sectionsOpen.views" class="flex flex-col pl-2 mt-0.5 space-y-0.5">
+            <button
+              v-for="view in schemaStore.filteredViews"
+              :key="view.name"
+              class="w-full flex items-center gap-2 px-2.5 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors duration-fast bg-transparent border-none cursor-pointer text-left truncate"
+              :title="view.name"
+              @click="openTableAsQuery(view.name)"
+              @contextmenu.prevent="(e) => openCtxMenu(e, view.name, 'view')"
+            >
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ view.name }}</span>
+            </button>
           </div>
         </div>
 
         <!-- Functions -->
         <div v-if="schemaStore.filteredFunctions.length || (schemaStore.functions.length && !schemaStore.searchQuery)" class="flex flex-col">
-          <button 
-            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
+          <button
+            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10.5px] font-bold text-muted-foreground/80 hover:text-foreground hover:bg-sidebar-accent rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
             @click="toggle('functions')"
           >
-            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.functions }" />
-            <Zap class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            <PhCaretRight class="w-3.5 h-3.5 transition-transform duration-fast text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.functions }" />
+            <PhLightning class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Functions</span>
-            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.functions.length }}</span>
+            <span class="text-[9px] font-mono font-semibold bg-background/50 px-1.5 py-0.2 rounded text-muted-foreground/80 border border-border/30">{{ schemaStore.functions.length }}</span>
           </button>
-          <div 
-            class="grid transition-all duration-200 ease-in-out"
-            :class="sectionsOpen.functions ? 'grid-rows-[1fr] opacity-100 mt-0.5' : 'grid-rows-[0fr] opacity-0 pointer-events-none'"
-          >
-            <div class="overflow-hidden">
-              <div v-if="schemaStore.isLoading" class="px-5 py-2 space-y-2.5 opacity-60">
-                <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
-              </div>
-              <template v-else-if="schemaStore.filteredFunctions.length">
-                <button
-                  v-for="fn in schemaStore.filteredFunctions"
-                  :key="fn.name"
-                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
-                  :title="fn.name"
-                  @click="selectFunction(fn.name)"
-                  @contextmenu.prevent="(e) => openCtxMenu(e, fn.name, 'function')"
-                >
-                  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ fn.name }}</span>
-                </button>
-              </template>
-              <div v-else class="px-6 py-2 text-[11px] text-muted-foreground/50">
-                No matching functions
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Indexes -->
-        <div v-if="schemaStore.filteredIndexes.length || (schemaStore.indexes.length && !schemaStore.searchQuery)" class="flex flex-col">
-          <button 
-            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
-            @click="toggle('indexes')"
-          >
-            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.indexes }" />
-            <Hash class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-            <span class="flex-1">Indexes</span>
-            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.indexes.length }}</span>
-          </button>
-          <div 
-            class="grid transition-all duration-200 ease-in-out"
-            :class="sectionsOpen.indexes ? 'grid-rows-[1fr] opacity-100 mt-0.5' : 'grid-rows-[0fr] opacity-0 pointer-events-none'"
-          >
-            <div class="overflow-hidden">
-              <div v-if="schemaStore.isLoading" class="px-5 py-2 space-y-2.5 opacity-60">
-                <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
-              </div>
-              <template v-else-if="schemaStore.filteredIndexes.length">
-                <button
-                  v-for="idx in schemaStore.filteredIndexes"
-                  :key="idx.name"
-                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
-                  :title="idx.name"
-                  @click="copyOrInsert(idx.name)"
-                  @contextmenu.prevent="(e) => openCtxMenu(e, idx.name, 'index')"
-                >
-                  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ idx.name }}</span>
-                </button>
-              </template>
-              <div v-else class="px-6 py-2 text-[11px] text-muted-foreground/50">
-                No matching indexes
-              </div>
-            </div>
+          
+          <div v-show="sectionsOpen.functions" class="flex flex-col pl-2 mt-0.5 space-y-0.5">
+            <button
+              v-for="fn in schemaStore.filteredFunctions"
+              :key="fn.name"
+              class="w-full flex items-center gap-2 px-2.5 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors duration-fast bg-transparent border-none cursor-pointer text-left truncate"
+              :title="fn.name"
+              @click="selectFunction(fn.name)"
+              @contextmenu.prevent="(e) => openCtxMenu(e, fn.name, 'function')"
+            >
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ fn.name }}</span>
+            </button>
           </div>
         </div>
 
         <!-- Procedures -->
         <div v-if="schemaStore.filteredProcs.length || (schemaStore.procs.length && !schemaStore.searchQuery)" class="flex flex-col">
-          <button 
-            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
+          <button
+            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10.5px] font-bold text-muted-foreground/80 hover:text-foreground hover:bg-sidebar-accent rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
             @click="toggle('procs')"
           >
-            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.procs }" />
-            <Play class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            <PhCaretRight class="w-3.5 h-3.5 transition-transform duration-fast text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.procs }" />
+            <PhPlay class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Procedures</span>
-            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.procs.length }}</span>
+            <span class="text-[9px] font-mono font-semibold bg-background/50 px-1.5 py-0.2 rounded text-muted-foreground/80 border border-border/30">{{ schemaStore.procs.length }}</span>
           </button>
-          <div 
-            class="grid transition-all duration-200 ease-in-out"
-            :class="sectionsOpen.procs ? 'grid-rows-[1fr] opacity-100 mt-0.5' : 'grid-rows-[0fr] opacity-0 pointer-events-none'"
-          >
-            <div class="overflow-hidden">
-              <div v-if="schemaStore.isLoading" class="px-5 py-2 space-y-2.5 opacity-60">
-                <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
-              </div>
-              <template v-else-if="schemaStore.filteredProcs.length">
-                <button
-                  v-for="proc in schemaStore.filteredProcs"
-                  :key="proc.name"
-                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
-                  :title="proc.name"
-                  @click="selectProc(proc.name)"
-                  @contextmenu.prevent="(e) => openCtxMenu(e, proc.name, 'proc')"
-                >
-                  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ proc.name }}</span>
-                </button>
-              </template>
-              <div v-else class="px-6 py-2 text-[11px] text-muted-foreground/50">
-                No matching procedures
-              </div>
-            </div>
+          
+          <div v-show="sectionsOpen.procs" class="flex flex-col pl-2 mt-0.5 space-y-0.5">
+            <button
+              v-for="proc in schemaStore.filteredProcs"
+              :key="proc.name"
+              class="w-full flex items-center gap-2 px-2.5 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors duration-fast bg-transparent border-none cursor-pointer text-left truncate"
+              :title="proc.name"
+              @click="selectProc(proc.name)"
+              @contextmenu.prevent="(e) => openCtxMenu(e, proc.name, 'proc')"
+            >
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ proc.name }}</span>
+            </button>
           </div>
         </div>
 
-        <!-- Triggers -->
-        <div v-if="schemaStore.filteredTriggers.length || (schemaStore.triggers.length && !schemaStore.searchQuery)" class="flex flex-col">
-          <button 
-            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
-            @click="toggle('triggers')"
+        <!-- Indexes -->
+        <div v-if="schemaStore.filteredIndexes.length || (schemaStore.indexes.length && !schemaStore.searchQuery)" class="flex flex-col">
+          <button
+            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10.5px] font-bold text-muted-foreground/80 hover:text-foreground hover:bg-sidebar-accent rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
+            @click="toggle('indexes')"
           >
-            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.triggers }" />
-            <Activity class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-            <span class="flex-1">Triggers</span>
-            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.triggers.length }}</span>
+            <PhCaretRight class="w-3.5 h-3.5 transition-transform duration-fast text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.indexes }" />
+            <PhHash class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            <span class="flex-1">Indexes</span>
+            <span class="text-[9px] font-mono font-semibold bg-background/50 px-1.5 py-0.2 rounded text-muted-foreground/80 border border-border/30">{{ schemaStore.indexes.length }}</span>
           </button>
-          <div 
-            class="grid transition-all duration-200 ease-in-out"
-            :class="sectionsOpen.triggers ? 'grid-rows-[1fr] opacity-100 mt-0.5' : 'grid-rows-[0fr] opacity-0 pointer-events-none'"
-          >
-            <div class="overflow-hidden">
-              <div v-if="schemaStore.isLoading" class="px-5 py-2 space-y-2.5 opacity-60">
-                <div class="h-3 bg-muted rounded w-2/3 animate-pulse"></div>
-              </div>
-              <template v-else-if="schemaStore.filteredTriggers.length">
-                <button
-                  v-for="trig in schemaStore.filteredTriggers"
-                  :key="trig.name"
-                  class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
-                  :title="trig.name"
-                  @click="selectTrigger(trig.name)"
-                  @contextmenu.prevent="(e) => openCtxMenu(e, trig.name, 'trigger')"
-                >
-                  <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ trig.name }}</span>
-                </button>
-              </template>
-              <div v-else class="px-6 py-2 text-[11px] text-muted-foreground/50">
-                No matching triggers
-              </div>
-            </div>
+          
+          <div v-show="sectionsOpen.indexes" class="flex flex-col pl-2 mt-0.5 space-y-0.5">
+            <button
+              v-for="idx in schemaStore.filteredIndexes"
+              :key="idx.name"
+              class="w-full flex items-center gap-2 px-2.5 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors duration-fast bg-transparent border-none cursor-pointer text-left truncate"
+              :title="idx.name"
+              @click="copyText(idx.name)"
+            >
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ idx.name }}</span>
+            </button>
           </div>
         </div>
 
         <!-- Saved Queries -->
         <div class="flex flex-col">
           <button
-            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
+            class="w-full flex items-center gap-2 px-2 py-1.5 text-[10.5px] font-bold text-muted-foreground/80 hover:text-foreground hover:bg-sidebar-accent rounded-md transition-all border-none cursor-pointer text-left select-none uppercase tracking-wider bg-transparent"
             @click="toggle('saved')"
           >
-            <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.saved }" />
-            <FileText class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            <PhCaretRight class="w-3.5 h-3.5 transition-transform duration-fast text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.saved }" />
+            <PhFileCode class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Saved Queries</span>
-            <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ editorStore.savedQueries?.length || 0 }}</span>
+            <span class="text-[9px] font-mono font-semibold bg-background/50 px-1.5 py-0.2 rounded text-muted-foreground/80 border border-border/30">{{ editorStore.savedQueries?.length || 0 }}</span>
           </button>
-          <div 
-            class="grid transition-all duration-200 ease-in-out"
-            :class="sectionsOpen.saved ? 'grid-rows-[1fr] opacity-100 mt-0.5' : 'grid-rows-[0fr] opacity-0 pointer-events-none'"
-          >
-            <div class="overflow-hidden">
-              <button
-                v-for="sq in (editorStore.savedQueries || [])"
-                :key="sq.id"
-                class="w-full flex items-center gap-2.5 px-3 py-1.5 pl-6 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/30 rounded-md transition-all duration-150 bg-transparent border-none cursor-pointer text-left relative"
-                :title="sq.name"
-                @click="editorStore.openSavedQuery(sq)"
-                @contextmenu.prevent="(e) => openSQCtxMenu(e, sq)"
-              >
-                <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ sq.name }}</span>
-              </button>
-              <div v-if="!editorStore.savedQueries?.length" class="px-6 py-2 text-[11px] text-muted-foreground/50">
-                No saved queries
-              </div>
+          
+          <div v-show="sectionsOpen.saved" class="flex flex-col pl-2 mt-0.5 space-y-0.5">
+            <button
+              v-for="sq in (editorStore.savedQueries || [])"
+              :key="sq.id"
+              class="w-full flex items-center gap-2 px-2.5 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors duration-fast bg-transparent border-none cursor-pointer text-left truncate"
+              :title="sq.name"
+              @click="editorStore.openSavedQuery(sq)"
+              @contextmenu.prevent="(e) => openSQCtxMenu(e, sq)"
+            >
+              <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ sq.name }}</span>
+            </button>
+            <div v-if="!editorStore.savedQueries?.length" class="px-4 py-1.5 text-[10.5px] text-muted-foreground/50">
+              No saved queries
             </div>
           </div>
         </div>
       </div>
     </ScrollArea>
 
+    <!-- Context Menus -->
     <Teleport to="body">
       <div
         v-if="ctxMenu.visible && !ctxMenu.isSavedQuery"
-        class="fixed z-[9999] bg-popover border border-border rounded-md shadow-lg py-1 min-w-[160px]"
+        class="fixed z-[9999] bg-popover border border-border/80 rounded-md shadow-xl py-1 min-w-[170px] text-xs font-mono select-none"
         :style="{ top: ctxMenu.y + 'px', left: ctxMenu.x + 'px' }"
-        role="menu"
         @mouseleave="closeCtxMenu"
+        @click.stop
       >
         <button
-          v-if="ctxMenu.objectType === 'table' || ctxMenu.objectType === 'view'"
-          class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left"
-          role="menuitem"
+          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
           @click="ctxAction('open')"
         >
-          <ExternalLink class="w-3 h-3" /> Open in new tab
+          <PhArrowSquareOut class="w-3.5 h-3.5" /> Run SELECT *
         </button>
         <button
-          class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left"
-          role="menuitem"
+          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
           @click="ctxAction('copy')"
         >
-          <Copy class="w-3 h-3" /> Copy name
+          <PhCopy class="w-3.5 h-3.5" /> Copy Name
         </button>
         <button
-          v-if="ctxMenu.objectType === 'table' || ctxMenu.objectType === 'view'"
-          class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left"
-          role="menuitem"
-          @click="ctxAction('visualize')"
-        >
-          <Workflow class="w-3 h-3 text-indigo-400" /> Visualize Relations
-        </button>
-        <button
-          v-if="ctxMenu.objectType === 'table' || ctxMenu.objectType === 'view'"
-          class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left"
-          role="menuitem"
+          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
           @click="ctxAction('ddl')"
         >
-          <FileText class="w-3 h-3" /> View DDL
+          <PhFileCode class="w-3.5 h-3.5" /> View DDL (⌘I)
+        </button>
+        <button
+          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
+          @click="ctxAction('visualize')"
+        >
+          <PhGitBranch class="w-3.5 h-3.5 text-indigo-400" /> Visualize Relations
         </button>
       </div>
+
       <div
         v-if="ctxMenu.visible && ctxMenu.isSavedQuery"
-        class="fixed z-[9999] bg-popover border border-border rounded-md shadow-lg py-1 min-w-[160px]"
+        class="fixed z-[9999] bg-popover border border-border/80 rounded-md shadow-xl py-1 min-w-[160px] text-xs font-mono select-none"
         :style="{ top: ctxMenu.y + 'px', left: ctxMenu.x + 'px' }"
-        role="menu"
         @mouseleave="closeCtxMenu"
+        @click.stop
       >
-        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent bg-transparent border-none cursor-pointer text-left" role="menuitem" @click="ctxSqAction('rename')"><Edit class="w-3 h-3" /> Rename</button>
-        <button class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-red-500 hover:bg-red-500/10 bg-transparent border-none cursor-pointer text-left" role="menuitem" @click="ctxSqAction('delete')"><Trash2 class="w-3 h-3" /> Delete</button>
+        <button class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left" @click="ctxSqAction('rename')">
+          <PhPencil class="w-3.5 h-3.5" /> Rename
+        </button>
+        <button class="w-full flex items-center gap-2 px-3 py-1.5 text-red-500 hover:bg-red-500/10 cursor-pointer border-none bg-transparent text-left" @click="ctxSqAction('delete')">
+          <PhTrash class="w-3.5 h-3.5" /> Delete
+        </button>
       </div>
     </Teleport>
-
-    <Dialog :open="renameDialog.open" @update:open="renameDialog.open = false">
-      <DialogContent class="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Rename Query</DialogTitle>
-        </DialogHeader>
-        <form @submit.prevent="doRename" class="flex flex-col gap-4">
-          <div class="grid gap-2">
-            <Label for="rename-name">New name</Label>
-            <Input id="rename-name" ref="renameInput" v-model="renameDialog.name" class="w-full" @keydown.enter.prevent="doRename" />
-          </div>
-          <div class="flex justify-end gap-2">
-            <Button variant="outline" size="sm" type="button" @click="renameDialog.open = false">Cancel</Button>
-            <Button size="sm" type="submit" :disabled="!renameDialog.name.trim()">Rename</Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { reactive, onMounted, onUnmounted, watch } from 'vue'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import { ActionTooltip } from '@/components/ui/tooltip'
 import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'vue-sonner'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  ChevronRight,
-  ExternalLink,
-  Copy,
-  FileText,
-  Trash2,
-  Edit,
-  Table,
-  Eye,
-  Zap,
-  Hash,
-  Play,
-  Activity,
-  Workflow,
-  Search,
-  Database,
-  Plug,
-} from '@lucide/vue'
-import { ActionTooltip } from '@/components/ui/tooltip'
+  PhMagnifyingGlass, PhCaretRight, PhTable, PhEye, PhLightning, PhHash,
+  PhPlay, PhFileCode, PhPlus, PhGitBranch, PhPushPin, PhPlug, PhDatabase,
+  PhCopy, PhArrowSquareOut, PhPencil, PhTrash
+} from '@phosphor-icons/vue'
 import { useSchemaStore } from '../stores/schema'
 import { useConnectionStore } from '../stores/connection'
 import { useUiStore } from '../stores/ui'
-import { useEditorStore } from '../stores/editor'
+import { useEditorStore, type SavedQuery } from '../stores/editor'
 import { useResultStore } from '../stores/result'
-import type { SavedQuery } from '../stores/editor'
 
 const schemaStore = useSchemaStore()
 const connStore = useConnectionStore()
@@ -517,7 +402,7 @@ onMounted(() => {
 })
 
 const sectionsOpen = reactive({
-  tables: false,
+  tables: true,
   views: false,
   functions: false,
   indexes: false,
@@ -525,26 +410,6 @@ const sectionsOpen = reactive({
   triggers: false,
   saved: false,
 })
-
-const renameDialog = reactive({
-  open: false,
-  id: '',
-  name: '',
-})
-const renameInput = ref<HTMLInputElement | null>(null)
-
-function openRename(id: string, currentName: string) {
-  renameDialog.id = id
-  renameDialog.name = currentName
-  renameDialog.open = true
-  nextTick(() => renameInput.value?.focus())
-}
-
-function doRename() {
-  if (!renameDialog.name.trim() || !renameDialog.id) return
-  editorStore.renameSavedQuery(renameDialog.id, renameDialog.name.trim())
-  renameDialog.open = false
-}
 
 function toggle(section: keyof typeof sectionsOpen) {
   sectionsOpen[section] = !sectionsOpen[section]
@@ -560,60 +425,61 @@ function quoteSqlIdentifier(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``
 }
 
+function formatPinnedLabel(sql: string): string {
+  const match = sql.match(/FROM\s+([a-zA-Z0-9_`"'\.]+)/i)
+  if (match) return match[1].replace(/[`"']/g, '')
+  return sql.slice(0, 18) + '…'
+}
+
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 function onSearch(e: Event) {
   const val = (e.target as HTMLInputElement).value
   if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => schemaStore.setSearchQuery(val), 150)
+  searchTimer = setTimeout(() => schemaStore.setSearchQuery(val), 120)
 }
 
-function selectTable(name: string) {
+// Unified Table Click -> Open Query Workflow
+function openTableAsQuery(name: string) {
   schemaStore.setActiveTable(name)
-  editorStore.addTableTab(name)
+  const quoted = quoteSqlIdentifier(name)
+  const query = `SELECT *\nFROM ${quoted}\nLIMIT 100;`
+
+  let tab = editorStore.tabs.find(t => t.name === name)
+  if (!tab) {
+    const tabId = editorStore.addTab()
+    tab = editorStore.tabs.find(t => t.id === tabId)
+    if (tab) {
+      tab.name = name
+      tab.sql = query
+    }
+  } else {
+    editorStore.selectTab(tab.id)
+  }
+
+  resultStore.runQuery(query)
 }
 
-function copyOrInsert(name: string) {
-  navigator.clipboard.writeText(name)
+function copyText(text: string) {
+  navigator.clipboard.writeText(text)
+  toast.success(`Copied "${text}"`)
 }
 
 async function selectProc(name: string) {
   try {
     const connId = connStore.activeId
     const sql = `SHOW CREATE PROCEDURE ${quoteSqlIdentifier(name)};`
-    const result = await invoke<any>('run_query_paged', {
-      sql,
-      limit: 1,
-      offset: 0,
-      id: connId,
-    })
-
-    if (result && result.rows && result.rows.length > 0) {
+    const result = await invoke<any>('run_query_paged', { sql, limit: 1, offset: 0, id: connId })
+    if (result?.rows?.[0]) {
       const row = result.rows[0]
-      const ddlKey = Object.keys(row).find(
-        (k) =>
-          k.toLowerCase().includes('create procedure') ||
-          k.toLowerCase().includes('definition')
-      )
-      const definition = ddlKey ? row[ddlKey] : null
-
-      if (definition) {
-        const tabId = editorStore.addTab()
-        const tab = editorStore.tabs.find((t) => t.id === tabId)
-        if (tab) {
-          tab.name = name
-          tab.sql = definition
-          editorStore.selectTab(tabId)
-          toast.success(`Loaded definition for procedure "${name}"`)
-        }
-      } else {
-        openFallbackTab(name, sql)
+      const key = Object.keys(row).find(k => k.toLowerCase().includes('create procedure') || k.toLowerCase().includes('definition'))
+      if (key && row[key]) {
+        openQueryTab(name, row[key])
+        return
       }
-    } else {
-      openFallbackTab(name, sql)
     }
-  } catch (error) {
-    console.error('Failed to fetch procedure definition:', error)
-    openFallbackTab(name, `SHOW CREATE PROCEDURE ${quoteSqlIdentifier(name)};`)
+    openQueryTab(name, sql)
+  } catch {
+    openQueryTab(name, `SHOW CREATE PROCEDURE ${quoteSqlIdentifier(name)};`)
   }
 }
 
@@ -621,96 +487,33 @@ async function selectFunction(name: string) {
   try {
     const connId = connStore.activeId
     const sql = `SHOW CREATE FUNCTION ${quoteSqlIdentifier(name)};`
-    const result = await invoke<any>('run_query_paged', {
-      sql,
-      limit: 1,
-      offset: 0,
-      id: connId,
-    })
-
-    if (result && result.rows && result.rows.length > 0) {
+    const result = await invoke<any>('run_query_paged', { sql, limit: 1, offset: 0, id: connId })
+    if (result?.rows?.[0]) {
       const row = result.rows[0]
-      const ddlKey = Object.keys(row).find(
-        (k) =>
-          k.toLowerCase().includes('create function') ||
-          k.toLowerCase().includes('definition')
-      )
-      const definition = ddlKey ? row[ddlKey] : null
-
-      if (definition) {
-        const tabId = editorStore.addTab()
-        const tab = editorStore.tabs.find((t) => t.id === tabId)
-        if (tab) {
-          tab.name = name
-          tab.sql = definition
-          editorStore.selectTab(tabId)
-          toast.success(`Loaded definition for function "${name}"`)
-        }
-      } else {
-        openFallbackTab(name, sql)
+      const key = Object.keys(row).find(k => k.toLowerCase().includes('create function') || k.toLowerCase().includes('definition'))
+      if (key && row[key]) {
+        openQueryTab(name, row[key])
+        return
       }
-    } else {
-      openFallbackTab(name, sql)
     }
-  } catch (error) {
-    console.error('Failed to fetch function definition:', error)
-    openFallbackTab(name, `SHOW CREATE FUNCTION ${quoteSqlIdentifier(name)};`)
+    openQueryTab(name, sql)
+  } catch {
+    openQueryTab(name, `SHOW CREATE FUNCTION ${quoteSqlIdentifier(name)};`)
   }
 }
 
-async function selectTrigger(name: string) {
-  try {
-    const connId = connStore.activeId
-    const sql = `SHOW CREATE TRIGGER ${quoteSqlIdentifier(name)};`
-    const result = await invoke<any>('run_query_paged', {
-      sql,
-      limit: 1,
-      offset: 0,
-      id: connId,
-    })
-
-    if (result && result.rows && result.rows.length > 0) {
-      const row = result.rows[0]
-      const ddlKey = Object.keys(row).find(
-        (k) =>
-          k.toLowerCase().includes('create trigger') ||
-          k.toLowerCase().includes('sql original statement') ||
-          k.toLowerCase().includes('definition')
-      )
-      const definition = ddlKey ? row[ddlKey] : null
-
-      if (definition) {
-        const tabId = editorStore.addTab()
-        const tab = editorStore.tabs.find((t) => t.id === tabId)
-        if (tab) {
-          tab.name = name
-          tab.sql = definition
-          editorStore.selectTab(tabId)
-          toast.success(`Loaded definition for trigger "${name}"`)
-        }
-      } else {
-        openFallbackTab(name, sql)
-      }
-    } else {
-      openFallbackTab(name, sql)
-    }
-  } catch (error) {
-    console.error('Failed to fetch trigger definition:', error)
-    openFallbackTab(name, `SHOW CREATE TRIGGER ${quoteSqlIdentifier(name)};`)
-  }
-}
-
-function openFallbackTab(name: string, sql: string) {
+function openQueryTab(name: string, sql: string) {
   const tabId = editorStore.addTab()
-  const tab = editorStore.tabs.find((t) => t.id === tabId)
+  const tab = editorStore.tabs.find(t => t.id === tabId)
   if (tab) {
     tab.name = name
     tab.sql = sql
     editorStore.selectTab(tabId)
-    resultStore.runQuery(sql)
+    toast.success(`Loaded definition for "${name}"`)
   }
 }
 
+// Context Menu
 const ctxMenu = reactive({ visible: false, x: 0, y: 0, target: '', objectType: 'table', isSavedQuery: false, savedQueryId: '' })
 
 function openCtxMenu(e: MouseEvent, name: string, objectType = 'table') {
@@ -733,42 +536,36 @@ function openSQCtxMenu(e: MouseEvent, sq: SavedQuery) {
 
 function closeCtxMenu() { ctxMenu.visible = false }
 
-function ctxSqAction(action: string) {
-  const id = ctxMenu.savedQueryId; const name = ctxMenu.target; closeCtxMenu()
-  switch (action) {
-    case 'rename': openRename(id, name); break
-    case 'delete': editorStore.dropSavedQuery(id); break
-  }
-}
-
 function ctxAction(action: string) {
-  const name = ctxMenu.target; closeCtxMenu()
+  const name = ctxMenu.target
+  closeCtxMenu()
   switch (action) {
-    case 'open': {
-      const id = editorStore.addTab()
-      const tab = editorStore.tabs.find(t => t.id === id)
-      if (tab) {
-        tab.name = name
-        tab.sql = `SELECT * FROM ${quoteSqlIdentifier(name)} LIMIT 100;`
-      }
-      break
-    }
-    case 'copy': navigator.clipboard.writeText(name); break
+    case 'open': openTableAsQuery(name); break
+    case 'copy': copyText(name); break
     case 'ddl': schemaStore.setActiveTable(name); uiStore.openInspector(name); break
     case 'visualize': editorStore.addSchemaDiagramTab(name); break
   }
 }
 
-function onDocClick(e: MouseEvent) {
+function ctxSqAction(action: string) {
+  const id = ctxMenu.savedQueryId
+  closeCtxMenu()
+  if (action === 'delete') {
+    editorStore.dropSavedQuery(id)
+    toast.success('Deleted query')
+  }
+}
+
+function handleDocClick(e: MouseEvent) {
   if (ctxMenu.visible && !(e.target as HTMLElement)?.closest('.sidebar')) {
     closeCtxMenu()
   }
 }
 
-onMounted(() => document.addEventListener('click', onDocClick))
+onMounted(() => document.addEventListener('click', handleDocClick))
 onUnmounted(() => {
+  document.removeEventListener('click', handleDocClick)
   if (searchTimer) clearTimeout(searchTimer)
-  document.removeEventListener('click', onDocClick)
 })
 </script>
 

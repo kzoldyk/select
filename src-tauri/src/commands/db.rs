@@ -316,13 +316,14 @@ pub struct ConnectionConfig {
     pub read_only: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Column {
     pub name: String,
     pub r#type: String,
     pub org_name: Option<String>,
     pub org_table: Option<String>,
+    pub schema: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -810,11 +811,13 @@ pub async fn run_query(
             let type_str = format!("{:?}", col.column_type());
             let org_name_str = col.org_name_str().into_owned();
             let org_table_str = col.org_table_str().into_owned();
+            let schema_str = col.schema_str().into_owned();
             columns.push(Column {
                 name: col.name_str().into_owned(),
                 r#type: map_column_type(&type_str),
                 org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
                 org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
+                schema: if schema_str.is_empty() { None } else { Some(schema_str) },
             });
         }
 
@@ -1023,11 +1026,13 @@ pub async fn run_multi_query(
                     let type_str = format!("{:?}", col.column_type());
                     let org_name_str = col.org_name_str().into_owned();
                     let org_table_str = col.org_table_str().into_owned();
+                    let schema_str = col.schema_str().into_owned();
                     columns.push(Column {
                         name: col.name_str().into_owned(),
                         r#type: map_column_type(&type_str),
                         org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
                         org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
+                        schema: if schema_str.is_empty() { None } else { Some(schema_str) },
                     });
                 }
 
@@ -1237,11 +1242,13 @@ pub async fn run_query_paged(
             let type_str = format!("{:?}", col.column_type());
             let org_name_str = col.org_name_str().into_owned();
             let org_table_str = col.org_table_str().into_owned();
+            let schema_str = col.schema_str().into_owned();
             columns.push(Column {
                 name: col.name_str().into_owned(),
                 r#type: map_column_type(&type_str),
                 org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
                 org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
+                schema: if schema_str.is_empty() { None } else { Some(schema_str) },
             });
         }
 

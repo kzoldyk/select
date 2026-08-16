@@ -17,6 +17,7 @@ export interface Column {
   type: string
   orgName?: string
   orgTable?: string
+  schema?: string
 }
 
 export interface DbError {

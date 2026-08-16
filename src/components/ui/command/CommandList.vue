@@ -16,9 +16,9 @@ const forwarded = useForwardProps(delegatedProps)
   <ListboxContent
     data-slot="command-list"
     v-bind="forwarded"
-    :class="cn('no-scrollbar max-h-72 scroll-py-1 outline-none overflow-x-hidden overflow-y-auto', props.class)"
+    :class="cn('max-h-[460px] p-2 scroll-py-2 outline-none overflow-x-hidden overflow-y-auto', props.class)"
   >
-    <div role="presentation">
+    <div role="presentation" class="space-y-1.5">
       <slot />
     </div>
   </ListboxContent>

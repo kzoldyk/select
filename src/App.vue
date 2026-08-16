@@ -10,12 +10,12 @@
         <TabBar @format="formatActiveSql" @explain="explainQuery" @run="runQuery" />
 
         <div class="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-          <template v-if="editorStore.activeTab?.type === 'table'">
-            <TableDataViewer :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName!" />
-          </template>
-          <template v-else-if="editorStore.activeTab?.type === 'schema_diagram'">
+          <!-- Schema Diagram Tab -->
+          <template v-if="editorStore.activeTab?.type === 'schema_diagram'">
             <SchemaDiagram :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName" />
           </template>
+
+          <!-- Core Query + Unified Results Workspace -->
           <template v-else>
             <div
               class="editor-pane"
@@ -50,12 +50,11 @@
 
             <button
               v-show="!uiStore.resultPanelOpen"
-              v-cuelume:press
-              class="absolute bottom-2 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-md bg-muted/90 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/80 shadow-md transition-[transform,box-shadow,background] duration-fast ease-premium hover:shadow-lg active:scale-95 cursor-pointer"
+              class="absolute bottom-2 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-md bg-muted/90 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/80 shadow-md transition-transform duration-fast active:scale-95 cursor-pointer"
               title="Show Result Panel"
               @click="uiStore.toggleResultPanel()"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-up"><path d="m18 15-6-6-6 6"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
             </button>
           </template>
         </div>
@@ -63,9 +62,16 @@
 
       <StatusBar class="app-footer" />
 
+      <!-- Global Overlays, Sheets & Flyouts -->
       <div class="overlays">
-        <CommandPalette @run="runQuery" />
+        <CommandPalette @run="runQuery" @explain="explainQuery" @format="formatActiveSql" />
         <ConnectionManager />
+        <ConnectionEditSheet
+          :open="uiStore.connectionEditSheetOpen"
+          :connection-id="uiStore.editingConnectionId"
+          @update:open="(val) => { if (!val) uiStore.closeConnectionEditSheet() }"
+          @saved="onConnectionSaved"
+        />
         <SchemaInspector />
         <SaveQueryDialog />
         <DestructiveQueryDialog />
@@ -75,7 +81,7 @@
         <ThemeGalleryDialog />
         <QueriesDirDialog />
         <VirtualKeyDialog />
-        <Toaster />
+        <Toaster position="top-right" />
       </div>
     </div>
   </TooltipProvider>
@@ -90,11 +96,11 @@ import ResultPanel from './components/ResultPanel.vue'
 import StatusBar from './components/StatusBar.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ConnectionManager from './components/ConnectionManager.vue'
+import ConnectionEditSheet from './components/ConnectionEditSheet.vue'
 import SchemaInspector from './components/SchemaInspector.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import ThemeGalleryDialog from './components/ThemeGalleryDialog.vue'
 import TabBar from './components/TabBar.vue'
-import TableDataViewer from './components/TableDataViewer.vue'
 import SchemaDiagram from './components/SchemaDiagram.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'vue-sonner'
@@ -117,8 +123,6 @@ const editorStore = useEditorStore()
 const resultStore = useResultStore()
 const uiStore = useUiStore()
 const queryEditorRef = ref<InstanceType<typeof QueryEditor> | null>(null)
-
-const isProd = computed(() => connStore.activeConnection?.color?.toUpperCase() === '#EF4444')
 
 let mediaQueryList: MediaQueryList | null = null
 
@@ -186,6 +190,11 @@ function formatActiveSql() {
   queryEditorRef.value?.formatSql()
 }
 
+async function onConnectionSaved(connId: string) {
+  await connStore.load()
+  await connStore.connect(connId)
+}
+
 const mainRef = ref<HTMLDivElement | null>(null)
 let isResizing = false
 let startY = 0
@@ -238,24 +247,22 @@ function resetSplit() {
 
 .app {
   display: grid;
-  grid-template-rows: 1fr 32px;
+  grid-template-rows: 1fr 30px;
   grid-template-columns: 260px 1fr;
   grid-template-areas:
     "sidebar main"
     "footer footer";
   height: 100vh;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse 120% 80% at 50% -20%, color-mix(in srgb, var(--primary) 6%, transparent), transparent 55%),
-    var(--background);
-  transition: grid-template-columns 180ms var(--ease-out-premium);
+  background: var(--background);
+  transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .app-sidebar {
   grid-area: sidebar;
   border-right: 1px solid var(--border);
   overflow: hidden;
-  background: color-mix(in srgb, var(--background) 88%, var(--sidebar) 12%);
+  background: var(--sidebar);
 }
 .app-main {
   grid-area: main;
@@ -290,11 +297,10 @@ function resetSplit() {
 }
 
 .resize-handle {
-  height: 8px;
+  height: 6px;
   background: transparent;
   cursor: row-resize;
   flex-shrink: 0;
-  transition: background 180ms var(--ease-out-premium);
   position: relative;
   z-index: 10;
   display: flex;
@@ -307,14 +313,11 @@ function resetSplit() {
   width: 100%;
   height: 1px;
   background: var(--border);
-  transition: background 180ms var(--ease-out-premium), box-shadow 180ms var(--ease-out-premium);
+  transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .resize-handle:hover::after {
-  background: color-mix(in srgb, var(--primary) 40%, var(--border));
-  box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 25%, transparent);
-}
-.resize-handle:hover {
-  background: color-mix(in srgb, var(--primary) 6%, transparent);
+  background: var(--primary);
+  box-shadow: 0 0 6px var(--primary);
 }
 
 .overlays {

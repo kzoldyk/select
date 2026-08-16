@@ -1,1708 +1,513 @@
 <template>
-  <div class="result-pane-font-mono flex flex-col overflow-hidden bg-background min-h-0 flex-1 font-mono">
-    <!-- Result Tabs Bar (Current vs Pinned Results) -->
-    <div v-if="resultStore.pinnedResults.length > 0" class="flex items-center h-8 bg-muted/20 border-b border-border px-2 select-none gap-1 flex-shrink-0">
-      <!-- Current Result Tab -->
+  <div class="result-pane flex flex-col overflow-hidden bg-background min-h-0 flex-1 font-mono text-xs select-none">
+    <!-- Pinned Results & Multi-Statement Tab Bar -->
+    <div
+      v-if="resultStore.pinnedResults.length > 0 || (resultStore.multiResults.length > 1 && resultStore.activeResultTabId === 'current')"
+      class="flex items-center h-8 bg-muted/30 border-b border-border/80 px-2 gap-1 flex-shrink-0 select-none overflow-x-auto"
+    >
+      <!-- Current Active Query Tab -->
       <button
-        class="inline-flex items-center gap-1.5 px-3 h-6 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer border-none bg-transparent"
-        :class="{ 'bg-background text-foreground shadow-[inset_0_-1.5px_0_0_var(--primary)] font-semibold border-b-transparent': resultStore.activeResultTabId === 'current' }"
+        v-if="resultStore.pinnedResults.length > 0"
+        class="inline-flex items-center gap-1.5 px-2.5 h-6 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer border-none bg-transparent"
+        :class="{ 'bg-background text-foreground shadow-[inset_0_-1.5px_0_0_var(--primary)] font-semibold': resultStore.activeResultTabId === 'current' }"
         @click="resultStore.activeResultTabId = 'current'"
       >
         <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-        Active Result
+        <span>Active Result</span>
       </button>
 
-      <!-- Pinned Tabs -->
+      <!-- Multi-Statement Sub-Tabs (e.g. Statement 1, Statement 2) -->
+      <template v-if="resultStore.multiResults.length > 1 && resultStore.activeResultTabId === 'current'">
+        <div v-if="resultStore.pinnedResults.length > 0" class="h-3.5 w-px bg-border/60 mx-1"></div>
+        <button
+          v-for="(stmt, idx) in resultStore.multiResults"
+          :key="idx"
+          class="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer border-none bg-transparent"
+          :class="{ 'bg-background text-primary font-semibold shadow-[inset_0_-1.5px_0_0_var(--primary)]': resultStore.activeResultIndex === idx }"
+          @click="selectMultiResult(idx)"
+        >
+          <span class="w-4 h-4 rounded-full bg-muted flex items-center justify-center text-[9.5px] font-bold">
+            {{ idx + 1 }}
+          </span>
+          <span class="max-w-[120px] truncate">{{ getStatementLabel(stmt.sql) }}</span>
+          <span v-if="stmt.rows" class="text-[9.5px] text-muted-foreground/70">({{ stmt.rows.length }})</span>
+          <span v-else-if="stmt.error" class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+        </button>
+      </template>
+
+      <!-- Pinned Tabs List -->
       <div 
         v-for="pin in resultStore.pinnedResults" 
         :key="pin.id"
-        class="group inline-flex items-center gap-1.5 px-3 h-6 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer relative"
-        :class="{ 'bg-background text-foreground shadow-[inset_0_-1.5px_0_0_var(--primary)] font-semibold border-b-transparent': resultStore.activeResultTabId === pin.id }"
+        class="group inline-flex items-center gap-1.5 px-2.5 h-6 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer relative"
+        :class="{ 'bg-background text-foreground shadow-[inset_0_-1.5px_0_0_var(--primary)] font-semibold': resultStore.activeResultTabId === pin.id }"
         @click="resultStore.activeResultTabId = pin.id"
       >
         <PhPushPin class="w-3 h-3 text-primary flex-shrink-0" weight="fill" />
-        <span class="max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap" :title="pin.sql">{{ getQueryLabel(pin.sql) }}</span>
-        <!-- Close/Unpin button -->
-        <ActionTooltip text="Unpin Tab">
-          <button
-            class="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent flex-shrink-0 cursor-pointer border-none bg-transparent opacity-0 group-hover:opacity-100 transition-opacity ml-1"
-            @click.stop="resultStore.unpinResult(pin.id)"
+        <span class="max-w-[120px] truncate" :title="pin.sql">{{ getStatementLabel(pin.sql) }}</span>
+        <!-- Unpin button -->
+        <button
+          class="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent cursor-pointer border-none bg-transparent opacity-0 group-hover:opacity-100 transition-opacity ml-0.5"
+          title="Unpin Tab"
+          @click.stop="resultStore.unpinResult(pin.id)"
+        >
+          <PhX class="w-2.5 h-2.5" />
+        </button>
+      </div>
+    </div>
+
+    <!-- Main View Switcher & Actions Toolbar -->
+    <div class="flex items-center justify-between h-8.5 chrome-bar border-b border-border/80 px-2 flex-shrink-0 gap-2">
+      <!-- Left: View Mode Pills (Table, JSON, Plan, Messages, History) -->
+      <div class="flex items-center gap-1 bg-muted/40 p-0.5 rounded-md">
+        <button
+          v-for="v in VIEWS"
+          :key="v.id"
+          class="px-2.5 py-1 text-[11px] font-medium rounded-sm transition-colors border-none cursor-pointer"
+          :class="resultStore.activeView === v.id ? 'bg-background text-foreground shadow-2xs font-semibold' : 'text-muted-foreground hover:text-foreground bg-transparent'"
+          @click="resultStore.setActiveView(v.id as any)"
+        >
+          {{ v.label }}
+        </button>
+      </div>
+
+      <!-- Right: Paged limits, Pinning & Quick actions -->
+      <div class="flex items-center gap-1.5 flex-shrink-0">
+        <!-- Page size selector -->
+        <div v-if="resultStore.activeView === 'table' && currentColumns.length > 0" class="flex items-center border border-border/60 rounded bg-background h-6.5 text-[10.5px]">
+          <select
+            class="bg-transparent px-1.5 text-foreground outline-none font-mono cursor-pointer border-none"
+            :value="resultStore.pageSize"
+            @change="onPageSizeChange"
           >
-            <PhX class="w-2.5 h-2.5" />
-          </button>
+            <option :value="50">50</option>
+            <option :value="100">100</option>
+            <option :value="250">250</option>
+            <option :value="500">500</option>
+            <option :value="1000">1000</option>
+          </select>
+        </div>
+
+        <!-- Pin Result Button -->
+        <ActionTooltip :text="isCurrentPinned ? 'Unpin Result Tab' : 'Pin Result Tab'">
+          <Button
+            v-if="currentStatus === 'success' && currentColumns.length > 0"
+            variant="outline"
+            size="sm"
+            class="h-6.5 px-2 text-[11px] gap-1 rounded bg-background"
+            :class="{ 'border-primary text-primary bg-primary/10': isCurrentPinned }"
+            @click="togglePin"
+          >
+            <PhPushPin class="w-3 h-3" :weight="isCurrentPinned ? 'fill' : 'regular'" />
+            <span class="hidden sm:inline">{{ isCurrentPinned ? 'Pinned' : 'Pin' }}</span>
+          </Button>
+        </ActionTooltip>
+
+        <!-- Clear Results -->
+        <ActionTooltip text="Clear Results">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-6.5 w-6.5 text-muted-foreground hover:text-foreground rounded"
+            @click="resultStore.clearResults()"
+          >
+            <PhTrash class="w-3.5 h-3.5" />
+          </Button>
         </ActionTooltip>
       </div>
     </div>
 
-    <Tabs v-model="resultStore.activeView" class="flex-1 flex flex-col overflow-hidden min-h-0">
-      <div class="flex items-center h-9 chrome-bar border-b flex-shrink-0 overflow-hidden px-2 justify-between gap-2">
-        <TabsList class="h-7 bg-muted/40 p-0.5 rounded-md gap-0.5 flex-shrink-0">
-          <TabsTrigger
-            v-for="view in VIEWS"
-            :key="view.id"
-            :value="view.id"
-            class="inline-flex items-center px-2.5 h-full text-[11px] font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm transition-all"
-          >{{ view.label }}</TabsTrigger>
-        </TabsList>
-
-        <div class="flex items-center gap-1.5 min-w-0 flex-shrink-0">
-          <template v-if="hasDirtyEdits">
-            <Button
-              variant="ghost"
-              size="sm"
-              class="text-[11px] h-6 px-2.5 gap-1 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-md transition-colors"
-              :disabled="resultStore.savingEdits"
-              @click="resultStore.revertAllEdits()"
-            >Revert</Button>
-            <Button
-              variant="outline"
-              size="sm"
-              class="text-[11px] h-6 px-2.5 gap-1 text-blue-500 hover:text-blue-600 hover:bg-blue-500/10 rounded-md transition-colors border-blue-500/30"
-              :disabled="resultStore.savingEdits || !editableTableName"
-              @click="copyUpdateQueries"
-              title="Copy UPDATE statements to clipboard"
-            >Copy SQL</Button>
-            <Button
-              size="sm"
-              class="text-[11px] h-6 px-2.5 gap-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md shadow-sm transition-colors"
-              :disabled="resultStore.savingEdits || !editableTableName"
-              @click="saveEdits"
-            >
-              <template v-if="resultStore.savingEdits">Saving&hellip;</template>
-              <template v-else>Save</template>
-            </Button>
-          </template>
-
-          <div class="flex items-center px-2 py-0.5 rounded bg-muted/30 border border-border/50 text-[10px] text-muted-foreground gap-2 shadow-inner">
-            <span v-if="currentStatus === 'success'" class="whitespace-nowrap font-medium font-mono tabular-nums">
-              {{ currentRows.length }} rows
-            </span>
-            <span v-if="currentStatus === 'success'" class="whitespace-nowrap font-medium font-mono tabular-nums text-muted-foreground/70">
-              {{ currentDuration }}ms
-            </span>
-            <span v-else-if="currentStatus === 'running'" class="text-amber-500 flex items-center gap-2 font-medium">
-              Running&hellip;
-              <button
-                class="px-1.5 py-0.5 rounded bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors cursor-pointer"
-                :disabled="resultStore.cancelling"
-                @click="resultStore.cancelQuery()"
-              >{{ resultStore.cancelling ? 'Cancelling...' : 'Cancel' }}</button>
-            </span>
+    <!-- Main View Contents -->
+    <div class="flex-1 min-h-0 overflow-hidden flex flex-col relative bg-background">
+      <!-- Error Banner (if any) -->
+      <div
+        v-if="currentStatus === 'error' && currentError"
+        class="m-3 p-4 rounded-lg bg-red-500/10 border border-red-500/30 flex flex-col gap-2 select-text"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 text-red-400 font-semibold text-xs">
+            <PhWarningCircle class="w-4 h-4 text-red-500 flex-shrink-0" />
+            <span>Query Failed · {{ currentError.code }}</span>
           </div>
-
-          <ActionTooltip :text="resultKeyTooltip">
-            <button
-              v-if="editableTableName && currentStatus === 'success'"
-              class="h-7 px-2 flex items-center gap-1 rounded border border-border/60 bg-background hover:bg-muted/40 text-[10px] text-muted-foreground hover:text-foreground font-mono transition-colors cursor-pointer shadow-sm max-w-[160px] truncate flex-shrink-0"
-              @click="uiStore.openVirtualKeyDialog(editableTableName)"
-            >
-              <PhKey class="w-3.5 h-3.5 flex-shrink-0" :class="resultKeyIconClass" />
-              <span class="truncate">{{ resultKeyLabel }}</span>
-            </button>
-          </ActionTooltip>
-
-          <div class="flex items-center border border-border rounded-md bg-background overflow-hidden shadow-sm flex-shrink-0">
-            <ActionTooltip text="Rows per page">
-              <select
-                v-if="currentColumns.length"
-                class="h-7 w-[64px] bg-transparent px-2 text-[11px] font-medium text-foreground outline-none border-r border-border hover:bg-muted/30 transition-colors cursor-pointer"
-                :value="resultStore.pageSize"
-                @change="onPageSizeChange"
-                aria-label="Rows per page"
-              >
-                <option :value="50">50</option>
-                <option :value="100">100</option>
-                <option :value="250">250</option>
-                <option :value="500">500</option>
-              </select>
-            </ActionTooltip>
-
-            <ActionTooltip :text="isCurrentResultPinned ? 'Unpin this result tab' : 'Pin this result tab'">
-              <button
-                v-if="currentStatus === 'success' && currentColumns.length"
-                class="inline-flex items-center justify-center h-7 px-2.5 transition-colors border-none bg-transparent cursor-pointer"
-                :class="isCurrentResultPinned ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'"
-                @click="togglePinCurrentResult"
-                aria-label="Pin result tab"
-              >
-                <PhPushPin class="w-3.5 h-3.5" :weight="isCurrentResultPinned ? 'fill' : 'regular'" />
-              </button>
-            </ActionTooltip>
-
-            <div v-if="currentStatus === 'success' && currentColumns.length" class="w-px h-4 bg-border"></div>
-
-            <ActionTooltip text="Export results (CSV, JSON)">
-              <button
-                class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                :disabled="!currentColumns.length"
-                @click="uiStore.openExport()"
-                aria-label="Export results"
-              >
-                <PhDownloadSimple class="w-3.5 h-3.5" />
-              </button>
-            </ActionTooltip>
-
-            <div class="w-px h-4 bg-border"></div>
-
-            <ActionTooltip text="Search in results (⌘F)">
-              <button
-                class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                :class="{ 'text-primary bg-primary/10': showSearch }"
-                :disabled="!currentColumns.length"
-                @click="toggleSearch"
-                aria-label="Search results"
-              >
-                <PhMagnifyingGlass class="w-3.5 h-3.5" />
-              </button>
-            </ActionTooltip>
-
-            <div class="w-px h-4 bg-border"></div>
-
-            <ActionTooltip text="Filter columns">
-              <button
-                class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                :class="{ 'text-primary bg-primary/10': showFilters }"
-                :disabled="!detectedTable"
-                @click="showFilters = !showFilters"
-                aria-label="Filter columns"
-              >
-                <PhFunnel class="w-3.5 h-3.5" />
-              </button>
-            </ActionTooltip>
-
-            <div class="w-px h-4 bg-border"></div>
-
-            <ActionTooltip text="Active Database Sessions (SHOW PROCESSLIST)">
-              <button
-                class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                @click="resultStore.runProcesslist()"
-                aria-label="Active database sessions"
-              >
-                <PhActivity class="w-3.5 h-3.5" />
-              </button>
-            </ActionTooltip>
-          </div>
-
-          <ActionTooltip text="Collapse Result Panel">
-            <button
-              class="inline-flex items-center justify-center w-7 h-7 text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer border-none bg-transparent flex-shrink-0"
-              aria-label="Collapse Result Panel"
-              @click="uiStore.toggleResultPanel()"
-            >
-              <PhCaretDown class="w-3.5 h-3.5" />
-            </button>
-          </ActionTooltip>
+          <Button
+            variant="outline"
+            size="sm"
+            class="h-6 px-2 text-[10.5px] gap-1 rounded bg-background border-red-500/30 text-red-300 hover:bg-red-500/20"
+            @click="copyError"
+          >
+            <PhCopy class="w-3 h-3" />
+            <span>Copy Error</span>
+          </Button>
         </div>
+
+        <pre class="text-xs text-red-300 font-mono whitespace-pre-wrap break-all bg-black/30 p-2.5 rounded border border-red-500/20 leading-relaxed">{{ currentError.message }}</pre>
       </div>
 
-      <TabsContent value="table" class="flex-1 flex flex-col overflow-hidden min-h-0 p-0 m-0">
-        <div v-if="showSearch" class="flex items-center h-7 px-2 bg-muted/20 border-b border-border gap-1.5 flex-shrink-0">
+      <!-- TABLE VIEW: Powered by UnifiedDataGrid -->
+      <template v-else-if="resultStore.activeView === 'table'">
+        <UnifiedDataGrid
+          :columns="currentColumns"
+          :rows="currentRows"
+          :table-name="editableTableName"
+          :duration-ms="currentDuration"
+          :loading="currentStatus === 'running'"
+          @save-edits="handleBatchSaveEdits"
+          @refresh="refreshActive"
+        />
+      </template>
 
-          <Input
-            class="h-6 w-[180px] text-[11px]"
-            placeholder="Search results&hellip;"
-            aria-label="Search results"
-            v-model="rawSearch"
-            @input="onSearch"
+      <!-- JSON VIEW -->
+      <template v-else-if="resultStore.activeView === 'json'">
+        <div class="flex-1 overflow-auto p-4 select-text font-mono text-xs">
+          <div class="flex justify-end mb-2">
+            <Button variant="outline" size="sm" class="h-6 px-2.5 text-[10.5px] gap-1 bg-background" @click="copyJson">
+              <PhCopy class="w-3 h-3" />
+              <span>Copy JSON</span>
+            </Button>
+          </div>
+          <pre class="text-foreground/90 whitespace-pre-wrap leading-relaxed">{{ formattedJson }}</pre>
+        </div>
+      </template>
+
+      <!-- PLAN VIEW (Explain) -->
+      <template v-else-if="resultStore.activeView === 'plan'">
+        <div v-if="resultStore.planRows.length" class="flex-1 flex flex-col min-h-0">
+          <UnifiedDataGrid
+            :columns="resultStore.planColumns"
+            :rows="resultStore.planRows"
+            :duration-ms="resultStore.duration"
           />
-          <select
-            class="h-6 w-[120px] rounded-md border border-input bg-background px-2 text-[11px] ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label="Filter by column"
-            v-model="filterCol"
+        </div>
+        <div v-else class="flex-1 flex items-center justify-center p-4">
+          <EmptyState
+            title="No execution plan"
+            description="Run Explain (⌘E) on a query to inspect its execution plan and index performance."
           >
-            <option value="">All columns</option>
-            <option v-for="col in currentColumns" :key="col.name" :value="col.name">{{ col.name }}</option>
-          </select>
+            <template #icon>
+              <PhTreeStructure class="w-6 h-6 text-muted-foreground/50" />
+            </template>
+          </EmptyState>
         </div>
+      </template>
 
-        <div v-if="showFilters && detectedTable" class="flex items-center gap-1.5 px-2 py-1 bg-muted/10 border-b border-border flex-wrap">
-          <template v-for="col in currentColumns" :key="col.name">
-            <div class="flex items-center gap-1">
-              <label class="text-[9px] text-muted-foreground whitespace-nowrap">{{ col.name }}</label>
-              <input
-                v-model="filters[col.name]"
-                :placeholder="col.type"
-                class="h-6 w-[120px] rounded border border-input bg-background px-1.5 text-[10px] font-mono outline-none focus:border-primary"
-                @keydown.enter="applyFilters"
-              />
-            </div>
-          </template>
-          <Button variant="outline" size="sm" class="text-[10px] h-6 px-2" @click="applyFilters">Apply</Button>
-          <Button variant="ghost" size="sm" class="text-[10px] h-6 px-2" @click="clearFilters">Clear</Button>
-        </div>
-
-        <div class="flex-1 min-h-0 overflow-auto bg-background relative" ref="scrollAreaRef">
+      <!-- MESSAGES VIEW -->
+      <template v-else-if="resultStore.activeView === 'messages'">
+        <div class="flex-1 overflow-auto p-4 select-text font-mono text-xs space-y-1.5">
           <div
-            v-if="currentStatus === 'idle' && !currentColumns.length"
-            class="absolute inset-0 flex items-center justify-center surface-inset"
+            v-for="(msg, i) in currentMessages"
+            :key="i"
+            class="p-2 rounded border leading-relaxed"
+            :class="msg.toLowerCase().includes('error') ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-muted/20 border-border/60 text-muted-foreground'"
           >
-            <EmptyState
-              title="No results yet"
-              description="Run a query to see rows here. Use the editor above or press the Run button."
-            >
-              <template #icon>
-                <Table2 class="w-5 h-5" />
-              </template>
-              <template #action>
-                <div class="flex items-center gap-2 text-[10px] text-muted-foreground/80">
-                  <span class="kbd-hint">⌘</span>
-                  <span class="kbd-hint">↵</span>
-                  <span>to run</span>
-                </div>
-              </template>
-            </EmptyState>
+            {{ msg }}
           </div>
-          <Table
-            id="result-grid-table"
-            class="relative w-full text-left border-collapse focus:outline-none focus:ring-1 focus:ring-primary/40 rounded-sm transition-shadow"
-            tabindex="0"
-            @keydown="handleTableKeydown"
-          >
-            <TableHeader class="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--border)]">
-              <TableRow class="hover:bg-transparent border-none">
-                <TableHead class="w-[36px] text-center p-0 border-r border-border/30 bg-muted/80 backdrop-blur-md">
-                  <div class="flex items-center justify-center w-full h-full">
-                    <input
-                      type="checkbox"
-                      :checked="allSelected"
-                      @change="toggleAll"
-                      aria-label="Select all rows"
-                      class="accent-primary cursor-pointer w-3.5 h-3.5 rounded-sm border-input"
-                    />
-                  </div>
-                </TableHead>
-                <TableHead class="w-[36px] text-center text-[9px] font-medium tracking-tight text-muted-foreground bg-muted/80 backdrop-blur-md border-r border-border/30 select-none py-1 px-2">#</TableHead>
-                <TableHead
-                  v-for="col in currentColumns"
-                  :key="col.name"
-                  class="text-[10.5px] font-medium tracking-tight text-muted-foreground cursor-pointer hover:text-foreground whitespace-nowrap py-1.5 px-3 border-r border-border/30 last:border-r-0 bg-muted/80 backdrop-blur-md transition-colors select-none"
-                  :class="{ 'text-right': isNumericColumn(col) }"
-                  :aria-sort="getSortAria(col.name)"
-                  @click="sortBy(col.name)"
-                  @contextmenu.prevent="showHeaderContextMenu($event, col.name)"
-                >
-                  <div class="inline-flex items-center gap-1.5" :class="{ 'flex-row-reverse': isNumericColumn(col) }">
-                    {{ col.name }}
-                    <span v-if="sortCol === col.name" class="text-[10px] text-primary">
-                      {{ sortDir === 'asc' ? '\u2191' : '\u2193' }}
-                    </span>
-                  </div>
-                </TableHead>
-                <TableHead v-if="isProcesslist" class="w-[70px] text-center text-[10.5px] font-medium text-muted-foreground bg-muted/80 backdrop-blur-md">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-if="currentStatus === 'running' && filteredRows.length === 0" class="hover:bg-transparent">
-                <TableCell :colspan="currentColumns.length + (isProcesslist ? 3 : 2)" class="h-32 text-center text-muted-foreground border-b-0">
-                  <div class="flex flex-col items-center justify-center gap-3">
-                    <svg class="w-6 h-6 animate-spin text-primary opacity-80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                    </svg>
-                    <span class="text-xs font-medium">Executing query...</span>
-                  </div>
-                </TableCell>
-              </TableRow>
-              <template v-else>
-                <TableRow
-                  v-for="item in filteredRows"
-                  :key="item.key"
-                  class="text-[11px] font-mono group transition-colors border-b border-border/40"
-                  :class="[
-                    item.index % 2 === 0 ? 'bg-transparent' : 'bg-muted/10',
-                    resultStore.selectedRows.has(item.key) ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/40'
-                  ]"
-                >
-                <TableCell class="text-center p-0 w-[36px] border-r border-border/30 relative">
-                  <div v-if="resultStore.selectedRows.has(item.key)" class="absolute left-0 top-0 bottom-0 w-[2.5px] bg-primary"></div>
-                  <div class="flex items-center justify-center w-full h-full">
-                    <input
-                      type="checkbox"
-                      :checked="resultStore.selectedRows.has(item.key)"
-                      @change="resultStore.toggleRowSelection(item.key)"
-                      :aria-label="`Select row ${item.index + 1}`"
-                      class="accent-primary cursor-pointer w-3 h-3 rounded-sm border-input opacity-0 group-hover:opacity-100 transition-opacity"
-                      :class="{ 'opacity-100': resultStore.selectedRows.has(item.key) }"
-                    />
-                  </div>
-                </TableCell>
-                <TableCell class="text-center py-1 px-2 w-[36px] border-r border-border/30 text-[9.5px] text-muted-foreground/60 select-none tabular-nums font-mono">{{ item.index + 1 }}</TableCell>
-                <TableCell
-                  v-for="(col, colIndex) in currentColumns"
-                  :key="col.name"
-                  class="max-w-[280px] overflow-hidden text-ellipsis whitespace-nowrap border-r border-border/30 last:border-r-0 cursor-cell hover:bg-muted/15 select-none transition-all duration-75 font-mono"
-                  :class="[
-                    resultStore.editingCell?.rowIndex === item.index && resultStore.editingCell?.colName === col.name 
-                      ? 'p-0 ring-2 ring-primary ring-inset z-10 relative bg-background' 
-                      : 'py-1 px-3',
-                    getCellClass(item.row[col.name], col),
-                    isNumericColumn(col) ? 'text-right tabular-nums font-mono text-[10px]' : '',
-                    getCellSelectionClass(item.index, colIndex)
-                  ]"
-                  @mousedown="onCellMouseDown(item.index, col.name, $event)"
-                  @mouseenter="onCellMouseEnter(item.index, col.name, $event)"
-                  @dblclick="startEditCell(item.index, col.name, $event)"
-                  @contextmenu.prevent="showContextMenu($event, item.row, item.index, col.name)"
-                >
-                  <template v-if="resultStore.editingCell?.rowIndex === item.index && resultStore.editingCell?.colName === col.name">
-                    <input
-                      ref="editInputRef"
-                      v-model="resultStore.editValue"
-                      class="w-full h-full bg-transparent border-none outline-none px-3 py-1 font-mono shadow-none focus:ring-0 focus:outline-none"
-                      :class="[
-                        isNumericColumn(col) ? 'text-right text-[10px]' : 'text-[11px]'
-                      ]"
-                      @keydown.enter="commitEditCell(item.index, col.name)"
-                      @keydown.escape="resultStore.cancelEditing()"
-                      @blur="commitEditCell(item.index, col.name)"
-                      @click.stop
-                    />
-                  </template>
-                  <template v-else-if="item.row[col.name] === null">
-                    <span class="text-[9.5px] italic text-muted-foreground/45 select-none">NULL</span>
-                  </template>
-                  <template v-else-if="col.name === 'status'">
-                    <Badge variant="outline" class="text-[9.5px] px-1.5 py-0 font-mono tracking-wide" :class="statusBadgeClass(String(item.row[col.name]))">{{ item.row[col.name] }}</Badge>
-                  </template>
-                  <template v-else-if="col.type === 'boolean'">
-                    <span class="inline-flex items-center px-1 py-0.2 rounded-full text-[9.5px] font-semibold font-mono" :class="item.row[col.name] ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'">{{ item.row[col.name] ? 'TRUE' : 'FALSE' }}</span>
-                  </template>
-                  <template v-else>
-                    <div class="flex items-center justify-between gap-1 group/fk w-full">
-                      <span :title="String(item.row[col.name]).length > 50 ? String(item.row[col.name]) : undefined" class="truncate">
-                        {{ formatCell(item.row[col.name], col) }}
-                      </span>
-                      <button 
-                        v-if="getColumnForeignKey(col)"
-                        class="text-primary/80 hover:text-primary cursor-pointer p-0.5 hover:bg-primary/10 rounded transition-colors opacity-0 group-hover/fk:opacity-100 focus:opacity-100 flex-shrink-0"
-                        title="Preview referenced record"
-                        @click.stop="(e) => showFkPreview(e, col, item.index, item.row[col.name])"
-                      >
-                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-                      </button>
-                    </div>
-                  </template>
-                </TableCell>
-                <TableCell v-if="isProcesslist" class="text-center p-1 border-l border-border/50">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    class="text-[10px] h-5 px-2 text-destructive hover:text-white hover:bg-destructive rounded"
-                    @click="resultStore.killSession(Number(item.row['Id']))"
-                  >KILL</Button>
-                </TableCell>
-              </TableRow>
-              </template>
-            </TableBody>
-          </Table>
-          <div v-if="resultStore.hasMore && currentStatus === 'success' && !searchQuery.value" ref="sentinelRef" class="flex items-center justify-center py-3 text-xs text-muted-foreground">
-            <template v-if="resultStore.loadingMore">
-              <span class="animate-pulse">Loading more&hellip;</span>
-            </template>
-            <template v-else>
-              <span>Scroll for more rows</span>
-            </template>
-          </div>
-          <div v-if="filteredRows.length === 0 && currentStatus === 'success'" class="py-6 text-center text-xs text-muted-foreground">
-            No results match your filter.
+          <div v-if="!currentMessages.length" class="text-muted-foreground/50 text-center py-6">
+            No execution messages
           </div>
         </div>
-      </TabsContent>
+      </template>
 
-      <TabsContent value="json" class="flex-1 flex flex-col overflow-hidden min-h-0 p-0 m-0">
-        <div class="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/20 flex-shrink-0">
-          <span class="text-[10px] text-muted-foreground">JSON</span>
-          <Button variant="ghost" size="sm" class="text-[10px] h-6 px-2" @click="copyJson">Copy</Button>
-        </div>
-        <ScrollArea class="flex-1 min-h-0">
-          <pre class="p-4 text-xs font-mono leading-relaxed text-foreground whitespace-pre" v-html="highlightedJson"></pre>
-        </ScrollArea>
-      </TabsContent>
-
-      <TabsContent value="plan" class="flex-1 flex flex-col overflow-hidden min-h-0 p-0 m-0">
-        <ScrollArea class="h-full">
-          <Table v-if="resultStore.planRows.length">
-            <TableHeader>
-              <TableRow class="hover:bg-transparent">
-                <TableHead
-                  v-for="col in resultStore.planColumns"
-                  :key="col.name"
-                  class="text-[10px] font-medium text-muted-foreground whitespace-nowrap"
-                >
-                  {{ col.name }}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-for="(row, i) in resultStore.planRows" :key="i" class="text-[11px] font-mono">
-                <TableCell
-                  v-for="col in resultStore.planColumns"
-                  :key="col.name"
-                  class="p-1.5 px-2 max-w-[260px] overflow-hidden text-ellipsis whitespace-nowrap"
-                  :title="row[col.name] === null ? undefined : String(row[col.name])"
-                >
-                  <span v-if="row[col.name] === null" class="italic text-muted-foreground">NULL</span>
-                  <span v-else>{{ row[col.name] }}</span>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-          <div v-else class="py-8 text-center text-xs text-muted-foreground">
-            Run Explain to view the query plan.
-          </div>
-        </ScrollArea>
-      </TabsContent>
-
-      <TabsContent value="messages" class="flex-1 overflow-auto min-h-0 p-4 m-0">
-        <div
-          v-for="(msg, i) in currentMessages"
-          :key="i"
-          class="text-xs font-mono mb-1"
-          :class="currentError ? 'text-red-500' : 'text-muted-foreground'"
-        >{{ msg }}</div>
-        <div v-if="currentError" class="text-xs font-mono text-red-500 mb-1">
-          <div class="flex items-center gap-2">
-            <span>[{{ currentError.code }}] {{ truncateError(currentError.message) }}</span>
-            <button
-              v-if="currentError.message.length > 80"
-              class="text-[10px] text-muted-foreground hover:text-foreground bg-transparent border-none cursor-pointer underline"
-              @click="showFullError = !showFullError"
-            >{{ showFullError ? 'Less' : 'More' }}</button>
-          </div>
-          <div v-if="showFullError" class="mt-2 p-2 rounded bg-muted/50 border border-border text-[10px] leading-relaxed text-foreground whitespace-pre-wrap break-all">
-            {{ currentError.message }}
-          </div>
-        </div>
-        <div v-if="!currentMessages.length && !currentError" class="text-xs font-mono text-muted-foreground">
-          No messages.
-        </div>
-      </TabsContent>
-
-      <TabsContent value="history" class="flex-1 flex flex-col overflow-hidden min-h-0 p-0 m-0">
-        <div class="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/20 flex-shrink-0">
-          <span class="text-[10px] text-muted-foreground">Recent queries</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            class="text-[10px] h-6 px-2"
-            @click="resultStore.loadHistory()"
-          >Refresh</Button>
-        </div>
-        <ScrollArea class="flex-1 min-h-0">
-          <div v-if="resultStore.history.length === 0" class="py-8 text-center text-xs text-muted-foreground">
-            No query history yet.
-          </div>
+      <!-- HISTORY VIEW -->
+      <template v-else-if="resultStore.activeView === 'history'">
+        <div class="flex-1 overflow-auto p-2 font-mono text-xs select-none">
           <div
             v-for="item in resultStore.history"
             :key="item.id"
-            class="flex items-start gap-2 px-3 py-2 border-b border-border hover:bg-accent/30 cursor-pointer transition-colors"
-            @click="restoreHistorySql(item.sql)"
+            class="group p-2.5 mb-1.5 rounded-lg border border-border/60 bg-muted/10 hover:bg-muted/30 transition-colors flex items-start justify-between gap-3 cursor-pointer"
+            @click="runHistoryItem(item.sql)"
           >
-            <span
-              class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
-              :class="item.error ? 'bg-red-500' : 'bg-emerald-500'"
-            ></span>
-            <div class="flex-1 min-w-0">
-              <div class="text-[11px] font-mono text-foreground truncate" :title="item.sql">{{ item.sql }}</div>
-              <div class="flex items-center gap-2 text-[9px] text-muted-foreground mt-0.5">
-                <span>{{ formatTime(item.executed_at) }}</span>
-                <span>&middot;</span>
-                <span>{{ item.duration_ms }}ms</span>
-                <span v-if="item.row_count > 0">&middot; {{ item.row_count }} rows</span>
-                <span v-if="item.error" class="text-red-400 truncate" :title="item.error">Error</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <span
+                  class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  :class="item.error ? 'bg-red-500' : 'bg-emerald-500'"
+                ></span>
+                <span class="text-[10px] text-muted-foreground">{{ formatHistoryTime(item.executed_at) }}</span>
+                <span class="text-[10px] text-muted-foreground/70 font-mono">· {{ item.duration_ms }}ms · {{ item.row_count }} rows</span>
               </div>
+              <pre class="text-[11.5px] text-foreground font-mono truncate select-text">{{ item.sql }}</pre>
             </div>
+
+            <Button variant="ghost" size="sm" class="h-6 px-2 text-[10px] gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80" @click.stop="copyText(item.sql)">
+              <PhCopy class="w-3 h-3" />
+              <span>Copy</span>
+            </Button>
           </div>
-        </ScrollArea>
-      </TabsContent>
-    </Tabs>
 
-    <Teleport to="body">
-      <div
-        v-if="contextMenu.visible"
-        class="result-panel-context-menu fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 w-[180px] text-xs"
-        :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
-        @click.stop
-        @contextmenu.prevent
-      >
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyCellValue">Copy Cell Value</button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyColumnName(false)">Copy Column Name</button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyRowJson">Copy Row as JSON</button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyRowInsert">Copy Row as INSERT</button>
-        <div class="h-px bg-border my-1"></div>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyAllJson">Copy All as JSON</button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copySelectedJson">Copy Selected as JSON</button>
-      </div>
-
-      <div
-        v-if="headerContextMenu.visible"
-        class="result-panel-context-menu fixed z-50 bg-popover border border-border rounded-md shadow-lg py-1 w-[180px] text-xs"
-        :style="{ left: headerContextMenu.x + 'px', top: headerContextMenu.y + 'px' }"
-        @click.stop
-        @contextmenu.prevent
-      >
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="copyColumnName(true)">Copy Column Name</button>
-        <div class="h-px bg-border my-1"></div>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="sortFromHeader('asc')">Sort Ascending</button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer" @click="sortFromHeader('desc')">Sort Descending</button>
-      </div>
-    </Teleport>
-    
-    <Dialog v-model:open="showUpdateModal">
-      <DialogContent class="result-panel-dialog max-w-[680px] max-h-[85vh] flex flex-col p-6 bg-background border-border overflow-hidden shadow-2xl">
-        <DialogHeader class="shrink-0">
-          <DialogTitle>Confirm Update</DialogTitle>
-          <DialogDescription>
-            The following queries will be executed. Please review them carefully.
-          </DialogDescription>
-        </DialogHeader>
-        <div class="py-3 flex-1 min-h-0 overflow-hidden flex flex-col">
-          <div class="flex-1 min-h-[100px] max-h-[360px] overflow-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs text-foreground select-text">
-            <pre class="whitespace-pre-wrap break-all">{{ pendingUpdateSql }}</pre>
+          <div v-if="!resultStore.history.length" class="text-muted-foreground/50 text-center py-8">
+            No queries recorded in history yet
           </div>
         </div>
-        <DialogFooter class="shrink-0 pt-3 border-t border-border/40 flex justify-end gap-2">
-          <Button variant="outline" size="sm" @click="showUpdateModal = false" :disabled="resultStore.savingEdits">Cancel</Button>
-          <Button size="sm" class="bg-emerald-500 hover:bg-emerald-600 text-white" @click="confirmSaveEdits" :disabled="resultStore.savingEdits">
-            <template v-if="resultStore.savingEdits">Executing&hellip;</template>
-            <template v-else>Run Update</template>
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <!-- Foreign Key Row Preview Tooltip -->
-    <Teleport to="body">
-      <div 
-        v-if="activeFkPreview" 
-        id="fk-preview-popover"
-        class="fixed z-[1000] w-85 bg-popover text-popover-foreground border border-border rounded-lg shadow-xl p-4 text-[12px] font-mono pointer-events-auto transition-all"
-        :style="{ left: `${activeFkPreview.x}px`, top: `${activeFkPreview.y + 4}px` }"
-        @click.stop
-      >
-        <!-- Header -->
-        <div class="flex items-center justify-between border-b border-border pb-2 mb-2">
-          <span class="font-semibold text-muted-foreground">Referenced Row Preview</span>
-          <span class="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px] text-foreground select-all">
-            {{ activeFkPreview.referencedSchema ? `${activeFkPreview.referencedSchema}.${activeFkPreview.referencedTable}` : activeFkPreview.referencedTable }}
-          </span>
-        </div>
-
-        <!-- Content -->
-        <div v-if="activeFkPreview.loading" class="flex flex-col gap-2 py-2">
-          <div class="h-3 bg-muted/60 rounded w-3/4 animate-pulse"></div>
-          <div class="h-3 bg-muted/60 rounded w-5/6 animate-pulse"></div>
-          <div class="h-3 bg-muted/60 rounded w-1/2 animate-pulse"></div>
-        </div>
-        
-        <div v-else-if="activeFkPreview.error" class="text-destructive font-mono text-[10px] py-2">
-          Error loading record: {{ activeFkPreview.error }}
-        </div>
-
-        <div v-else-if="!activeFkPreview.data" class="text-muted-foreground italic py-2">
-          Referenced record not found.
-        </div>
-
-        <div v-else class="max-h-52 overflow-y-auto space-y-1.5 pr-1 font-mono text-[11px]">
-          <div v-for="(val, key) in activeFkPreview.data" :key="key" class="flex border-b border-border/30 pb-1 last:border-0 last:pb-0">
-            <span class="font-semibold text-muted-foreground w-1/3 truncate" :title="key">{{ key }}</span>
-            <span class="text-foreground w-2/3 break-all pl-2 border-l border-border/20">
-              <span v-if="val === null" class="italic text-muted-foreground/60">NULL</span>
-              <span v-else>{{ val }}</span>
-            </span>
-          </div>
-        </div>
-
-        <!-- Footer/Close instruction -->
-        <div class="text-[9px] text-muted-foreground/60 text-right mt-3 pt-2 border-t border-border/30">
-          Click outside or press Escape to close
-        </div>
-      </div>
-    </Teleport>
+      </template>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  Tabs, TabsContent, TabsList, TabsTrigger,
-} from '@/components/ui/tabs'
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Download, Search, Copy, Key, Table2, FileCode } from '@lucide/vue'
-import { PhPushPin, PhDownloadSimple, PhMagnifyingGlass, PhFunnel, PhActivity, PhCaretDown, PhKey, PhX } from '@phosphor-icons/vue'
-import { ActionTooltip } from '@/components/ui/tooltip'
+import { computed } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
+import { useResultStore, type Column, type ResultRow } from '@/stores/result'
+import { useConnectionStore } from '@/stores/connection'
+import { useSchemaStore } from '@/stores/schema'
+import UnifiedDataGrid from './UnifiedDataGrid.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import { useResultStore, type ResultView, type Column, type CellValue, type ResultRow } from '../stores/result'
-import { useEditorStore } from '../stores/editor'
-import { useSchemaStore } from '../stores/schema'
-import { useUiStore } from '../stores/ui'
+import { Button } from '@/components/ui/button'
+import { ActionTooltip } from '@/components/ui/tooltip'
+import {
+  PhPushPin, PhX, PhTreeStructure, PhCopy, PhTrash, PhWarningCircle
+} from '@phosphor-icons/vue'
 import { toast } from 'vue-sonner'
 
 const resultStore = useResultStore()
 const schemaStore = useSchemaStore()
-const uiStore = useUiStore()
 
-const resultKeyInfo = computed(() => {
-  if (!editableTableName.value) return { columns: [], keyType: 'all_columns' as const }
-  return schemaStore.getKeyColumnsForTable(getRawTableName(editableTableName.value))
+const VIEWS = [
+  { id: 'table', label: 'Table' },
+  { id: 'json', label: 'JSON' },
+  { id: 'plan', label: 'Execution Plan' },
+  { id: 'messages', label: 'Messages' },
+  { id: 'history', label: 'History' },
+]
+
+// Determine active result data (Current vs Pinned vs Multi)
+const isPinnedActive = computed(() => resultStore.activeResultTabId !== 'current')
+const activePinnedResult = computed(() => resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId))
+
+const currentColumns = computed<Column[]>(() => {
+  if (isPinnedActive.value && activePinnedResult.value) {
+    return activePinnedResult.value.columns
+  }
+  if (resultStore.multiResults.length > 0 && resultStore.activeResultTabId === 'current') {
+    const multi = resultStore.multiResults[resultStore.activeResultIndex]
+    return multi?.columns || []
+  }
+  return resultStore.columns
 })
 
-const resultKeyLabel = computed(() => {
-  if (resultKeyInfo.value.keyType === 'primary') return `PK: ${resultKeyInfo.value.columns.join(', ')}`
-  if (resultKeyInfo.value.keyType === 'unique') return `UK: ${resultKeyInfo.value.columns.join(', ')}`
-  if (resultKeyInfo.value.keyType === 'virtual') return `VK: ${resultKeyInfo.value.columns.join(', ')}`
-  return 'Key: All-Cols (Auto)'
+const currentRows = computed<ResultRow[]>(() => {
+  if (isPinnedActive.value && activePinnedResult.value) {
+    return activePinnedResult.value.rows
+  }
+  if (resultStore.multiResults.length > 0 && resultStore.activeResultTabId === 'current') {
+    const multi = resultStore.multiResults[resultStore.activeResultIndex]
+    return multi?.rows || []
+  }
+  return resultStore.rows
 })
 
-const resultKeyIconClass = computed(() => {
-  if (resultKeyInfo.value.keyType === 'primary') return 'text-emerald-500'
-  if (resultKeyInfo.value.keyType === 'unique') return 'text-blue-500'
-  if (resultKeyInfo.value.keyType === 'virtual') return 'text-purple-500'
-  return 'text-amber-500'
-})
-
-const resultKeyTooltip = computed(() => {
-  if (resultKeyInfo.value.keyType === 'primary') return `Physical Primary Key: ${resultKeyInfo.value.columns.join(', ')} (Click to view/define Virtual Key)`
-  if (resultKeyInfo.value.keyType === 'unique') return `Unique Index: ${resultKeyInfo.value.columns.join(', ')} (Click to view/define Virtual Key)`
-  if (resultKeyInfo.value.keyType === 'virtual') return `Virtual Unique Key: ${resultKeyInfo.value.columns.join(', ')} (Click to modify)`
-  return 'No Primary Key detected. Using full row matching with LIMIT 1 (Click to define a Virtual Key)'
-})
-
-const currentColumns = computed(() => {
-  if (resultStore.activeResultTabId === 'current') return resultStore.columns
-  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
-  return pin ? pin.columns : []
-})
-
-const currentRows = computed(() => {
-  if (resultStore.activeResultTabId === 'current') return resultStore.rows
-  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
-  return pin ? pin.rows : []
-})
-
-const currentDuration = computed(() => {
-  if (resultStore.activeResultTabId === 'current') return resultStore.duration
-  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
-  return pin ? pin.duration : 0
+const currentDuration = computed<number>(() => {
+  if (isPinnedActive.value && activePinnedResult.value) {
+    return activePinnedResult.value.duration
+  }
+  if (resultStore.multiResults.length > 0 && resultStore.activeResultTabId === 'current') {
+    const multi = resultStore.multiResults[resultStore.activeResultIndex]
+    return multi?.duration_ms || 0
+  }
+  return resultStore.duration
 })
 
 const currentStatus = computed(() => {
-  if (resultStore.activeResultTabId === 'current') return resultStore.status
-  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
-  return pin ? 'success' : 'idle'
-})
-
-const currentMessages = computed(() => {
-  if (resultStore.activeResultTabId === 'current') return resultStore.messages
-  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
-  return pin ? pin.messages : []
+  if (isPinnedActive.value) return 'success'
+  return resultStore.status
 })
 
 const currentError = computed(() => {
-  if (resultStore.activeResultTabId === 'current') return resultStore.error
-  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
-  return pin ? pin.error : null
+  if (isPinnedActive.value && activePinnedResult.value) {
+    return activePinnedResult.value.error
+  }
+  return resultStore.error
 })
 
-const currentSql = computed(() => {
-  if (resultStore.activeResultTabId === 'current') return resultStore.lastSql
-  const pin = resultStore.pinnedResults.find(p => p.id === resultStore.activeResultTabId)
-  return pin ? pin.sql : ''
+const currentMessages = computed(() => {
+  if (isPinnedActive.value && activePinnedResult.value) {
+    return activePinnedResult.value.messages
+  }
+  return resultStore.messages
 })
 
-const isCurrentResultPinned = computed(() => {
-  if (resultStore.activeResultTabId !== 'current') return true
-  return resultStore.pinnedResults.some(p => p.sql === resultStore.lastSql)
+const isCurrentPinned = computed(() => {
+  if (isPinnedActive.value) return true
+  return resultStore.pinnedResults.some(p => p.sql === resultStore.lastSql && resultStore.lastSql.length > 0)
 })
-
-function togglePinCurrentResult() {
-  if (resultStore.activeResultTabId !== 'current') {
-    resultStore.unpinResult(resultStore.activeResultTabId)
-    return
-  }
-  const existingIndex = resultStore.pinnedResults.findIndex(p => p.sql === resultStore.lastSql)
-  if (existingIndex >= 0) {
-    resultStore.unpinResult(resultStore.pinnedResults[existingIndex].id)
-  } else {
-    resultStore.pinCurrentResult()
-  }
-}
-
-function getQueryLabel(sql: string): string {
-  const cleaned = sql.trim().replace(/\s+/g, ' ')
-  const fromMatch = cleaned.match(/FROM\s+([a-zA-Z0-9_\.`"'\-]+)/i)
-  if (fromMatch && fromMatch[1]) {
-    return fromMatch[1].replace(/[`"']/g, '')
-  }
-  return cleaned.length > 20 ? cleaned.slice(0, 18) + '...' : cleaned
-}
-
-const scrollAreaRef = ref<InstanceType<typeof ScrollArea> | null>(null)
-const sentinelRef = ref<HTMLDivElement | null>(null)
-const editInputRef = ref<HTMLInputElement | null>(null)
-const showFullError = ref(false)
-const showFilters = ref(false)
-const showSearch = ref(false)
-const filters = reactive<Record<string, string>>({})
-const showUpdateModal = ref(false)
-const pendingUpdateSql = ref('')
-let observer: IntersectionObserver | null = null
-
-const detectedTable = computed(() => detectTableFromSql(currentSql.value))
-const isProcesslist = computed(() => {
-  const cols = currentColumns.value.map(c => c.name)
-  return cols.includes('Id') && cols.includes('Command') && cols.includes('Info')
-})
-
-function detectTableFromSql(sql: string): string | null {
-  console.log('[detectTableFromSql] original sql:', sql)
-  if (!sql) return null
-  
-  // Strip comments to safely check the first real keyword
-  const noComments = sql
-    .replace(/--.*$/gm, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .trim()
-    
-  const clean = noComments.replace(/;+$/, '')
-  console.log('[detectTableFromSql] clean sql:', clean)
-  
-  if (/\bSELECT\b/i.test(clean)) {
-    // Match FROM followed by any valid table name characters (including hyphens, spaces in quotes, and $)
-    const fromRegex = /\bFROM\s+((?:`[^`]+`|"[^"]+"|\[[^\]]+\]|[a-zA-Z0-9_.$]+)(?:\s*\.\s*(?:`[^`]+`|"[^"]+"|\[[^\]]+\]|[a-zA-Z0-9_.$]+))?)/i
-    const fromMatch = clean.match(fromRegex)
-    console.log('[detectTableFromSql] fromMatch:', fromMatch)
-    if (fromMatch) {
-      let tableName = fromMatch[1]
-      console.log('[detectTableFromSql] raw tableName:', tableName)
-      const finalName = tableName.replace(/[`"\[\]']/g, '').trim()
-      console.log('[detectTableFromSql] final name:', finalName)
-      
-      // If the query does not specify a schema (no dot) and we have a lastDatabase, attach the selected schema!
-      if (!finalName.includes('.') && resultStore.lastDatabase) {
-        return `${resultStore.lastDatabase}.${finalName}`
-      }
-      return finalName
-    }
-  }
-  return null
-}
-
-function getRawTableName(name: string): string {
-  if (!name) return ''
-  const parts = name.split('.')
-  return parts[parts.length - 1].replace(/[`"\[\]']/g, '').trim()
-}
 
 const editableTableName = computed(() => {
-  return detectTableFromSql(currentSql.value)
-})
-
-const pkColumns = computed<string[]>(() => {
-  const tableName = editableTableName.value
-  if (!tableName) return []
-  const rawName = getRawTableName(tableName).toLowerCase()
-  const tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
-    return getRawTableName(k).toLowerCase() === rawName
-  })
-  if (!tableKey) return []
-  const details = schemaStore.detailsByTable[tableKey]
-  if (!details) return []
-  const pks = details.columns.filter(c => c.pk).map(c => c.name)
-  if (pks.length === 0 && details.indexes) {
-    const uniqueIdx = details.indexes.find(idx => idx.unique)
-    if (uniqueIdx) {
-      return uniqueIdx.columns.split(',').map(s => s.trim().replace(/[`"']/g, ''))
-    }
-  }
-  return pks
-})
-
-const hasDirtyEdits = computed(() => {
-  if (resultStore.activeResultTabId !== 'current') return false
-  return Object.keys(resultStore.dirtyCells).length > 0
-})
-
-async function startEditCell(rowIndex: number, colName: string, _e: MouseEvent) {
-  if (resultStore.activeResultTabId !== 'current') return
-  const manualDetect = detectTableFromSql(currentSql.value)
-  
-  if (!editableTableName.value) {
-    if (!/\bSELECT\b/i.test(resultStore.lastSql)) {
-      toast.error('Cannot edit data', { description: 'Data can only be edited from a SELECT query on a physical table.' })
-    } else {
-      toast.error('Cannot edit data', { description: `Could not detect table name from the query. Multi-table joins and computed queries are read-only.` })
-    }
-    return
-  }
-
-  const tableName = editableTableName.value
-  const rawName = getRawTableName(tableName).toLowerCase()
-  let tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
-    const lk = k.toLowerCase()
-    return lk === rawName || lk === tableName.toLowerCase() || lk.endsWith(`.${rawName}`)
-  })
-  
-  if (!tableKey) {
-    try {
-      await schemaStore.fetchTableDetails(tableName)
-      tableKey = Object.keys(schemaStore.detailsByTable).find(k => {
-        const lk = k.toLowerCase()
-        return lk === rawName || lk === tableName.toLowerCase() || lk.endsWith(`.${rawName}`)
-      })
-    } catch (e) {
-      console.error('Failed to fetch table details for editing:', e)
-    }
-  }
-  
-  const keyInfo = schemaStore.getKeyColumnsForTable(tableName)
-  if (keyInfo.columns.length > 0) {
-    const resultColNames = resultStore.columns.map(c => (c.orgName || c.name).toLowerCase())
-    const missingPkCols = keyInfo.columns.filter(pk => !resultColNames.includes(pk.toLowerCase()))
-    if (missingPkCols.length > 0) {
-      toast.error('Cannot edit cell', {
-        description: `Key column '${missingPkCols.join(', ')}' is not in this query result. Add '${missingPkCols.join(', ')}' to your SELECT query or define a Virtual Key to edit.`,
-      })
-      return
-    }
-  }
-
-  resultStore.startEditing(rowIndex, colName)
-  nextTick(() => {
-    const el = editInputRef.value
-    if (Array.isArray(el)) {
-      el[0]?.focus()
-      el[0]?.select()
-    } else {
-      el?.focus()
-      el?.select()
-    }
-  })
-}
-
-async function commitEditCell(rowIndex: number, colName: string) {
-  if (resultStore.editingCell?.rowIndex !== rowIndex || resultStore.editingCell?.colName !== colName) {
-    return
-  }
-  
-  const row = resultStore.rows[rowIndex]
-  if (row && String(row[colName] ?? '') === resultStore.editValue) {
-    resultStore.cancelEditing()
-    return
-  }
-
-  resultStore.commitEdit(rowIndex, colName, resultStore.editValue)
-  // We do not auto-save. The user must explicitly click "Save" to open the modal.
-}
-
-async function saveEdits() {
-  const tableName = editableTableName.value
-  if (!tableName) return
-  
-  const keyInfo = schemaStore.getKeyColumnsForTable(tableName)
-  const effectiveKeys = keyInfo.columns.length > 0
-    ? keyInfo.columns
-    : resultStore.columns.map(c => c.orgName || c.name)
-
-  const statements: string[] = []
-  
-  for (const [rowKey, cells] of Object.entries(resultStore.dirtyCells)) {
-    const rowIndex = parseInt(rowKey)
-    const row = resultStore.rows[rowIndex]
-    if (!row) continue
-    
-    const setClauses: string[] = []
-    for (const [colName, val] of Object.entries(cells)) {
-      const colDef = resultStore.columns.find(c => c.name === colName)
-      const type = colDef ? colDef.type : 'string'
-      const updateColName = colDef?.orgName || colName
-      
-      let escapedVal = 'NULL'
-      if (val !== null) {
-         escapedVal = escapeVal(String(val), type)
-      }
-      setClauses.push(`${escapeId(updateColName)} = ${escapedVal}`)
-    }
-    
-    if (setClauses.length === 0) continue
-    
-    const whereClauses: string[] = []
-    const originalRow = resultStore.originalRows[rowIndex] ?? row
-    for (const pk of effectiveKeys) {
-      const colDef = resultStore.columns.find(c => {
-        const bareOrgTable = c.orgTable ? (c.orgTable.includes('.') ? c.orgTable.split('.').pop() : c.orgTable) : '';
-        const bareTableName = tableName.includes('.') ? tableName.split('.').pop() : tableName;
-        return (c.orgName || c.name).toLowerCase() === pk.toLowerCase() && (!c.orgTable || bareOrgTable?.toLowerCase() === bareTableName?.toLowerCase());
-      })
-      const pkType = colDef ? colDef.type : 'string'
-      const gridColName = colDef ? colDef.name : pk
-      const pkVal = originalRow[gridColName]
-      if (pkVal === null || pkVal === undefined) {
-         whereClauses.push(`${escapeId(pk)} IS NULL`)
-      } else {
-         whereClauses.push(`${escapeId(pk)} = ${escapeVal(String(pkVal), pkType)}`)
-      }
-    }
-    
-    const sql = `UPDATE ${escapeId(tableName)} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')} LIMIT 1;`
-    statements.push(sql)
-  }
-  
-  if (statements.length === 0) {
-    toast.info('No changes to save')
-    return
-  }
-  
-  pendingUpdateSql.value = statements.join('\n')
-  showUpdateModal.value = true
-}
-
-async function confirmSaveEdits() {
-  const tableName = editableTableName.value
-  if (!tableName) return
-  
-  const keyInfo = schemaStore.getKeyColumnsForTable(tableName)
-  const success = await resultStore.saveEdits(tableName, keyInfo.columns)
-  showUpdateModal.value = false
-  if (success) {
-    toast.success('Edits saved successfully')
-  } else {
-    resultStore.activeView = 'messages'
-    toast.error('Failed to save edits', { description: 'Check the Messages tab for details.' })
-  }
-}
-
-function copyUpdateQueries() {
-  const tableName = editableTableName.value
-  if (!tableName) return
-  
-  const pks = pkColumns.value
-  if (pks.length === 0) {
-    toast.error('Cannot generate SQL', { description: 'The table must have at least one primary key column.' })
-    return
-  }
-
-  const statements: string[] = []
-  
-  for (const [rowKey, cells] of Object.entries(resultStore.dirtyCells)) {
-    const rowIndex = parseInt(rowKey)
-    const row = resultStore.rows[rowIndex]
-    if (!row) continue
-    
-    const setClauses: string[] = []
-    for (const [colName, val] of Object.entries(cells)) {
-      const colDef = resultStore.columns.find(c => c.name === colName)
-      const type = colDef ? colDef.type : 'string'
-      
-      let escapedVal = 'NULL'
-      if (val !== null) {
-         escapedVal = escapeVal(String(val), type)
-      }
-      setClauses.push(`${escapeId(colName)} = ${escapedVal}`)
-    }
-    
-    if (setClauses.length === 0) continue
-    
-    const whereClauses: string[] = []
-    for (const pk of pks) {
-      const colDef = resultStore.columns.find(c => {
-        const bareOrgTable = c.orgTable ? (c.orgTable.includes('.') ? c.orgTable.split('.').pop() : c.orgTable) : '';
-        const bareTableName = tableName.includes('.') ? tableName.split('.').pop() : tableName;
-        return (c.orgName || c.name) === pk && (!c.orgTable || bareOrgTable?.toLowerCase() === bareTableName?.toLowerCase());
-      })
-      const pkType = colDef ? colDef.type : 'string'
-      const gridColName = colDef ? colDef.name : pk
-      const pkVal = row[gridColName]
-      if (pkVal === null || pkVal === undefined) {
-         whereClauses.push(`${escapeId(pk)} IS NULL`)
-      } else {
-         whereClauses.push(`${escapeId(pk)} = ${escapeVal(String(pkVal), pkType)}`)
-      }
-    }
-    
-    const sql = `UPDATE ${escapeId(tableName)} SET ${setClauses.join(', ')} WHERE ${whereClauses.join(' AND ')};`
-    statements.push(sql)
-  }
-  
-  if (statements.length > 0) {
-    navigator.clipboard.writeText(statements.join('\n'))
-  } else {
-    toast.info('No changes', { description: 'There are no edits to copy.' })
-  }
-}
-
-function escapeId(id: string): string {
-  if (id.includes('.')) {
-    return id.split('.')
-      .map(part => '`' + part.replace(/`/g, '``') + '`')
-      .join('.')
-  }
-  return '`' + id.replace(/`/g, '``') + '`'
-}
-
-function escapeVal(val: string, colType: string): string {
-  if (val === '') return "''"
-  if (colType === 'integer' || colType === 'numeric' || colType === 'bigint' || colType === 'decimal') {
-    const num = Number(val)
-    if (!isNaN(num)) return String(num)
-  }
-  return "'" + val.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"
-}
-
-async function applyFilters() {
-  const table = detectedTable.value
-  if (!table) return
-
-  const clauses: string[] = []
-  for (const col of resultStore.columns) {
-    const val = filters[col.name]
-    if (val !== undefined && val !== '') {
-      clauses.push(`${escapeId(col.name)} = ${escapeVal(val, col.type)}`)
-    }
-  }
-  if (clauses.length === 0) return
-
-  const sql = `SELECT * FROM ${escapeId(table)} WHERE ${clauses.join(' AND ')} LIMIT ${resultStore.pageSize};`
-  await resultStore.runQuery(sql)
-}
-
-function clearFilters() {
-  for (const key of Object.keys(filters)) {
-    delete filters[key]
-  }
-  showFilters.value = false
-}
-
-const contextMenu = reactive({
-  visible: false,
-  x: 0,
-  y: 0,
-  row: null as ResultRow | null,
-  rowIndex: -1,
-  colName: '',
-})
-
-function showContextMenu(e: MouseEvent, row: ResultRow, rowIndex: number, colName: string) {
-  contextMenu.visible = true
-  contextMenu.x = e.clientX
-  contextMenu.y = e.clientY
-  contextMenu.row = row
-  contextMenu.rowIndex = rowIndex
-  contextMenu.colName = colName
-}
-
-function hideContextMenu() {
-  contextMenu.visible = false
-}
-
-const headerContextMenu = reactive({
-  visible: false,
-  x: 0,
-  y: 0,
-  colName: '',
-})
-
-function showHeaderContextMenu(e: MouseEvent, colName: string) {
-  headerContextMenu.visible = true
-  headerContextMenu.x = e.clientX
-  headerContextMenu.y = e.clientY
-  headerContextMenu.colName = colName
-}
-
-function hideHeaderContextMenu() {
-  headerContextMenu.visible = false
-}
-
-function hideAllContextMenus() {
-  hideContextMenu()
-  hideHeaderContextMenu()
-}
-
-function copyColumnName(isHeader = true) {
-  const colName = isHeader ? headerContextMenu.colName : contextMenu.colName
-  if (colName) {
-    navigator.clipboard.writeText(colName)
-    toast.success(`Copied column name "${colName}"`)
-  }
-  if (isHeader) hideHeaderContextMenu()
-  else hideContextMenu()
-}
-
-function sortFromHeader(dir: 'asc' | 'desc') {
-  if (headerContextMenu.colName) {
-    const colName = headerContextMenu.colName
-    if (sortCol.value !== colName) {
-      sortBy(colName)
-    }
-    if (sortDir.value !== dir) {
-      sortBy(colName)
-    }
-  }
-  hideHeaderContextMenu()
-}
-
-function copyCellValue() {
-  const val = contextMenu.row?.[contextMenu.colName]
-  if (val !== undefined && val !== null) {
-    navigator.clipboard.writeText(String(val))
-  }
-  hideContextMenu()
-}
-
-function copyRowJson() {
-  if (contextMenu.row) {
-    navigator.clipboard.writeText(JSON.stringify(contextMenu.row, null, 2))
-  }
-  hideContextMenu()
-}
-
-function copyRowInsert() {
-  const row = contextMenu.row
-  if (!row) { hideContextMenu(); return }
   const cols = currentColumns.value
-  const names = cols.map(c => `\`${c.name}\``).join(', ')
-  const vals = cols.map(c => {
-    const v = row[c.name]
-    if (v === null || v === undefined) return 'NULL'
-    if (typeof v === 'number') return String(v)
-    return `'${String(v).replace(/'/g, "\\'")}'`
-  }).join(', ')
-  const insert = `INSERT INTO \`${editableTableName.value ?? 'table'}\` (${names}) VALUES (${vals});`
-  navigator.clipboard.writeText(insert)
-  hideContextMenu()
-}
+  if (!cols.length) return undefined
 
-function copyAllJson() {
-  navigator.clipboard.writeText(JSON.stringify(currentRows.value, null, 2))
-  hideContextMenu()
-}
-
-function copySelectedJson() {
-  const selected = currentRows.value.filter((_, i) => resultStore.selectedRows.has(String(i)))
-  navigator.clipboard.writeText(JSON.stringify(selected.length ? selected : currentRows.value, null, 2))
-  hideContextMenu()
-}
-
-function copySelectedRowsTsv() {
-  const selectedIndices = Array.from(resultStore.selectedRows).map(Number).sort((a, b) => a - b)
-  if (!selectedIndices.length) return
-  
-  const headers = currentColumns.value.map(c => c.name).join('\t')
-  const lines = selectedIndices.map(idx => {
-    const row = currentRows.value[idx]
-    if (!row) return ''
-    return currentColumns.value.map(c => {
-      const val = row[c.name]
-      return val === null || val === undefined ? '' : String(val)
-    }).join('\t')
-  })
-  
-  const text = [headers, ...lines].join('\n')
-  navigator.clipboard.writeText(text)
-  toast.success(`Copied ${selectedIndices.length} rows to clipboard (TSV)`)
-}
-
-function copySelectedRowsJson() {
-  const selected = currentRows.value.filter((_, i) => resultStore.selectedRows.has(String(i)))
-  if (!selected.length) return
-  navigator.clipboard.writeText(JSON.stringify(selected, null, 2))
-  toast.success(`Copied ${selected.length} rows to clipboard (JSON)`)
-}
-
-onMounted(() => {
-  document.addEventListener('click', hideAllContextMenus)
-  document.addEventListener('click', handleGlobalFkClick)
-  document.addEventListener('keydown', handleGlobalFkKeydown)
-  window.addEventListener('mouseup', onGlobalMouseUp)
-  resultStore.loadHistory()
-  if (resultStore.status === 'success') {
-    loadForeignKeysForColumns()
+  const firstColWithTable = cols.find(c => c.orgTable)
+  if (firstColWithTable && firstColWithTable.orgTable) {
+    const tbl = firstColWithTable.orgTable
+    const schema = firstColWithTable.schema
+    if (schema) {
+      return `${schema}.${tbl}`
+    }
+    return tbl
   }
-})
 
-onUnmounted(() => {
-  document.removeEventListener('click', hideAllContextMenus)
-  document.removeEventListener('click', handleGlobalFkClick)
-  document.removeEventListener('keydown', handleGlobalFkKeydown)
-  window.removeEventListener('mouseup', onGlobalMouseUp)
-  if (observer) observer.disconnect()
-  if (searchTimer) clearTimeout(searchTimer)
-})
-
-function setupSentinel() {
-  nextTick(() => {
-    if (observer) observer.disconnect()
-    if (!sentinelRef.value) return
-    observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && resultStore.hasMore && !resultStore.loadingMore) {
-          resultStore.fetchNextPage()
-        }
-      },
-      { rootMargin: '200px' }
-    )
-    observer.observe(sentinelRef.value)
-  })
-}
-
-watch(() => resultStore.hasMore, (val) => {
-  if (val) setupSentinel()
-})
-
-onUnmounted(() => {
-  if (observer) observer.disconnect()
-})
-
-const VIEWS = [
-  { id: 'table',    label: 'Table' },
-  { id: 'json',     label: 'JSON' },
-  { id: 'plan',     label: 'Execution Plan' },
-  { id: 'messages', label: 'Messages' },
-  { id: 'history',  label: 'History' },
-] as const
-
-const rawSearch = ref('')
-const filterCol = ref('')
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-const searchQuery = ref('')
-
-function onSearch() {
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => { searchQuery.value = rawSearch.value }, 150)
-}
-
-function toggleSearch() {
-  showSearch.value = !showSearch.value
-  if (!showSearch.value) {
-    rawSearch.value = ''
-    searchQuery.value = ''
+  // Fallback: extract table from active SQL statement
+  const sql = currentSql.value || resultStore.lastSql || ''
+  const match = sql.match(/FROM\s+([`"'\w]+(?:\.[`"'\w]+)?)/i)
+  if (match) {
+    return match[1].replace(/[`"']/g, '')
   }
+  return schemaStore.activeTable || undefined
+})
+
+const formattedJson = computed(() => {
+  return JSON.stringify(currentRows.value, null, 2)
+})
+
+function getStatementLabel(sql: string): string {
+  const match = sql.match(/FROM\s+([a-zA-Z0-9_`"'\.]+)/i)
+  if (match) return match[1].replace(/[`"']/g, '')
+  const firstWord = sql.trim().split(/\s+/)[0].toUpperCase()
+  return firstWord || 'Query'
 }
 
-
-
-const sortCol = ref('')
-const sortDir = ref<'asc' | 'desc' | ''>('')
-type FilteredRow = {
-  key: string
-  index: number
-  row: ResultRow
+function selectMultiResult(index: number) {
+  resultStore.activeResultIndex = index
 }
 
-function sortBy(col: string) {
-  if (sortCol.value === col) {
-    sortDir.value = sortDir.value === '' ? 'asc' : sortDir.value === 'asc' ? 'desc' : ''
-    if (sortDir.value === '') sortCol.value = ''
+function togglePin() {
+  if (isCurrentPinned.value) {
+    if (activePinnedResult.value) {
+      resultStore.unpinResult(activePinnedResult.value.id)
+    }
   } else {
-    sortCol.value = col
-    sortDir.value = 'asc'
+    resultStore.pinCurrentResult()
+    toast.success('Pinned result tab')
   }
-}
-
-function getSortAria(col: string) {
-  if (sortCol.value !== col) return 'none'
-  return sortDir.value === 'asc' ? 'ascending' : 'descending'
-}
-
-const filteredRows = computed<FilteredRow[]>(() => {
-  let rows = currentRows.value.map((row, index) => ({ row, index, key: String(index) }))
-  if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    rows = rows.filter(item => {
-      const cols = filterCol.value ? [filterCol.value] : currentColumns.value.map(c => c.name)
-      return cols.some(c => String(item.row[c] ?? '').toLowerCase().includes(q))
-    })
-  }
-  if (sortCol.value && sortDir.value) {
-    const col = sortCol.value
-    const dir = sortDir.value
-    rows.sort((a, b) => {
-      const av = a.row[col]; const bv = b.row[col]
-      if (av === null) return 1; if (bv === null) return -1
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0
-      return dir === 'asc' ? cmp : -cmp
-    })
-  }
-  return rows
-})
-
-const allSelected = computed(() =>
-  filteredRows.value.length > 0 &&
-  filteredRows.value.every(item => resultStore.selectedRows.has(item.key))
-)
-
-function toggleAll() {
-  if (allSelected.value) resultStore.clearSelection()
-  else filteredRows.value.forEach(item => resultStore.selectedRows.add(item.key))
-}
-
-function isNumericColumn(col: Column): boolean {
-  const type = (col.type || '').toLowerCase()
-  return ['integer', 'numeric', 'decimal', 'bigint', 'int', 'float', 'double', 'real', 'number'].some(t => type.includes(t))
-}
-
-function isDateColumn(col: Column): boolean {
-  const type = (col.type || '').toLowerCase()
-  return ['timestamp', 'datetime', 'date', 'time'].some(t => type.includes(t))
-}
-
-function getCellClass(val: CellValue, col: Column): string {
-  if (val === null) return ''
-  if (isNumericColumn(col)) return 'text-syn-number'
-  if (isDateColumn(col)) return 'text-syn-string font-medium'
-  return ''
-}
-
-function truncateError(msg: string): string {
-  if (msg.length <= 80) return msg
-  return msg.slice(0, 80) + '\u2026'
-}
-
-function formatCell(val: CellValue, _col: Column): string {
-  if (val === null) return 'NULL'
-  const s = String(val)
-  if (s.length > 50) return s.slice(0, 50) + '\u2026'
-  return s
-}
-
-function statusBadgeClass(val: string): string {
-  const v = val.toLowerCase()
-  if (v === 'active') return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
-  if (v === 'inactive') return 'bg-muted text-muted-foreground border-border'
-  return ''
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-}
-
-const highlightedJson = computed(() => {
-  const json = JSON.stringify(currentRows.value, null, 2)
-  const escaped = escapeHtml(json)
-  return escaped
-    .replace(/(&quot;.*?&quot;)(: )/g, '<span class="text-blue-400">$1</span>$2')
-    .replace(/: (&quot;.*?&quot;)/g, ': <span class="text-yellow-500">$1</span>')
-    .replace(/: (\d+\.?\d*)/g, ': <span class="text-red-400">$1</span>')
-    .replace(/: (true|false)/g, ': <span class="text-emerald-500">$1</span>')
-    .replace(/: (null)/g, ': <span class="italic text-muted-foreground">$1</span>')
-})
-
-function copyJson() {
-  navigator.clipboard.writeText(JSON.stringify(currentRows.value, null, 2))
-}
-
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso)
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch { return iso }
 }
 
 function onPageSizeChange(e: Event) {
   const val = parseInt((e.target as HTMLSelectElement).value)
-  resultStore.setPageSize(val)
-}
-
-function restoreHistorySql(sql: string) {
-  const editorStore = useEditorStore()
-  if (editorStore.activeTabId) {
-    editorStore.updateSql(editorStore.activeTabId, sql)
+  resultStore.pageSize = val
+  if (resultStore.lastSql) {
+    resultStore.runQuery(resultStore.lastSql)
   }
 }
 
-// Foreign Key Hover Previews Logic
-import { invoke } from '@tauri-apps/api/core'
-import { useConnectionStore } from '../stores/connection'
-
-const connStore = useConnectionStore()
-
-const activeFkPreview = ref<{
-  rowIndex: number
-  colName: string
-  colValue: string
-  referencedSchema?: string | null
-  referencedTable: string
-  referencedColumn: string
-  loading: boolean
-  data: any | null
-  error: string | null
-  x: number
-  y: number
-} | null>(null)
-
-async function loadForeignKeysForColumns() {
-  const tablesToLoad = new Set<string>()
-  for (const col of resultStore.columns) {
-    if (col.orgTable) {
-      tablesToLoad.add(col.orgTable)
-    }
-  }
-
-  for (const table of tablesToLoad) {
-    await schemaStore.fetchForeignKeys(table)
-  }
-}
-
-function getColumnForeignKey(col: Column) {
-  if (!col.orgTable) return null
-  const fks = schemaStore.foreignKeysByTable[col.orgTable]
-  if (!fks) return null
-  const colName = col.orgName || col.name
-  return fks.find(fk => (fk.column_name || fk.columnName || '').toLowerCase() === colName.toLowerCase()) || null
-}
-
-async function showFkPreview(event: MouseEvent, col: Column, rowIndex: number, cellValue: CellValue) {
-  if (cellValue === null || cellValue === undefined) return
-  const fk = getColumnForeignKey(col)
-  if (!fk) return
-
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  const refSchema = fk.referencedTableSchema || fk.referenced_table_schema || null
-  const refTable = fk.referencedTable || fk.referenced_table || ''
-  const refCol = fk.referencedColumn || fk.referenced_column || ''
-  
-  activeFkPreview.value = {
-    rowIndex,
-    colName: col.name,
-    colValue: String(cellValue),
-    referencedSchema: refSchema,
-    referencedTable: refTable,
-    referencedColumn: refCol,
-    loading: true,
-    data: null,
-    error: null,
-    x: rect.left,
-    y: rect.bottom + window.scrollY,
-  }
-
-  try {
-    const data = await invoke<any>('fetch_referenced_row', {
-      table: refSchema ? `${refSchema}.${refTable}` : refTable,
-      column: refCol,
-      value: String(cellValue),
-      id: connStore.activeId,
-      database: refSchema || connStore.activeConnection?.database || null
-    })
-    if (activeFkPreview.value && activeFkPreview.value.rowIndex === rowIndex && activeFkPreview.value.colName === col.name) {
-      activeFkPreview.value.data = data
-      activeFkPreview.value.loading = false
-    }
-  } catch (e) {
-    if (activeFkPreview.value && activeFkPreview.value.rowIndex === rowIndex && activeFkPreview.value.colName === col.name) {
-      activeFkPreview.value.error = String(e)
-      activeFkPreview.value.loading = false
-    }
-  }
-}
-
-function closeFkPreview() {
-  activeFkPreview.value = null
-}
-
-function handleGlobalFkClick(e: MouseEvent) {
-  if (!activeFkPreview.value) return
-  const popover = document.getElementById('fk-preview-popover')
-  if (popover && !popover.contains(e.target as Node) && !(e.target as HTMLElement).closest('button[title="Preview referenced record"]')) {
-    closeFkPreview()
-  }
-}
-
-function handleGlobalFkKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    closeFkPreview()
-  }
-}
-
-watch(() => resultStore.status, (newStatus) => {
-  if (newStatus === 'success') {
-    loadForeignKeysForColumns()
-  }
-})
-
-function focus() {
-  const el = document.getElementById('result-grid-table')
-  el?.focus()
-}
-
-const anchorCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
-const focusCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
-const isMouseDown = ref(false)
-
-function onGlobalMouseUp() {
-  isMouseDown.value = false
-}
-
-function onCellMouseDown(rowIndex: number, colName: string, event: MouseEvent) {
-  if (event.button !== 0) return // Left click only
-  isMouseDown.value = true
-  const colIndex = currentColumns.value.findIndex(c => c.name === colName)
-  
-  if (event.shiftKey && anchorCell.value) {
-    focusCell.value = { rowIndex, colIndex }
-  } else {
-    anchorCell.value = { rowIndex, colIndex }
-    focusCell.value = { rowIndex, colIndex }
-  }
-  
-  focus()
-  // event.preventDefault() // Prevents default text dragging select
-}
-
-function onCellMouseEnter(rowIndex: number, colName: string, _event: MouseEvent) {
-  if (!isMouseDown.value) return
-  const colIndex = currentColumns.value.findIndex(c => c.name === colName)
-  focusCell.value = { rowIndex, colIndex }
-}
-
-function selectCell(rowIndex: number, colName: string, event?: MouseEvent) {
-  const colIndex = currentColumns.value.findIndex(c => c.name === colName)
-  if (event?.shiftKey && anchorCell.value) {
-    focusCell.value = { rowIndex, colIndex }
-  } else {
-    anchorCell.value = { rowIndex, colIndex }
-    focusCell.value = { rowIndex, colIndex }
-  }
-  focus()
-}
-
-function getCellSelectionClass(rowIndex: number, colIndex: number) {
-  if (!anchorCell.value || !focusCell.value) return ''
-  
-  const minRow = Math.min(anchorCell.value.rowIndex, focusCell.value.rowIndex)
-  const maxRow = Math.max(anchorCell.value.rowIndex, focusCell.value.rowIndex)
-  const minCol = Math.min(anchorCell.value.colIndex, focusCell.value.colIndex)
-  const maxCol = Math.max(anchorCell.value.colIndex, focusCell.value.colIndex)
-  
-  const inRange = rowIndex >= minRow && rowIndex <= maxRow && colIndex >= minCol && colIndex <= maxCol
-  if (!inRange) return ''
-  
-  if (focusCell.value.rowIndex === rowIndex && focusCell.value.colIndex === colIndex) {
-    return 'ring-2 ring-primary ring-inset bg-primary/15'
-  }
-  
-  return 'bg-primary/10'
-}
-
-function handleTableKeydown(e: KeyboardEvent) {
-  if (resultStore.editingCell) return
-
-  const meta = navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? e.metaKey : e.ctrlKey
-  
-  // Copy selected range (TSV formatted)
-  if (meta && e.key.toLowerCase() === 'c') {
-    if (anchorCell.value && focusCell.value) {
-      e.preventDefault()
-      copySelectedRange()
-    }
+async function handleBatchSaveEdits(
+  updates: { rowIndex: number; changes: Record<string, any> }[],
+  onSuccess?: () => void
+) {
+  if (!editableTableName.value) {
+    toast.error('Cannot determine target table for edits')
     return
   }
 
-  if (focusCell.value && anchorCell.value) {
-    const { rowIndex, colIndex } = focusCell.value
-    const shift = e.shiftKey
-    
-    let nextRow = rowIndex
-    let nextCol = colIndex
-    
-    if (e.key === 'ArrowUp') {
-      if (rowIndex > 0) {
-        e.preventDefault()
-        nextRow = rowIndex - 1
-      }
-    } else if (e.key === 'ArrowDown') {
-      if (rowIndex < currentRows.value.length - 1) {
-        e.preventDefault()
-        nextRow = rowIndex + 1
-      }
-    } else if (e.key === 'ArrowLeft') {
-      if (colIndex > 0) {
-        e.preventDefault()
-        nextCol = colIndex - 1
-      }
-    } else if (e.key === 'ArrowRight') {
-      if (colIndex < currentColumns.value.length - 1) {
-        e.preventDefault()
-        nextCol = colIndex + 1
-      }
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      const colName = currentColumns.value[colIndex].name
-      startEditCell(rowIndex, colName, e)
-      return
-    } else {
-      return
+  const targetTable = editableTableName.value
+  const connStore = useConnectionStore()
+  if (connStore.activeConnection?.readOnly) {
+    toast.error('Connection is in Read-Only mode. Edits are blocked.')
+    return
+  }
+
+  // Ensure we have table details/PK metadata (fetching dynamically for cross-schema tables if not cached)
+  let keyInfo = schemaStore.getKeyColumnsForTable(targetTable)
+  if (keyInfo.columns.length === 0) {
+    try {
+      await schemaStore.fetchTableDetails(targetTable)
+      keyInfo = schemaStore.getKeyColumnsForTable(targetTable)
+    } catch {
+      // Fallback
     }
-    
-    focusCell.value = { rowIndex: nextRow, colIndex: nextCol }
-    if (!shift) {
-      anchorCell.value = { rowIndex: nextRow, colIndex: nextCol }
+  }
+
+  try {
+    resultStore.savingEdits = true
+    const connId = connStore.activeId
+
+    // Dispatch parameterized batch updates to backend
+    for (const update of updates) {
+      const row = currentRows.value[update.rowIndex]
+      if (!row) continue
+
+      const effectiveKeys = (keyInfo.columns && keyInfo.columns.length > 0)
+        ? keyInfo.columns
+        : currentColumns.value.map(c => c.name)
+
+      const pks: { column: string; value: any }[] = []
+      for (const keyCol of effectiveKeys) {
+        const colDef = currentColumns.value.find(c => 
+          (c.orgName || c.name).toLowerCase() === keyCol.toLowerCase() ||
+          c.name.toLowerCase() === keyCol.toLowerCase()
+        )
+        const val = colDef ? row[colDef.name] : row[keyCol]
+        if (val !== undefined) {
+          pks.push({ column: keyCol, value: val })
+        }
+      }
+
+      if (pks.length === 0) {
+        // Fallback: match all non-null columns
+        for (const col of currentColumns.value) {
+          const val = row[col.name]
+          if (val !== undefined && val !== null) {
+            pks.push({ column: col.orgName || col.name, value: val })
+          }
+        }
+      }
+
+      const changesList: { column: string; value: any }[] = []
+      for (const [colName, val] of Object.entries(update.changes)) {
+        const colDef = currentColumns.value.find(c => c.name === colName)
+        const actualCol = colDef?.orgName || colName
+        changesList.push({ column: actualCol, value: val })
+      }
+
+      await invoke<{ affected_rows: number; duration_ms: number; warning: string | null }>('update_rows', {
+        table: targetTable,
+        updates: changesList,
+        pks,
+        id: connId,
+      })
     }
-    scrollToActiveCell()
+
+    onSuccess?.()
+    resultStore.dirtyCells = {}
+    toast.success(`Successfully saved ${updates.length} modified row(s)`)
+    refreshActive()
+  } catch (err) {
+    toast.error('Failed to apply edits', { description: String(err) })
+  } finally {
+    resultStore.savingEdits = false
   }
 }
 
-function copySelectedRange() {
-  if (!anchorCell.value || !focusCell.value) return
-  
-  const minRow = Math.min(anchorCell.value.rowIndex, focusCell.value.rowIndex)
-  const maxRow = Math.max(anchorCell.value.rowIndex, focusCell.value.rowIndex)
-  const minCol = Math.min(anchorCell.value.colIndex, focusCell.value.colIndex)
-  const maxCol = Math.max(anchorCell.value.colIndex, focusCell.value.colIndex)
-  
-  const lines: string[] = []
-  for (let r = minRow; r <= maxRow; r++) {
-    const row = currentRows.value[r]
-    const rowValues: string[] = []
-    for (let c = minCol; c <= maxCol; c++) {
-      const colName = currentColumns.value[c].name
-      const val = row?.[colName]
-      rowValues.push(val === null || val === undefined ? '' : String(val))
-    }
-    lines.push(rowValues.join('\t'))
+function refreshActive() {
+  if (resultStore.lastSql) {
+    resultStore.runQuery(resultStore.lastSql)
   }
-  
-  const text = lines.join('\n')
-  navigator.clipboard.writeText(text)
-  toast.success(`Copied selection (${maxRow - minRow + 1}x${maxCol - minCol + 1}) to clipboard`)
 }
 
-function scrollToActiveCell() {
-  nextTick(() => {
-    const activeEl = document.querySelector('#result-grid-table .ring-primary')
-    activeEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  })
+function runHistoryItem(sql: string) {
+  resultStore.runQuery(sql)
 }
 
-watch(() => resultStore.rows, () => {
-  anchorCell.value = null
-  focusCell.value = null
-})
+function copyJson() {
+  navigator.clipboard.writeText(formattedJson.value)
+  toast.success('Copied JSON to clipboard')
+}
 
-defineExpose({ focus })
+function copyError() {
+  if (currentError.value) {
+    navigator.clipboard.writeText(`[${currentError.value.code}] ${currentError.value.message}`)
+    toast.success('Copied error to clipboard')
+  }
+}
+
+function copyText(txt: string) {
+  navigator.clipboard.writeText(txt)
+  toast.success('Copied to clipboard')
+}
+
+function formatHistoryTime(isoStr: string): string {
+  try {
+    const d = new Date(isoStr)
+    return d.toLocaleTimeString()
+  } catch {
+    return isoStr
+  }
+}
 </script>
-
-<style>
-.result-pane-font-mono,
-.result-pane-font-mono *,
-.result-panel-context-menu,
-.result-panel-context-menu *,
-.result-panel-dialog,
-.result-panel-dialog *,
-#fk-preview-popover,
-#fk-preview-popover * {
-  font-family: var(--font-mono), monospace !important;
-}
-</style>

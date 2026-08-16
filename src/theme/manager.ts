@@ -211,6 +211,25 @@ export function applyThemeVariables(theme: Theme) {
   root.style.setProperty('--border', theme.colors.border)
   root.style.setProperty('--input', theme.colors.border)
   root.style.setProperty('--ring', theme.colors.focusRing)
+
+  // Dynamically compute dimmed sidebar palette matching the active theme
+  if (isDarkCategory) {
+    const sidebarBg = `color-mix(in srgb, ${theme.colors.background} 78%, #000000 22%)`
+    const sidebarMuted = `color-mix(in srgb, ${theme.colors.background} 60%, #000000 40%)`
+    root.style.setProperty('--sidebar', sidebarBg)
+    root.style.setProperty('--sidebar-foreground', theme.colors.textMuted)
+    root.style.setProperty('--sidebar-muted', sidebarMuted)
+    root.style.setProperty('--sidebar-border', theme.colors.border)
+    root.style.setProperty('--sidebar-accent', `color-mix(in srgb, ${theme.colors.text} 6%, transparent)`)
+  } else {
+    const sidebarBg = `color-mix(in srgb, ${theme.colors.background} 94%, #000000 6%)`
+    const sidebarMuted = `color-mix(in srgb, ${theme.colors.background} 88%, #000000 12%)`
+    root.style.setProperty('--sidebar', sidebarBg)
+    root.style.setProperty('--sidebar-foreground', theme.colors.textMuted)
+    root.style.setProperty('--sidebar-muted', sidebarMuted)
+    root.style.setProperty('--sidebar-border', theme.colors.border)
+    root.style.setProperty('--sidebar-accent', `color-mix(in srgb, #000000 4%, transparent)`)
+  }
 }
 
 // Watch activeTheme changes and apply automatically

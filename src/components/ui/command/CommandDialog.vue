@@ -24,14 +24,14 @@ const forwarded = useForwardPropsEmits(props, emits)
 <template>
   <Dialog v-slot="slotProps" v-bind="forwarded">
     <DialogContent
-      :class="cn('rounded-xl! top-1/3 translate-y-0 overflow-hidden p-0', props.class)"
+      :class="cn('rounded-2xl! top-[18%] sm:max-w-2xl max-w-[94vw] translate-y-0 overflow-hidden p-0 border border-border/80 bg-popover/98 backdrop-blur-xl shadow-2xl shadow-black/40 ring-1 ring-white/10', props.class)"
       :show-close-button="showCloseButton"
     >
       <DialogHeader class="sr-only">
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription>{{ description }}</DialogDescription>
       </DialogHeader>
-      <Command>
+      <Command class="w-full">
         <slot v-bind="slotProps" />
       </Command>
     </DialogContent>

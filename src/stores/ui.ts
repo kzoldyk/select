@@ -16,6 +16,8 @@ export const useUiStore = defineStore('ui', {
     paletteOpen: false,
     inspectorOpen: false,
     connectionManagerOpen: false,
+    connectionEditSheetOpen: false,
+    editingConnectionId: null as string | null,
     activeInspectorTable: null as string | null,
     settingsOpen: false,
     shortcutsOpen: false,
@@ -65,6 +67,14 @@ export const useUiStore = defineStore('ui', {
     closeConnectionManager() {
       this.connectionManagerOpen = false
     },
+    openConnectionEditSheet(id?: string | null) {
+      this.editingConnectionId = id ?? null
+      this.connectionEditSheetOpen = true
+    },
+    closeConnectionEditSheet() {
+      this.connectionEditSheetOpen = false
+      this.editingConnectionId = null
+    },
     openShortcuts() {
       this.shortcutsOpen = true
     },
@@ -100,6 +110,20 @@ export const useUiStore = defineStore('ui', {
       this.virtualKeyDialogOpen = false
       this.virtualKeyTable = null
     },
+    closeAll() {
+      this.paletteOpen = false
+      this.inspectorOpen = false
+      this.connectionManagerOpen = false
+      this.connectionEditSheetOpen = false
+      this.editingConnectionId = null
+      this.settingsOpen = false
+      this.shortcutsOpen = false
+      this.exportOpen = false
+      this.themeGalleryOpen = false
+      this.virtualKeyDialogOpen = false
+      this.activeInspectorTable = null
+      this.virtualKeyTable = null
+    },
     setTheme(theme: Theme) {
       this.theme = theme
       if (typeof window !== 'undefined') {
@@ -107,7 +131,6 @@ export const useUiStore = defineStore('ui', {
       }
       this.applyTheme()
 
-      // Bridge to the new theme system
       if (theme === 'dark') {
         setThemeFromSystem('default-dark')
       } else if (theme === 'light') {
@@ -129,7 +152,6 @@ export const useUiStore = defineStore('ui', {
       this.systemIsDark = isDark
       this.applyTheme()
 
-      // Keep dynamic theme synced if on system
       if (this.theme === 'system') {
         setThemeFromSystem(isDark ? 'default-dark' : 'one-light')
       }
@@ -139,17 +161,8 @@ export const useUiStore = defineStore('ui', {
         document.documentElement.classList.toggle('dark', this.isDark)
       }
     },
-    toggleResultPanel() {
-      this.resultPanelOpen = !this.resultPanelOpen
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('resultPanelOpen', String(this.resultPanelOpen))
-      }
-    },
-    setResultPanelOpen(open: boolean) {
-      this.resultPanelOpen = open
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('resultPanelOpen', String(open))
-      }
+    toggleSounds() {
+      this.setSoundsEnabled(!this.soundsEnabled)
     },
     setSoundsEnabled(enabled: boolean) {
       this.soundsEnabled = enabled
@@ -158,17 +171,14 @@ export const useUiStore = defineStore('ui', {
       }
       syncSoundsEnabled(enabled)
     },
-    toggleSounds() {
-      this.setSoundsEnabled(!this.soundsEnabled)
+    setResultPanelOpen(open: boolean) {
+      this.resultPanelOpen = open
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('resultPanelOpen', String(open))
+      }
     },
-    closeAll() {
-      this.paletteOpen = false
-      this.inspectorOpen = false
-      this.connectionManagerOpen = false
-      this.settingsOpen = false
-      this.shortcutsOpen = false
-      this.exportOpen = false
-      this.themeGalleryOpen = false
+    toggleResultPanel() {
+      this.setResultPanelOpen(!this.resultPanelOpen)
     },
   },
 })
