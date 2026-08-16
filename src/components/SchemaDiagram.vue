@@ -17,57 +17,67 @@
       <div class="flex items-center gap-2">
         <!-- Zoom Controls -->
         <div class="flex items-center gap-1 bg-background border border-border/80 rounded-md px-1 py-0.5 shadow-sm mr-1.5">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            class="h-5 w-5 text-muted-foreground hover:text-foreground cursor-pointer"
-            title="Zoom Out"
-            @click="zoomOut"
-          >
-            <PhMagnifyingGlassMinus class="w-3.5 h-3.5" />
-          </Button>
+          <ActionTooltip text="Zoom Out">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              class="h-5 w-5 text-muted-foreground hover:text-foreground cursor-pointer"
+              aria-label="Zoom Out"
+              @click="zoomOut"
+            >
+              <PhMagnifyingGlassMinus class="w-3.5 h-3.5" />
+            </Button>
+          </ActionTooltip>
           <span class="text-[10px] text-muted-foreground font-mono w-9 text-center select-none">
             {{ Math.round(zoom * 100) }}%
           </span>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            class="h-5 w-5 text-muted-foreground hover:text-foreground cursor-pointer"
-            title="Zoom In"
-            @click="zoomIn"
-          >
-            <PhMagnifyingGlassPlus class="w-3.5 h-3.5" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            class="h-5 w-5 text-muted-foreground hover:text-foreground border-l border-border/30 rounded-none pl-1 cursor-pointer"
-            title="Reset Zoom"
-            @click="resetZoom"
-          >
-            <PhMagnifyingGlass class="w-3.5 h-3.5" />
-          </Button>
+          <ActionTooltip text="Zoom In">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              class="h-5 w-5 text-muted-foreground hover:text-foreground cursor-pointer"
+              aria-label="Zoom In"
+              @click="zoomIn"
+            >
+              <PhMagnifyingGlassPlus class="w-3.5 h-3.5" />
+            </Button>
+          </ActionTooltip>
+          <ActionTooltip text="Reset Zoom">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              class="h-5 w-5 text-muted-foreground hover:text-foreground border-l border-border/30 rounded-none pl-1 cursor-pointer"
+              aria-label="Reset Zoom"
+              @click="resetZoom"
+            >
+              <PhMagnifyingGlass class="w-3.5 h-3.5" />
+            </Button>
+          </ActionTooltip>
         </div>
 
-        <Button 
-          variant="outline" 
-          size="sm" 
-          class="h-6.5 px-2.5 text-[10.5px] bg-background font-medium gap-1 cursor-pointer"
-          @click="resetLayout"
-        >
-          <PhArrowsOut class="w-3.5 h-3.5" />
-          <span>Reset Layout</span>
-        </Button>
+        <ActionTooltip text="Auto-arrange table layout">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            class="h-6.5 px-2.5 text-[10.5px] bg-background font-medium gap-1 cursor-pointer"
+            @click="resetLayout"
+          >
+            <PhArrowsOut class="w-3.5 h-3.5" />
+            <span>Reset Layout</span>
+          </Button>
+        </ActionTooltip>
 
-        <Button 
-          variant="outline" 
-          size="sm" 
-          class="h-6.5 px-2.5 text-[10.5px] bg-background font-medium gap-1 cursor-pointer"
-          @click="recenterView"
-        >
-          <PhCornersOut class="w-3.5 h-3.5" />
-          <span>Recenter View</span>
-        </Button>
+        <ActionTooltip text="Recenter diagram view">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            class="h-6.5 px-2.5 text-[10.5px] bg-background font-medium gap-1 cursor-pointer"
+            @click="recenterView"
+          >
+            <PhCornersOut class="w-3.5 h-3.5" />
+            <span>Recenter View</span>
+          </Button>
+        </ActionTooltip>
       </div>
     </div>
 
@@ -268,6 +278,7 @@ import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ActionTooltip } from '@/components/ui/tooltip'
 import { Table, Key, Link } from '@lucide/vue'
 import { 
   PhArrowsOut, 

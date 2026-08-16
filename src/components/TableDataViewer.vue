@@ -71,16 +71,17 @@
           </div>
         </div>
 
-        <Button 
-          variant="outline" 
-          size="sm" 
-          class="h-7 px-2 gap-1 text-[11px] font-medium bg-background text-muted-foreground hover:text-foreground"
-          :title="keyStatusTooltip"
-          @click="uiStore.openVirtualKeyDialog(props.tableName)"
-        >
-          <PhKey class="w-3.5 h-3.5" :class="keyStatusIconClass" />
-          <span class="text-[10px] font-mono">{{ keyStatusLabel }}</span>
-        </Button>
+        <ActionTooltip :text="keyStatusTooltip">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            class="h-7 px-2 gap-1 text-[11px] font-medium bg-background text-muted-foreground hover:text-foreground"
+            @click="uiStore.openVirtualKeyDialog(props.tableName)"
+          >
+            <PhKey class="w-3.5 h-3.5" :class="keyStatusIconClass" />
+            <span class="text-[10px] font-mono">{{ keyStatusLabel }}</span>
+          </Button>
+        </ActionTooltip>
 
         <!-- Dirty changes actions -->
         <div v-if="hasChanges" class="flex items-center gap-1.5 ml-2 border-l border-border pl-3">
@@ -88,38 +89,46 @@
             <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
             Changes: {{ changesCount }}
           </Badge>
-          <Button 
-            v-if="undoStack.length > 0"
-            variant="outline" 
-            size="sm" 
-            class="h-7 px-2 text-[10px] font-semibold gap-1 bg-background"
-            :disabled="saving"
-            @click="undoLastEdit"
-            title="Undo last edit"
-          >
-            <PhArrowCounterClockwise class="w-3 h-3" />
-            Undo
-          </Button>
-          <Button 
-            variant="default" 
-            size="sm" 
-            class="bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2 text-[10px] font-semibold gap-1"
-            :disabled="saving"
-            @click="saveEdits"
-          >
-            <PhCheck class="w-3 h-3" />
-            Save
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            class="h-7 px-2 text-[10px] font-semibold gap-1 bg-background"
-            :disabled="saving"
-            @click="discardEdits"
-          >
-            <PhX class="w-3 h-3" />
-            Revert All
-          </Button>
+          <ActionTooltip text="Undo last edit (⌘Z)">
+            <Button 
+              v-if="undoStack.length > 0"
+              variant="outline" 
+              size="sm" 
+              class="h-7 px-2 text-[10px] font-semibold gap-1 bg-background"
+              :disabled="saving"
+              aria-label="Undo last edit"
+              @click="undoLastEdit"
+            >
+              <PhArrowCounterClockwise class="w-3 h-3" />
+              Undo
+            </Button>
+          </ActionTooltip>
+          <ActionTooltip text="Save all pending changes to database (⌘S)">
+            <Button 
+              variant="default" 
+              size="sm" 
+              class="bg-emerald-600 hover:bg-emerald-700 text-white h-7 px-2 text-[10px] font-semibold gap-1"
+              :disabled="saving"
+              aria-label="Save changes"
+              @click="saveEdits"
+            >
+              <PhCheck class="w-3 h-3" />
+              Save
+            </Button>
+          </ActionTooltip>
+          <ActionTooltip text="Discard and revert all unsaved edits">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              class="h-7 px-2 text-[10px] font-semibold gap-1 bg-background"
+              :disabled="saving"
+              aria-label="Revert all changes"
+              @click="discardEdits"
+            >
+              <PhX class="w-3 h-3" />
+              Revert All
+            </Button>
+          </ActionTooltip>
         </div>
       </div>
 
@@ -134,27 +143,33 @@
         <PhGridNine class="w-4 h-4 text-muted-foreground opacity-60" />
 
         <div class="flex items-center gap-1.5">
-          <Button 
-            variant="outline" 
-            size="icon" 
-            class="h-6 w-6 rounded bg-background"
-            :disabled="page <= 1"
-            @click="prevPage"
-          >
-            <PhCaretLeft class="w-3.5 h-3.5" />
-          </Button>
+          <ActionTooltip text="Previous page">
+            <Button 
+              variant="outline" 
+              size="icon" 
+              class="h-6 w-6 rounded bg-background"
+              :disabled="page <= 1"
+              aria-label="Previous page"
+              @click="prevPage"
+            >
+              <PhCaretLeft class="w-3.5 h-3.5" />
+            </Button>
+          </ActionTooltip>
           <span class="text-[11px] text-muted-foreground font-mono select-none px-1">
             {{ page }} of {{ totalPages || 1 }}
           </span>
-          <Button 
-            variant="outline" 
-            size="icon" 
-            class="h-6 w-6 rounded bg-background"
-            :disabled="page >= totalPages"
-            @click="nextPage"
-          >
-            <PhCaretRight class="w-3.5 h-3.5" />
-          </Button>
+          <ActionTooltip text="Next page">
+            <Button 
+              variant="outline" 
+              size="icon" 
+              class="h-6 w-6 rounded bg-background"
+              :disabled="page >= totalPages"
+              aria-label="Next page"
+              @click="nextPage"
+            >
+              <PhCaretRight class="w-3.5 h-3.5" />
+            </Button>
+          </ActionTooltip>
         </div>
 
         <div class="h-4 w-px bg-border/60"></div>
@@ -453,6 +468,7 @@ import { useUiStore } from '../stores/ui'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { ActionTooltip } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from 'vue-sonner'
 import {

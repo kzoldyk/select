@@ -3,15 +3,17 @@
     <!-- Left: Sidebar Toggle & Tabs -->
     <div class="flex items-center h-full gap-2 min-w-0 flex-1">
       <!-- Toggle Sidebar Button -->
-      <Button
-        variant="ghost"
-        size="icon"
-        class="text-muted-foreground hover:text-foreground h-6 w-6 transition-colors rounded cursor-pointer"
-        aria-label="Toggle sidebar"
-        @click="uiStore.toggleSidebar()"
-      >
-        <PhSidebar class="w-3.5 h-3.5 opacity-80" />
-      </Button>
+      <ActionTooltip text="Toggle Sidebar (⌘B)">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="text-muted-foreground hover:text-foreground h-6 w-6 transition-colors rounded cursor-pointer"
+          aria-label="Toggle sidebar"
+          @click="uiStore.toggleSidebar()"
+        >
+          <PhSidebar class="w-3.5 h-3.5 opacity-80" />
+        </Button>
+      </ActionTooltip>
 
       <!-- Divider -->
       <div class="h-4 w-px bg-border/60 mx-0.5"></div>
@@ -50,111 +52,127 @@
           </div>
         </button>
 
-        <button
-          v-cuelume:press
-          class="inline-flex items-center justify-center w-6 h-6 mb-0.5 rounded bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer flex-shrink-0 transition-colors border-none"
-          aria-label="Add new query tab (⌘T)"
-          title="New tab (⌘T)"
-          @click="editorStore.addTab()"
-        >
-          <PhPlus class="w-3.5 h-3.5" />
-        </button>
+        <ActionTooltip text="New Query Tab (⌘T)">
+          <button
+            v-cuelume:press
+            class="inline-flex items-center justify-center w-6 h-6 mb-0.5 rounded bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer flex-shrink-0 transition-colors border-none"
+            aria-label="Add new query tab (⌘T)"
+            @click="editorStore.addTab()"
+          >
+            <PhPlus class="w-3.5 h-3.5" />
+          </button>
+        </ActionTooltip>
       </div>
     </div>
 
     <!-- Right: Integrated Controls (Command Palette, Format, Explain, Zoom, Settings, Run) -->
     <div class="flex items-center gap-1.5 pl-2 flex-shrink-0 rounded-lg border border-border/50 bg-background/40 p-0.5">
       <!-- Search/Command Palette trigger -->
-      <Button
-        variant="ghost"
-        size="icon"
-        class="h-6 w-6 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
-        title="Search commands (⌘K)"
-        @click="uiStore.openPalette()"
-      >
-        <PhMagnifyingGlass class="w-3.5 h-3.5" />
-      </Button>
+      <ActionTooltip text="Command Palette (⌘K)">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-6 w-6 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+          aria-label="Command palette"
+          @click="uiStore.openPalette()"
+        >
+          <PhMagnifyingGlass class="w-3.5 h-3.5" />
+        </Button>
+      </ActionTooltip>
 
       <div class="h-3.5 w-px bg-border/60"></div>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        class="text-[11px] h-6 px-2 gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors cursor-pointer"
-        title="Format SQL (⇧⌘F)"
-        @click="$emit('format')"
-      >
-        <PhCode class="w-3.5 h-3.5 opacity-70" />
-        <span class="hidden md:inline">Format</span>
-      </Button>
+      <!-- Format SQL Button with MagicWand icon -->
+      <ActionTooltip text="Format SQL (⇧⌘F)">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-6 w-6 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+          aria-label="Format SQL"
+          @click="$emit('format')"
+        >
+          <PhMagicWand class="w-3.5 h-3.5" />
+        </Button>
+      </ActionTooltip>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        class="text-[11px] h-6 px-2 gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors cursor-pointer"
-        title="Explain Query Plan"
-        @click="$emit('explain')"
-      >
-        <PhFileText class="w-3.5 h-3.5 opacity-70" />
-        <span class="hidden md:inline">Explain</span>
-      </Button>
+      <!-- Explain Query Plan Button with TreeStructure icon -->
+      <ActionTooltip text="Explain Query Plan (⌘E)">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-6 w-6 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+          aria-label="Explain Query Plan"
+          @click="$emit('explain')"
+        >
+          <PhTreeStructure class="w-3.5 h-3.5" />
+        </Button>
+      </ActionTooltip>
 
       <div class="h-3.5 w-px bg-border/60"></div>
 
       <!-- Compact Zoom Control Pill -->
       <div class="flex items-center gap-0.5 bg-background/50 border border-border/60 rounded p-0.5">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-5 w-5 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
-          title="Zoom Out (⌘-)"
-          @click="editorStore.zoomOut()"
-        >
-          <PhMinus class="w-3 h-3" />
-        </Button>
-        <button
-          class="text-[9px] font-mono px-1 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer border-none bg-transparent"
-          title="Reset Zoom (⌘0)"
-          @click="editorStore.resetZoom()"
-        >
-          {{ editorStore.fontSize }}px
-        </button>
-        <Button
-          variant="ghost"
-          size="icon"
-          class="h-5 w-5 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
-          title="Zoom In (⌘+)"
-          @click="editorStore.zoomIn()"
-        >
-          <PhPlus class="w-3 h-3" />
-        </Button>
+        <ActionTooltip text="Zoom Out (⌘-)">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-5 w-5 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+            aria-label="Zoom Out"
+            @click="editorStore.zoomOut()"
+          >
+            <PhMinus class="w-3 h-3" />
+          </Button>
+        </ActionTooltip>
+        <ActionTooltip text="Reset Zoom (⌘0)">
+          <button
+            class="text-[9px] font-mono px-1 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer border-none bg-transparent"
+            @click="editorStore.resetZoom()"
+          >
+            {{ editorStore.fontSize }}px
+          </button>
+        </ActionTooltip>
+        <ActionTooltip text="Zoom In (⌘+)">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-5 w-5 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+            aria-label="Zoom In"
+            @click="editorStore.zoomIn()"
+          >
+            <PhPlus class="w-3 h-3" />
+          </Button>
+        </ActionTooltip>
       </div>
 
       <div class="h-3.5 w-px bg-border/60"></div>
 
       <!-- Settings button -->
-      <Button
-        variant="ghost"
-        size="icon"
-        class="h-6 w-6 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
-        title="Open Settings"
-        @click="uiStore.openSettings()"
-      >
-        <PhGear class="w-3.5 h-3.5" />
-      </Button>
+      <ActionTooltip text="Settings">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-6 w-6 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+          aria-label="Open Settings"
+          @click="uiStore.openSettings()"
+        >
+          <PhGear class="w-3.5 h-3.5" />
+        </Button>
+      </ActionTooltip>
 
       <div class="h-3.5 w-px bg-border/60"></div>
 
       <!-- Run Button -->
-      <Button 
-        size="sm" 
-        class="h-6.5 px-3 gap-1.5 text-[11px] font-semibold rounded-md shadow-sm active:scale-[0.97] transition-[transform,box-shadow] duration-fast ease-premium cursor-pointer ring-1 ring-primary/20 hover:shadow-[0_0_12px_color-mix(in_srgb,var(--primary)_35%,transparent)]"
-        title="Run Query (⌘Enter)"
-        @click="$emit('run')"
-      >
-        <PhPlay class="w-3 h-3 fill-current" weight="fill" />
-        Run
-      </Button>
+      <ActionTooltip text="Run Query (⌘Enter)">
+        <Button 
+          size="sm" 
+          class="h-6.5 px-3 gap-1.5 text-[11px] font-semibold rounded-md shadow-sm active:scale-[0.97] transition-[transform,box-shadow] duration-fast ease-premium cursor-pointer ring-1 ring-primary/20 hover:shadow-[0_0_12px_color-mix(in_srgb,var(--primary)_35%,transparent)]"
+          aria-label="Run Query"
+          @click="$emit('run')"
+        >
+          <PhPlay class="w-3 h-3 fill-current" weight="fill" />
+          Run
+        </Button>
+      </ActionTooltip>
     </div>
   </div>
 </template>
@@ -163,8 +181,9 @@
 import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { Button } from '@/components/ui/button'
+import { ActionTooltip } from '@/components/ui/tooltip'
 import { 
-  PhSidebar, PhPlus, PhMinus, PhMagnifyingGlass, PhCode, PhFileText, PhGear, PhPlay, PhX,
+  PhSidebar, PhPlus, PhMinus, PhMagnifyingGlass, PhMagicWand, PhTreeStructure, PhGear, PhPlay, PhX,
   PhTable, PhFileCode, PhGitBranch
 } from '@phosphor-icons/vue'
 

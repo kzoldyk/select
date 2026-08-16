@@ -4,30 +4,31 @@
     <div class="flex items-center gap-3 min-w-0">
       <!-- Connection Switcher Dropdown Trigger -->
       <div class="relative" ref="connMenuRef">
-        <button
-          class="flex items-center gap-2 px-1.5 py-0.5 rounded hover:bg-accent/60 transition-colors text-foreground cursor-pointer border-none bg-transparent"
-          data-cuelume-press
-          data-cuelume-release
-          @click="showConnMenu = !showConnMenu"
-          :title="activeConnLabel"
-        >
-          <!-- Glowing dot according to connection color -->
-          <span 
-            class="w-2 h-2 rounded-full flex-shrink-0 transition-all duration-300"
-            :style="dotStyle"
-            :title="connectionHealthTitle"
-          ></span>
-          
-          <span class="font-semibold tracking-tight max-w-[130px] truncate text-[11px]">
-            {{ connStore.activeConnection?.name || 'No Connection' }}
-          </span>
+        <ActionTooltip :text="activeConnLabel">
+          <button
+            class="flex items-center gap-2 px-1.5 py-0.5 rounded hover:bg-accent/60 transition-colors text-foreground cursor-pointer border-none bg-transparent"
+            data-cuelume-press
+            data-cuelume-release
+            @click="showConnMenu = !showConnMenu"
+          >
+            <!-- Glowing dot according to connection color -->
+            <span 
+              class="w-2 h-2 rounded-full flex-shrink-0 transition-all duration-300"
+              :style="dotStyle"
+              :title="connectionHealthTitle"
+            ></span>
+            
+            <span class="font-semibold tracking-tight max-w-[130px] truncate text-[11px]">
+              {{ connStore.activeConnection?.name || 'No Connection' }}
+            </span>
 
-          <span v-if="connStore.activeConnection?.database" class="text-muted-foreground text-[10px]">
-            ({{ connStore.activeConnection.database }})
-          </span>
+            <span v-if="connStore.activeConnection?.database" class="text-muted-foreground text-[10px]">
+              ({{ connStore.activeConnection.database }})
+            </span>
 
-          <PhCaretDown class="w-2.5 h-2.5 text-muted-foreground/70 flex-shrink-0" />
-        </button>
+            <PhCaretDown class="w-2.5 h-2.5 text-muted-foreground/70 flex-shrink-0" />
+          </button>
+        </ActionTooltip>
 
         <!-- Dropdown Menu for Connection Switcher -->
         <div
@@ -88,48 +89,92 @@
       </div>
     </div>
 
+    <!-- Center/Selection Action Area (Utilizing spare bottom bar space!) -->
+    <div v-if="resultStore.selectedRows.size > 0" class="flex items-center gap-2 px-2.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 animate-in fade-in-50 duration-150">
+      <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0"></span>
+      <span class="text-[10px] font-semibold text-primary">
+        {{ resultStore.selectedRows.size }} row{{ resultStore.selectedRows.size > 1 ? 's' : '' }} selected
+      </span>
+      <div class="h-3 w-px bg-primary/30 mx-0.5"></div>
+      <ActionTooltip text="Copy selected rows as TSV (Excel / Sheets compatible)" side="top">
+        <button
+          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-background text-foreground hover:bg-accent border border-border/60 transition-colors cursor-pointer shadow-xs"
+          @click="copySelectedTsv"
+        >
+          <PhCopy class="w-3 h-3 text-muted-foreground" />
+          <span>Copy TSV</span>
+        </button>
+      </ActionTooltip>
+      <ActionTooltip text="Copy selected rows as JSON" side="top">
+        <button
+          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-background text-foreground hover:bg-accent border border-border/60 transition-colors cursor-pointer shadow-xs"
+          @click="copySelectedJson"
+        >
+          <PhFileCode class="w-3 h-3 text-muted-foreground" />
+          <span>Copy JSON</span>
+        </button>
+      </ActionTooltip>
+      <ActionTooltip text="Clear selection" side="top">
+        <button
+          class="inline-flex items-center justify-center w-4 h-4 rounded text-muted-foreground hover:text-foreground hover:bg-accent/80 transition-colors cursor-pointer border-none bg-transparent"
+          @click="resultStore.clearSelection()"
+        >
+          <PhX class="w-3 h-3" />
+        </button>
+      </ActionTooltip>
+    </div>
+
     <!-- Right Side Status Info -->
     <div class="flex items-center gap-3 text-muted-foreground/80 cursor-default">
-      <span class="font-mono text-[10px]">
-        Ln {{ editorStore.activeTab?.cursorLine ?? 1 }}, Col {{ editorStore.activeTab?.cursorCol ?? 1 }}
-        <template v-if="editorStore.activeTab?.selectedTextCount">
-          ({{ editorStore.activeTab.selectedTextCount }} selected)
-        </template>
-      </span>
+      <ActionTooltip text="Cursor line and column">
+        <span class="font-mono text-[10px]">
+          Ln {{ editorStore.activeTab?.cursorLine ?? 1 }}, Col {{ editorStore.activeTab?.cursorCol ?? 1 }}
+          <template v-if="editorStore.activeTab?.selectedTextCount">
+            ({{ editorStore.activeTab.selectedTextCount }} selected)
+          </template>
+        </span>
+      </ActionTooltip>
       <span class="w-px h-3 bg-border/60"></span>
       <span>UTF-8</span>
       <span class="w-px h-3 bg-border/60"></span>
       <span>SQL</span>
       <span class="w-px h-3 bg-border/60"></span>
-      <button
-        class="flex items-center justify-center hover:text-foreground transition-colors cursor-pointer border-none bg-transparent"
-        data-cuelume-toggle
-        @click="uiStore.toggleSounds()"
-        :title="uiStore.soundsEnabled ? 'Mute interaction sounds' : 'Enable interaction sounds'"
-        :aria-label="uiStore.soundsEnabled ? 'Mute interaction sounds' : 'Enable interaction sounds'"
-        :aria-pressed="!uiStore.soundsEnabled"
-      >
-        <PhSpeakerHigh v-if="uiStore.soundsEnabled" class="w-3.5 h-3.5" />
-        <PhSpeakerSlash v-else class="w-3.5 h-3.5 text-muted-foreground/60" />
-      </button>
+      <ActionTooltip :text="uiStore.soundsEnabled ? 'Mute interaction sounds' : 'Enable interaction sounds'" side="top">
+        <button
+          class="flex items-center justify-center hover:text-foreground transition-colors cursor-pointer border-none bg-transparent"
+          data-cuelume-toggle
+          @click="uiStore.toggleSounds()"
+          :aria-label="uiStore.soundsEnabled ? 'Mute interaction sounds' : 'Enable interaction sounds'"
+          :aria-pressed="!uiStore.soundsEnabled"
+        >
+          <PhSpeakerHigh v-if="uiStore.soundsEnabled" class="w-3.5 h-3.5" />
+          <PhSpeakerSlash v-else class="w-3.5 h-3.5 text-muted-foreground/60" />
+        </button>
+      </ActionTooltip>
       <span class="w-px h-3 bg-border/60"></span>
-      <button
-        class="flex items-center justify-center hover:text-foreground transition-colors cursor-pointer border-none bg-transparent"
-        data-cuelume-toggle
-        @click="uiStore.toggleTheme()"
-        :title="`Theme: ${uiStore.theme.charAt(0).toUpperCase() + uiStore.theme.slice(1)}`"
-      >
-        <PhSun v-if="uiStore.theme === 'light'" class="w-3.5 h-3.5" />
-        <PhMoon v-else-if="uiStore.theme === 'dark'" class="w-3.5 h-3.5" />
-        <PhMonitor v-else class="w-3.5 h-3.5" />
-      </button>
+      <ActionTooltip :text="`Theme: ${uiStore.theme.charAt(0).toUpperCase() + uiStore.theme.slice(1)}`" side="top">
+        <button
+          class="flex items-center justify-center hover:text-foreground transition-colors cursor-pointer border-none bg-transparent"
+          data-cuelume-toggle
+          @click="uiStore.toggleTheme()"
+        >
+          <PhSun v-if="uiStore.theme === 'light'" class="w-3.5 h-3.5" />
+          <PhMoon v-else-if="uiStore.theme === 'dark'" class="w-3.5 h-3.5" />
+          <PhMonitor v-else class="w-3.5 h-3.5" />
+        </button>
+      </ActionTooltip>
     </div>
   </footer>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { PhSun, PhMoon, PhMonitor, PhCaretDown, PhPlug, PhCheck, PhPower, PhSpeakerHigh, PhSpeakerSlash } from '@phosphor-icons/vue'
+import { 
+  PhSun, PhMoon, PhMonitor, PhCaretDown, PhPlug, PhCheck, PhPower, 
+  PhSpeakerHigh, PhSpeakerSlash, PhCopy, PhFileCode, PhX 
+} from '@phosphor-icons/vue'
+import { ActionTooltip } from '@/components/ui/tooltip'
+import { toast } from 'vue-sonner'
 import { useConnectionStore } from '../stores/connection'
 import { useResultStore } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
@@ -202,6 +247,30 @@ async function switchConnection(id: string) {
   showConnMenu.value = false
   if (id === connStore.activeId && connStore.status === 'connected') return
   await connStore.connect(id)
+}
+
+function copySelectedTsv() {
+  const selectedIndices = Array.from(resultStore.selectedRows).map(Number).sort((a, b) => a - b)
+  if (!selectedIndices.length) return
+  const headers = resultStore.columns.map(c => c.name).join('\t')
+  const lines = selectedIndices.map(idx => {
+    const row = resultStore.rows[idx]
+    if (!row) return ''
+    return resultStore.columns.map(c => {
+      const val = row[c.name]
+      return val === null || val === undefined ? '' : String(val)
+    }).join('\t')
+  })
+  const text = [headers, ...lines].join('\n')
+  navigator.clipboard.writeText(text)
+  toast.success(`Copied ${selectedIndices.length} rows to clipboard (TSV)`)
+}
+
+function copySelectedJson() {
+  const selected = resultStore.rows.filter((_, i) => resultStore.selectedRows.has(String(i)))
+  if (!selected.length) return
+  navigator.clipboard.writeText(JSON.stringify(selected, null, 2))
+  toast.success(`Copied ${selected.length} rows to clipboard (JSON)`)
 }
 
 function openManager() {

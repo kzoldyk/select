@@ -1,86 +1,89 @@
 <template>
-  <div class="app" :style="appGridStyle">
-    <Sidebar class="app-sidebar" />
+  <TooltipProvider :delay-duration="120" :skip-delay-duration="300">
+    <div class="app" :style="appGridStyle">
+      <Sidebar class="app-sidebar" />
 
-    <main 
-      class="main-content app-main"
-      ref="mainRef"
-    >
-      <TabBar @format="formatActiveSql" @explain="explainQuery" @run="runQuery" />
+      <main 
+        class="main-content app-main"
+        ref="mainRef"
+      >
+        <TabBar @format="formatActiveSql" @explain="explainQuery" @run="runQuery" />
 
-      <div class="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-        <template v-if="editorStore.activeTab?.type === 'table'">
-          <TableDataViewer :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName!" />
-        </template>
-        <template v-else-if="editorStore.activeTab?.type === 'schema_diagram'">
-          <SchemaDiagram :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName" />
-        </template>
-        <template v-else>
-          <div
-            class="editor-pane"
-            :style="{ height: editorPaneHeight }"
-          >
-            <QueryEditor @run="runQuery" @explain="explainQuery" ref="queryEditorRef" />
-          </div>
-
-          <div
-            v-show="uiStore.resultPanelOpen"
-            class="resize-handle group"
-            role="separator"
-            aria-label="Resize editor and result panels"
-            aria-orientation="horizontal"
-            @pointerdown="startResize"
-            @dblclick="resetSplit"
-          >
-            <div class="resize-handle-icon group-hover:opacity-100 group-active:opacity-100 flex items-center justify-center gap-0.5 px-2 h-3.5 bg-muted/80 border border-border/80 rounded-full opacity-0 shadow-sm transition-all absolute pointer-events-none">
-              <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
-              <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
-              <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+        <div class="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+          <template v-if="editorStore.activeTab?.type === 'table'">
+            <TableDataViewer :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName!" />
+          </template>
+          <template v-else-if="editorStore.activeTab?.type === 'schema_diagram'">
+            <SchemaDiagram :key="editorStore.activeTab.id" :tableName="editorStore.activeTab.tableName" />
+          </template>
+          <template v-else>
+            <div
+              class="editor-pane"
+              :style="{ height: editorPaneHeight }"
+            >
+              <QueryEditor @run="runQuery" @explain="explainQuery" ref="queryEditorRef" />
             </div>
-          </div>
 
-          <div 
-            v-show="uiStore.resultPanelOpen" 
-            class="result-pane" 
-            :style="{ height: resultPaneHeight }"
-          >
-            <ResultPanel />
-          </div>
+            <div
+              v-show="uiStore.resultPanelOpen"
+              class="resize-handle group"
+              role="separator"
+              aria-label="Resize editor and result panels"
+              aria-orientation="horizontal"
+              @pointerdown="startResize"
+              @dblclick="resetSplit"
+            >
+              <div class="resize-handle-icon group-hover:opacity-100 group-active:opacity-100 flex items-center justify-center gap-0.5 px-2 h-3.5 bg-muted/80 border border-border/80 rounded-full opacity-0 shadow-sm transition-all absolute pointer-events-none">
+                <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+                <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+                <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+              </div>
+            </div>
 
-          <button
-            v-show="!uiStore.resultPanelOpen"
-            v-cuelume:press
-            class="absolute bottom-2 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-md bg-muted/90 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/80 shadow-md transition-[transform,box-shadow,background] duration-fast ease-premium hover:shadow-lg active:scale-95 cursor-pointer"
-            title="Show Result Panel"
-            @click="uiStore.toggleResultPanel()"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-up"><path d="m18 15-6-6-6 6"/></svg>
-          </button>
-        </template>
+            <div 
+              v-show="uiStore.resultPanelOpen" 
+              class="result-pane" 
+              :style="{ height: resultPaneHeight }"
+            >
+              <ResultPanel />
+            </div>
+
+            <button
+              v-show="!uiStore.resultPanelOpen"
+              v-cuelume:press
+              class="absolute bottom-2 right-4 z-20 flex items-center justify-center w-7 h-7 rounded-md bg-muted/90 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/80 shadow-md transition-[transform,box-shadow,background] duration-fast ease-premium hover:shadow-lg active:scale-95 cursor-pointer"
+              title="Show Result Panel"
+              @click="uiStore.toggleResultPanel()"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-up"><path d="m18 15-6-6-6 6"/></svg>
+            </button>
+          </template>
+        </div>
+      </main>
+
+      <StatusBar class="app-footer" />
+
+      <div class="overlays">
+        <CommandPalette @run="runQuery" />
+        <ConnectionManager />
+        <SchemaInspector />
+        <SaveQueryDialog />
+        <DestructiveQueryDialog />
+        <KeyboardShortcuts />
+        <ExportDialog />
+        <SettingsDialog />
+        <ThemeGalleryDialog />
+        <QueriesDirDialog />
+        <VirtualKeyDialog />
+        <Toaster />
       </div>
-    </main>
-
-    <StatusBar class="app-footer" />
-
-    <div class="overlays">
-      <CommandPalette @run="runQuery" />
-      <ConnectionManager />
-      <SchemaInspector />
-      <SaveQueryDialog />
-      <DestructiveQueryDialog />
-      <KeyboardShortcuts />
-      <ExportDialog />
-      <SettingsDialog />
-      <ThemeGalleryDialog />
-      <QueriesDirDialog />
-      <VirtualKeyDialog />
-      <Toaster />
     </div>
-  </div>
+  </TooltipProvider>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import Sidebar from './components/Sidebar.vue'
 import QueryEditor from './components/QueryEditor.vue'
 import ResultPanel from './components/ResultPanel.vue'

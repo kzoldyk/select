@@ -20,50 +20,51 @@
         :class="{ 'bg-background text-foreground shadow-[inset_0_-1.5px_0_0_var(--primary)] font-semibold border-b-transparent': resultStore.activeResultTabId === pin.id }"
         @click="resultStore.activeResultTabId = pin.id"
       >
-        <svg class="w-2.5 h-2.5 text-primary flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <PhPushPin class="w-3 h-3 text-primary flex-shrink-0" weight="fill" />
         <span class="max-w-[120px] overflow-hidden text-ellipsis whitespace-nowrap" :title="pin.sql">{{ getQueryLabel(pin.sql) }}</span>
         <!-- Close/Unpin button -->
-        <button
-          class="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent flex-shrink-0 cursor-pointer border-none bg-transparent opacity-0 group-hover:opacity-100 transition-opacity ml-1"
-          title="Unpin"
-          @click.stop="resultStore.unpinResult(pin.id)"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-        </button>
+        <ActionTooltip text="Unpin Tab">
+          <button
+            class="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent flex-shrink-0 cursor-pointer border-none bg-transparent opacity-0 group-hover:opacity-100 transition-opacity ml-1"
+            @click.stop="resultStore.unpinResult(pin.id)"
+          >
+            <PhX class="w-2.5 h-2.5" />
+          </button>
+        </ActionTooltip>
       </div>
     </div>
 
     <Tabs v-model="resultStore.activeView" class="flex-1 flex flex-col overflow-hidden min-h-0">
-      <div class="flex items-center h-10 chrome-bar border-b flex-shrink-0 overflow-hidden px-2 justify-between">
-        <TabsList class="h-8 bg-muted/40 p-0.5 rounded-md gap-0.5">
+      <div class="flex items-center h-9 chrome-bar border-b flex-shrink-0 overflow-hidden px-2 justify-between gap-2">
+        <TabsList class="h-7 bg-muted/40 p-0.5 rounded-md gap-0.5 flex-shrink-0">
           <TabsTrigger
             v-for="view in VIEWS"
             :key="view.id"
             :value="view.id"
-            class="inline-flex items-center px-3 h-full text-[11px] font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm transition-all"
+            class="inline-flex items-center px-2.5 h-full text-[11px] font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-sm transition-all"
           >{{ view.label }}</TabsTrigger>
         </TabsList>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1.5 min-w-0 flex-shrink-0">
           <template v-if="hasDirtyEdits">
             <Button
               variant="ghost"
               size="sm"
-              class="text-[11px] h-7 px-3 gap-1.5 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-md transition-colors"
+              class="text-[11px] h-6 px-2.5 gap-1 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10 rounded-md transition-colors"
               :disabled="resultStore.savingEdits"
               @click="resultStore.revertAllEdits()"
             >Revert</Button>
             <Button
               variant="outline"
               size="sm"
-              class="text-[11px] h-7 px-3 gap-1.5 text-blue-500 hover:text-blue-600 hover:bg-blue-500/10 rounded-md transition-colors border-blue-500/30"
+              class="text-[11px] h-6 px-2.5 gap-1 text-blue-500 hover:text-blue-600 hover:bg-blue-500/10 rounded-md transition-colors border-blue-500/30"
               :disabled="resultStore.savingEdits || !editableTableName"
               @click="copyUpdateQueries"
               title="Copy UPDATE statements to clipboard"
             >Copy SQL</Button>
             <Button
               size="sm"
-              class="text-[11px] h-7 px-3 gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md shadow-sm transition-colors"
+              class="text-[11px] h-6 px-2.5 gap-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-md shadow-sm transition-colors"
               :disabled="resultStore.savingEdits || !editableTableName"
               @click="saveEdits"
             >
@@ -72,7 +73,7 @@
             </Button>
           </template>
 
-          <div class="flex items-center px-2 py-1 rounded bg-muted/30 border border-border/50 text-[10px] text-muted-foreground gap-3 shadow-inner">
+          <div class="flex items-center px-2 py-0.5 rounded bg-muted/30 border border-border/50 text-[10px] text-muted-foreground gap-2 shadow-inner">
             <span v-if="currentStatus === 'success'" class="whitespace-nowrap font-medium font-mono tabular-nums">
               {{ currentRows.length }} rows
             </span>
@@ -89,103 +90,108 @@
             </span>
           </div>
 
-          <button
-            v-if="editableTableName && currentStatus === 'success'"
-            class="h-7 px-2 flex items-center gap-1 rounded border border-border/60 bg-background hover:bg-muted/40 text-[10px] text-muted-foreground hover:text-foreground font-mono transition-colors cursor-pointer shadow-sm"
-            :title="resultKeyTooltip"
-            @click="uiStore.openVirtualKeyDialog(editableTableName)"
-          >
-            <Key class="w-3 h-3" :class="resultKeyIconClass" />
-            <span>{{ resultKeyLabel }}</span>
-          </button>
+          <ActionTooltip :text="resultKeyTooltip">
+            <button
+              v-if="editableTableName && currentStatus === 'success'"
+              class="h-7 px-2 flex items-center gap-1 rounded border border-border/60 bg-background hover:bg-muted/40 text-[10px] text-muted-foreground hover:text-foreground font-mono transition-colors cursor-pointer shadow-sm max-w-[160px] truncate flex-shrink-0"
+              @click="uiStore.openVirtualKeyDialog(editableTableName)"
+            >
+              <PhKey class="w-3.5 h-3.5 flex-shrink-0" :class="resultKeyIconClass" />
+              <span class="truncate">{{ resultKeyLabel }}</span>
+            </button>
+          </ActionTooltip>
 
-          <div class="flex items-center border border-border rounded-md bg-background overflow-hidden shadow-sm">
-            <select
-              v-if="currentColumns.length"
-              class="h-7 w-[68px] bg-transparent px-2 text-[11px] font-medium text-foreground outline-none border-r border-border hover:bg-muted/30 transition-colors cursor-pointer"
-              :value="resultStore.pageSize"
-              @change="onPageSizeChange"
-              aria-label="Page size"
-            >
-              <option :value="50">50</option>
-              <option :value="100">100</option>
-              <option :value="250">250</option>
-              <option :value="500">500</option>
-            </select>
-            <button
-              v-if="currentStatus === 'success' && currentColumns.length"
-              class="inline-flex items-center justify-center h-7 px-2.5 transition-colors border-none bg-transparent cursor-pointer"
-              :class="isCurrentResultPinned ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'"
-              @click="togglePinCurrentResult"
-              :title="isCurrentResultPinned ? 'Unpin this result' : 'Pin this result'"
-            >
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            </button>
+          <div class="flex items-center border border-border rounded-md bg-background overflow-hidden shadow-sm flex-shrink-0">
+            <ActionTooltip text="Rows per page">
+              <select
+                v-if="currentColumns.length"
+                class="h-7 w-[64px] bg-transparent px-2 text-[11px] font-medium text-foreground outline-none border-r border-border hover:bg-muted/30 transition-colors cursor-pointer"
+                :value="resultStore.pageSize"
+                @change="onPageSizeChange"
+                aria-label="Rows per page"
+              >
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+                <option :value="250">250</option>
+                <option :value="500">500</option>
+              </select>
+            </ActionTooltip>
+
+            <ActionTooltip :text="isCurrentResultPinned ? 'Unpin this result tab' : 'Pin this result tab'">
+              <button
+                v-if="currentStatus === 'success' && currentColumns.length"
+                class="inline-flex items-center justify-center h-7 px-2.5 transition-colors border-none bg-transparent cursor-pointer"
+                :class="isCurrentResultPinned ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'"
+                @click="togglePinCurrentResult"
+                aria-label="Pin result tab"
+              >
+                <PhPushPin class="w-3.5 h-3.5" :weight="isCurrentResultPinned ? 'fill' : 'regular'" />
+              </button>
+            </ActionTooltip>
+
             <div v-if="currentStatus === 'success' && currentColumns.length" class="w-px h-4 bg-border"></div>
-            <button
-              class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              :disabled="!currentColumns.length"
-              @click="uiStore.openExport()"
-              title="Export"
-            >
-              <Download class="w-3.5 h-3.5" />
-            </button>
-            <div class="w-px h-4 bg-border"></div>
-            <div v-if="resultStore.selectedRows.size > 0" class="contents">
+
+            <ActionTooltip text="Export results (CSV, JSON)">
               <button
-                class="inline-flex items-center justify-center h-7 px-2 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary transition-colors text-[10px] font-semibold gap-1 rounded-sm cursor-pointer border-none"
-                @click="copySelectedRowsTsv"
-                title="Copy selected rows as TSV (Excel friendly)"
+                class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                :disabled="!currentColumns.length"
+                @click="uiStore.openExport()"
+                aria-label="Export results"
               >
-                <Copy class="w-3 h-3" />
-                <span>Copy TSV ({{ resultStore.selectedRows.size }})</span>
+                <PhDownloadSimple class="w-3.5 h-3.5" />
               </button>
+            </ActionTooltip>
+
+            <div class="w-px h-4 bg-border"></div>
+
+            <ActionTooltip text="Search in results (⌘F)">
               <button
-                class="inline-flex items-center justify-center h-7 px-2 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary transition-colors text-[10px] font-semibold gap-1 rounded-sm cursor-pointer border-none ml-1"
-                @click="copySelectedRowsJson"
-                title="Copy selected rows as JSON"
+                class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                :class="{ 'text-primary bg-primary/10': showSearch }"
+                :disabled="!currentColumns.length"
+                @click="toggleSearch"
+                aria-label="Search results"
               >
-                <Copy class="w-3 h-3" />
-                <span>JSON</span>
+                <PhMagnifyingGlass class="w-3.5 h-3.5" />
               </button>
-              <div class="w-px h-4 bg-border mx-1"></div>
-            </div>
-            <button
-              class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              :class="{ 'text-primary bg-primary/10': showSearch }"
-              :disabled="!currentColumns.length"
-              @click="toggleSearch"
-              title="Search Results"
-            >
-              <Search class="w-3.5 h-3.5" />
-            </button>
+            </ActionTooltip>
+
             <div class="w-px h-4 bg-border"></div>
-            <button
-              class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              :class="{ 'text-primary bg-primary/10': showFilters }"
-              :disabled="!detectedTable"
-              @click="showFilters = !showFilters"
-              title="Filter"
-            >
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
-            </button>
+
+            <ActionTooltip text="Filter columns">
+              <button
+                class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                :class="{ 'text-primary bg-primary/10': showFilters }"
+                :disabled="!detectedTable"
+                @click="showFilters = !showFilters"
+                aria-label="Filter columns"
+              >
+                <PhFunnel class="w-3.5 h-3.5" />
+              </button>
+            </ActionTooltip>
+
             <div class="w-px h-4 bg-border"></div>
-            <button
-              class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              @click="resultStore.runProcesslist()"
-              title="Sessions"
-            >
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            </button>
+
+            <ActionTooltip text="Active Database Sessions (SHOW PROCESSLIST)">
+              <button
+                class="inline-flex items-center justify-center h-7 px-2.5 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                @click="resultStore.runProcesslist()"
+                aria-label="Active database sessions"
+              >
+                <PhActivity class="w-3.5 h-3.5" />
+              </button>
+            </ActionTooltip>
           </div>
 
-          <button
-            class="inline-flex items-center justify-center w-7 h-7 text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer border-none bg-transparent"
-            title="Hide Result Panel"
-            @click="uiStore.toggleResultPanel()"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down"><path d="m6 9 6 6 6-6"/></svg>
-          </button>
+          <ActionTooltip text="Collapse Result Panel">
+            <button
+              class="inline-flex items-center justify-center w-7 h-7 text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded transition-all cursor-pointer border-none bg-transparent flex-shrink-0"
+              aria-label="Collapse Result Panel"
+              @click="uiStore.toggleResultPanel()"
+            >
+              <PhCaretDown class="w-3.5 h-3.5" />
+            </button>
+          </ActionTooltip>
         </div>
       </div>
 
@@ -635,7 +641,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Download, Search, Copy, Key, Table2 } from '@lucide/vue'
+import { Download, Search, Copy, Key, Table2, FileCode } from '@lucide/vue'
+import { PhPushPin, PhDownloadSimple, PhMagnifyingGlass, PhFunnel, PhActivity, PhCaretDown, PhKey, PhX } from '@phosphor-icons/vue'
+import { ActionTooltip } from '@/components/ui/tooltip'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { useResultStore, type ResultView, type Column, type CellValue, type ResultRow } from '../stores/result'
 import { useEditorStore } from '../stores/editor'

@@ -22,16 +22,18 @@
             <option value="" disabled>Select Database...</option>
             <option v-for="db in schemaStore.databases" :key="db" :value="db">{{ db }}</option>
           </select>
-          <button
-            class="flex items-center justify-center w-7 h-7 rounded hover:bg-accent text-muted-foreground hover:text-foreground bg-background border border-input cursor-pointer flex-shrink-0 shadow-sm transition-colors"
-            title="Refresh schema"
-            :disabled="schemaStore.isLoading"
-            @click="schemaStore.refreshSchema(connStore.activeId ?? undefined)"
-          >
-            <svg class="w-3.5 h-3.5" :class="{ 'animate-spin': schemaStore.isLoading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-            </svg>
-          </button>
+          <ActionTooltip text="Refresh schema">
+            <button
+              class="flex items-center justify-center w-7 h-7 rounded hover:bg-accent text-muted-foreground hover:text-foreground bg-background border border-input cursor-pointer flex-shrink-0 shadow-sm transition-colors"
+              :disabled="schemaStore.isLoading"
+              aria-label="Refresh schema"
+              @click="schemaStore.refreshSchema(connStore.activeId ?? undefined)"
+            >
+              <svg class="w-3.5 h-3.5" :class="{ 'animate-spin': schemaStore.isLoading }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+              </svg>
+            </button>
+          </ActionTooltip>
         </div>
 
         <div v-if="schemaStore.schemaError" class="p-2 bg-destructive/10 border border-destructive/20 rounded text-[11px] text-destructive flex items-center justify-between gap-1">
@@ -110,7 +112,7 @@
           class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/40 rounded-md transition-all border-none cursor-pointer text-left select-none bg-transparent mb-1 font-semibold"
           @click="editorStore.addSchemaDiagramTab()"
         >
-          <Workflow class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+          <Workflow class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
           <span class="flex-1">Schema Diagram</span>
         </button>
 
@@ -121,7 +123,7 @@
             @click="toggle('tables')"
           >
             <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.tables }" />
-            <Table class="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
+            <Table class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Tables</span>
             <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.tables.length }}</span>
           </button>
@@ -164,7 +166,7 @@
             @click="toggle('views')"
           >
             <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.views }" />
-            <Eye class="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <Eye class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Views</span>
             <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.views.length }}</span>
           </button>
@@ -203,7 +205,7 @@
             @click="toggle('functions')"
           >
             <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.functions }" />
-            <Zap class="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+            <Zap class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Functions</span>
             <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.functions.length }}</span>
           </button>
@@ -241,7 +243,7 @@
             @click="toggle('indexes')"
           >
             <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.indexes }" />
-            <Hash class="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+            <Hash class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Indexes</span>
             <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.indexes.length }}</span>
           </button>
@@ -279,7 +281,7 @@
             @click="toggle('procs')"
           >
             <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.procs }" />
-            <Play class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+            <Play class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Procedures</span>
             <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.procs.length }}</span>
           </button>
@@ -317,7 +319,7 @@
             @click="toggle('triggers')"
           >
             <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.triggers }" />
-            <Activity class="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
+            <Activity class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Triggers</span>
             <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ schemaStore.triggers.length }}</span>
           </button>
@@ -355,7 +357,7 @@
             @click="toggle('saved')"
           >
             <ChevronRight class="w-3.5 h-3.5 transition-transform ease-premium duration-normal text-muted-foreground/60" :class="{ 'rotate-90': sectionsOpen.saved }" />
-            <FileText class="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" />
+            <FileText class="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
             <span class="flex-1">Saved Queries</span>
             <span class="text-[9px] font-mono font-semibold bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground/80 border border-border/40">{{ editorStore.savedQueries?.length || 0 }}</span>
           </button>
@@ -488,6 +490,7 @@ import {
   Database,
   Plug,
 } from '@lucide/vue'
+import { ActionTooltip } from '@/components/ui/tooltip'
 import { useSchemaStore } from '../stores/schema'
 import { useConnectionStore } from '../stores/connection'
 import { useUiStore } from '../stores/ui'
@@ -514,13 +517,13 @@ onMounted(() => {
 })
 
 const sectionsOpen = reactive({
-  tables: true,
-  views: true,
-  functions: true,
-  indexes: true,
-  procs: true,
-  triggers: true,
-  saved: true,
+  tables: false,
+  views: false,
+  functions: false,
+  indexes: false,
+  procs: false,
+  triggers: false,
+  saved: false,
 })
 
 const renameDialog = reactive({
