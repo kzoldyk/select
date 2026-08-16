@@ -1,55 +1,55 @@
 # Select ⚡
 
-**Select** is a fast, lightweight, local-first MySQL and MariaDB GUI desktop client engineered with **Tauri v2**, **Vue 3**, **TypeScript**, and **Rust**.
-
-Designed as a modern, high-performance alternative to legacy database tools, Select delivers instant startup, sub-millisecond UI interactions, rich schema visualization, and built-in safety controls.
+**Select** is a fast, lightweight, local-first MySQL and MariaDB desktop client built with **Tauri v2**, **Vue 3**, **TypeScript**, and **Rust**.
 
 ---
 
-## Key Features
+## Prerequisites
 
-- **⚡ Blazing Fast Architecture**: Native Rust backend powered by `tokio` and `mysql_async` with connection pooling and query cancellation support.
-- **🛡️ Multi-Tier Safety & Read-Only Protection**:
-  - Connection-level read-only mode enforced on both frontend and Rust backend.
-  - Destructive query safeguards and warnings for unconstrained write operations.
-  - Parameterized updates to prevent injection vulnerabilities.
-  - Secure credential storage encrypted with AES-256-GCM.
-- **📊 Interactive Schema Visualizer**: Interactive canvas to visualize table relationships, foreign key constraints, column types, and schema dependencies.
-- **📝 CodeMirror 6 SQL Editor**:
-  - Context-aware autocomplete for SQL keywords, database schemas, tables, and columns.
-  - Multi-query statement execution with per-statement results.
-  - One-click SQL formatter and query execution plan (`EXPLAIN`) visualization.
-- **🗃️ Full Data Grid & Cell Editor**:
-  - Live in-place cell editing with dirty-state tracking and undo (`Cmd+Z`).
-  - Foreign key hover inspection and referenced row previews.
-  - High-performance paged streaming with custom page sizes (50–500 rows).
-  - Quick export to CSV and TSV (Excel-compatible).
-- **📌 Query Result Pinning**: Pin multiple result tabs side-by-side with local session persistence.
-- **🎨 Modern Dark & Light Themes**: Curated theme palettes with seamless switching.
+Before installing or building Select, ensure you have:
+
+- **Node.js**: `v18+` (or `v20+` recommended)
+- **Rust**: `v1.75+` (Install via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
 
 ---
 
-## Tech Stack
+## OS-Specific System Dependencies
 
-| Layer | Technologies |
-|-------|--------------|
-| **Core Desktop Engine** | [Tauri v2](https://tauri.app/), Rust, `mysql_async`, `tokio`, `aes-gcm` |
-| **Frontend Framework** | [Vue 3](https://vuejs.org/) (Composition API, `<script setup>`), TypeScript |
-| **State Management** | [Pinia](https://pinia.vuejs.org/) |
-| **Styling & Components** | [Tailwind CSS](https://tailwindcss.com/), Radix UI / shadcn-vue, Lucide & Phosphor Icons |
-| **Editor** | [CodeMirror 6](https://codemirror.net/) |
-| **Build & Test** | Vite, Vitest, Cargo |
+### macOS
+Install Xcode Command Line Tools:
+```bash
+xcode-select --install
+```
+
+### Linux (Ubuntu / Debian)
+Install required Tauri v2 system packages:
+```bash
+sudo apt update
+sudo apt install -y libwebkit2gtk-4.1-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libxdo-dev \
+  libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev
+```
+
+### Linux (Fedora)
+```bash
+sudo dnf check-update
+sudo dnf groupinstall -y "C Development Tools and Libraries"
+sudo dnf install -y webkit2gtk4.1-devel openssl-devel libayatana-appindicator-gtk3-devel librsvg2-devel
+```
+
+### Windows
+- Install [Microsoft Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+- Ensure **WebView2** runtime is installed (included by default on Windows 10/11).
 
 ---
 
-## Getting Started
-
-### Prerequisites
-- **Node.js**: >= 18
-- **Rust & Cargo**: >= 1.75
-- **OS**: macOS, Linux, or Windows
-
-### Development Setup
+## Installation & Local Development
 
 1. **Clone the repository**:
    ```bash
@@ -57,7 +57,7 @@ Designed as a modern, high-performance alternative to legacy database tools, Sel
    cd select
    ```
 
-2. **Install dependencies**:
+2. **Install frontend dependencies**:
    ```bash
    npm install
    ```
@@ -67,44 +67,77 @@ Designed as a modern, high-performance alternative to legacy database tools, Sel
    npm run tauri dev
    ```
 
-4. **Run test suites**:
-   ```bash
-   # Run frontend unit tests
-   npm test
+---
 
-   # Run backend Rust tests
-   cargo test --manifest-path src-tauri/Cargo.toml
-   ```
+## Building the Desktop App
 
-5. **Build production bundle**:
-   ```bash
-   npm run build
-   npm run tauri build
-   ```
+### 1. Build for macOS (.dmg / .app)
+```bash
+npm run tauri build
+```
+Output bundles:
+- `src-tauri/target/release/bundle/dmg/Select_x.x.x_x64.dmg` (or `_aarch64.dmg`)
+- `src-tauri/target/release/bundle/macos/Select.app`
+
+> **Note for macOS (Unsigned App / No Developer License):**
+> Because this build is unsigned (no paid Apple Developer Certificate), macOS Gatekeeper will block it on first launch with a warning *"Select cannot be opened because the developer cannot be verified"*.
+>
+> **How to open on macOS:**
+> - **Option 1 (Quickest)**: Right-click (or `Control` + Click) `Select.app` in Finder → Select **Open** → Click **Open** in the dialog.
+> - **Option 2 (Terminal)**: Remove the quarantine flag:
+>   ```bash
+>   xattr -cr /Applications/Select.app
+>   ```
+> - **Option 3**: Open **System Settings** → **Privacy & Security** → Scroll down to Security and click **Open Anyway**.
 
 ---
 
-## Architecture Overview
+### 2. Build for Linux (.deb / .AppImage)
+```bash
+npm run tauri build
+```
+Output bundles:
+- `src-tauri/target/release/bundle/deb/`
+- `src-tauri/target/release/bundle/appimage/`
 
-```mermaid
-graph TD
-    UI[Vue 3 UI Layer] -->|Pinia Stores| Stores[Stores: connection, editor, result, schema, ui]
-    Stores -->|Tauri IPC / invoke| Preload[Tauri Rust Command Handlers]
-    Preload --> Pool[mysql_async Connection Pool]
-    Pool --> DB[(MySQL / MariaDB)]
+Run the AppImage:
+```bash
+chmod +x Select_x.x.x_amd64.AppImage
+./Select_x.x.x_amd64.AppImage
 ```
 
 ---
 
-## Local Data & Storage
+### 3. Build for Windows (.msi / .exe installer)
+```powershell
+npm run tauri build
+```
+Output bundles:
+- `src-tauri/target/release/bundle/msi/Select_x.x.x_x64_en-US.msi`
+- `src-tauri/target/release/bundle/nsis/Select_x.x.x_x64-setup.exe`
 
-| Data | Location | Notes |
-|------|----------|-------|
-| **Connections** | Tauri plugin store (`select-store.json`) with localStorage fallback via `src/stores/storage.ts` | Passwords are sealed in Rust (`seal_connections_for_storage`) before persistence; never stored as plaintext |
-| **Query history** | App data dir `query_history.json` | Cached in memory after first load; writes go through the in-memory cache |
-| **Saved queries** | App data `queries/` folder (or custom directory) | Cached in memory; invalidated on save/rename/delete |
-| **Pinned results** | `localStorage` (`select_pinned_results`) | Up to 10 pinned result tabs |
-| **UI preferences** | `localStorage` (theme, sounds, panel layout) | Restored on startup |
+---
+
+## Testing
+
+```bash
+# Run frontend unit tests (Vitest)
+npm test
+
+# Run Rust backend test suite
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+---
+
+## Key Features
+
+- **⚡ Blazing Fast Architecture**: Native Rust backend with `tokio` and `mysql_async` connection pooling.
+- **🗃️ Unified Data Grid**: Row virtualization, in-place cell editing, dirty-state batching, cross-schema resolution, and TSV/CSV copy.
+- **🔍 Large Value Inspector**: Contextual drawer for formatting, editing, and copying large JSON & TEXT fields.
+- **🛡️ Production Safety**: Connection-level read-only mode, environment badges (`PROD`, `STAGING`, `LOCAL`), and mutation safeguards.
+- **📊 Schema Visualizer**: Interactive ER diagram canvas showing foreign keys, indices, and constraints.
+- **📝 CodeMirror 6 Editor**: SQL auto-completion, multi-statement execution tabs, and `EXPLAIN` plan tree viewer.
 
 ---
 
