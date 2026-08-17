@@ -29,7 +29,7 @@ import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
 import { useUiStore } from '../stores/ui'
 import { getSqlCompletionOptions } from '../lib/sqlAutocomplete'
-import { extractTableIdentifierAt } from '../lib/sqlScope'
+import { extractTableIdentifierAt, getStatementAtPosition } from '../lib/sqlScope'
 
 
 const emit = defineEmits<{ explain: []; run: [sql?: string] }>()
@@ -81,99 +81,11 @@ function getSqlAutocomplete() {
   })
 }
 
-function getStatementAtCursor(sql: string, cursorPos: number): string {
-  let inSingle = false
-  let inDouble = false
-  let inBacktick = false
-  let inLineComment = false
-  let inBlockComment = false
-
-  let lastSemi = 0
-  const statements: { start: number, end: number, text: string }[] = []
-
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i]
-    const nextCh = sql[i + 1] || ''
-
-    if (inLineComment) {
-      if (ch === '\n') inLineComment = false
-      continue
-    }
-    if (inBlockComment) {
-      if (ch === '*' && nextCh === '/') {
-        inBlockComment = false
-        i++
-      }
-      continue
-    }
-    if (ch === '-' && nextCh === '-' && !inSingle && !inDouble && !inBacktick) {
-      inLineComment = true
-      i++
-      continue
-    }
-    if (ch === '/' && nextCh === '*' && !inSingle && !inDouble && !inBacktick) {
-      inBlockComment = true
-      i++
-      continue
-    }
-    if (ch === '\'' && !inDouble && !inBacktick) inSingle = !inSingle
-    else if (ch === '"' && !inSingle && !inBacktick) inDouble = !inDouble
-    else if (ch === '`') inBacktick = !inBacktick
-    else if (ch === ';' && !inSingle && !inDouble && !inBacktick) {
-      statements.push({ start: lastSemi, end: i + 1, text: sql.substring(lastSemi, i + 1) })
-      lastSemi = i + 1
-    }
-  }
-
-  if (lastSemi < sql.length) {
-    statements.push({ start: lastSemi, end: sql.length, text: sql.substring(lastSemi) })
-  }
-
-  const cleaned: { start: number, end: number, text: string }[] = []
-  for (const s of statements) {
-    const match = s.text.match(/^(\s*)([\s\S]*?)(\s*)$/)
-    if (!match || !match[2]) continue
-    cleaned.push({
-      start: s.start + match[1].length,
-      end: s.end - match[3].length,
-      text: match[2]
-    })
-  }
-
-  if (cleaned.length === 0) return ''
-
-  for (let i = 0; i < cleaned.length; i++) {
-    const s = cleaned[i]
-    if (cursorPos >= s.start && cursorPos <= s.end) {
-      return s.text
-    }
-    if (i < cleaned.length - 1) {
-      const nextS = cleaned[i + 1]
-      if (cursorPos > s.end && cursorPos < nextS.start) {
-        const whitespaceBeforeCursor = sql.substring(s.end, cursorPos)
-        if (!whitespaceBeforeCursor.includes('\n')) {
-          return s.text
-        }
-        return nextS.text
-      }
-    }
-  }
-
-  if (cursorPos >= cleaned[cleaned.length - 1].end) {
-    return cleaned[cleaned.length - 1].text
-  }
-  if (cursorPos <= cleaned[0].start) {
-    return cleaned[0].text
-  }
-
-  return ''
-}
-
 function selectedSql(editorView: EditorView): string {
   const selection = editorView.state.selection.main
   if (selection.empty) {
     const doc = editorView.state.doc.toString()
-    const stmt = getStatementAtCursor(doc, selection.head)
+    const stmt = getStatementAtPosition(doc, selection.head)
     return stmt || doc
   }
   return editorView.state.sliceDoc(selection.from, selection.to)
@@ -270,6 +182,20 @@ function buildExtensions(onUpdate: (sql: string) => void, onRun: (sql?: string) 
     highlightSelectionMatches(),
     getSqlAutocomplete(),
     keymap.of([
+      {
+        key: 'Mod-Enter',
+        run: (v) => {
+          onRun(selectedSql(v))
+          return true
+        },
+      },
+      {
+        key: 'Mod-Shift-Enter',
+        run: (v) => {
+          onRun(selectedSql(v))
+          return true
+        },
+      },
       ...defaultKeymap,
       ...historyKeymap,
       ...searchKeymap,

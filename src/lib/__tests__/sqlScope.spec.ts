@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { extractInScopeTables, analyzeSqlScope, sanitizeSql, extractTableIdentifierAt } from '../sqlScope'
+import {
+  extractInScopeTables,
+  analyzeSqlScope,
+  sanitizeSql,
+  extractTableIdentifierAt,
+  splitSqlStatements,
+  getStatementAtPosition
+} from '../sqlScope'
 
 describe('sqlScope analyzer', () => {
   it('extracts simple FROM table', () => {
@@ -171,6 +178,46 @@ describe('extractTableIdentifierAt', () => {
   it('ignores numbers', () => {
     const sql = 'SELECT * FROM users WHERE id = 12345'
     expect(extractTableIdentifierAt(sql, sql.indexOf('12345'))).toBeNull()
+  })
+})
+
+describe('splitSqlStatements and getStatementAtPosition', () => {
+  const userMultiSql = `SELECT id, skid_tag_number, picking_quantity_old, picking_quantity_new, 
+       statuscode_old, statuscode_new, create_date, user, host_name
+FROM history.productunit_log
+WHERE skid_tag_number = '+846369661';
+  -- AND create_date BETWEEN '2026-07-17' AND '2026-07-21'
+-- ORDER BY create_date;
+
+select max(id) as id, skid  from thirdparty.b2b_order_sku_skid_mapping where skid in ('+846369661') group by skid;`
+
+  it('correctly splits multi-statement SQL with trailing comments and semicolons in comments', () => {
+    const statements = splitSqlStatements(userMultiSql)
+    expect(statements).toHaveLength(2)
+    expect(statements[0].executableSql).toContain('history.productunit_log')
+    expect(statements[0].executableSql).not.toContain('thirdparty.b2b_order_sku_skid_mapping')
+    expect(statements[1].executableSql).toContain('thirdparty.b2b_order_sku_skid_mapping')
+    expect(statements[1].executableSql).not.toContain('history.productunit_log')
+  })
+
+  it('selects correct statement based on cursor position', () => {
+    // Cursor in statement 1
+    const pos1 = userMultiSql.indexOf('history.productunit_log')
+    const stmt1 = getStatementAtPosition(userMultiSql, pos1)
+    expect(stmt1).toContain('history.productunit_log')
+    expect(stmt1).not.toContain('thirdparty.b2b_order_sku_skid_mapping')
+
+    // Cursor in commented lines trailing statement 1
+    const posComment = userMultiSql.indexOf('-- ORDER BY')
+    const stmtComment = getStatementAtPosition(userMultiSql, posComment)
+    expect(stmtComment).toContain('history.productunit_log')
+    expect(stmtComment).not.toContain('thirdparty.b2b_order_sku_skid_mapping')
+
+    // Cursor in statement 2
+    const pos2 = userMultiSql.indexOf('thirdparty.b2b_order_sku_skid_mapping')
+    const stmt2 = getStatementAtPosition(userMultiSql, pos2)
+    expect(stmt2).toContain('thirdparty.b2b_order_sku_skid_mapping')
+    expect(stmt2).not.toContain('history.productunit_log')
   })
 })
 

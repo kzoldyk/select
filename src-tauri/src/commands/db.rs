@@ -489,11 +489,126 @@ fn sql_tokens_outside_literals(sql: &str) -> Vec<String> {
         .collect()
 }
 
+fn has_only_comments_or_whitespace(sql: &str) -> bool {
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '-' if chars.peek() == Some(&'-') => {
+                chars.next();
+                while let Some(c) = chars.next() {
+                    if c == '\n' { break; }
+                }
+            }
+            '#' => {
+                while let Some(c) = chars.next() {
+                    if c == '\n' { break; }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut prev = '\0';
+                while let Some(c) = chars.next() {
+                    if prev == '*' && c == '/' { break; }
+                    prev = c;
+                }
+            }
+            c if !c.is_whitespace() => return false,
+            _ => {}
+        }
+    }
+    true
+}
+
+fn strip_trailing_semicolon(sql: &str) -> String {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_backtick = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut last_semi_index: Option<usize> = None;
+
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        let ch = chars[i];
+        let next_ch = if i + 1 < len { chars[i + 1] } else { '\0' };
+
+        if in_line_comment {
+            if ch == '\n' { in_line_comment = false; }
+            i += 1;
+            continue;
+        }
+        if in_block_comment {
+            if ch == '*' && next_ch == '/' {
+                in_block_comment = false;
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+
+        if in_single {
+            if ch == '\\' { i += 1; }
+            else if ch == '\'' { in_single = false; }
+            i += 1;
+            continue;
+        }
+        if in_double {
+            if ch == '\\' { i += 1; }
+            else if ch == '"' { in_double = false; }
+            i += 1;
+            continue;
+        }
+        if in_backtick {
+            if ch == '`' { in_backtick = false; }
+            i += 1;
+            continue;
+        }
+
+        if ch == '-' && next_ch == '-' {
+            in_line_comment = true;
+            i += 2;
+            continue;
+        }
+        if ch == '#' {
+            in_line_comment = true;
+            i += 1;
+            continue;
+        }
+        if ch == '/' && next_ch == '*' {
+            in_block_comment = true;
+            i += 2;
+            continue;
+        }
+
+        if ch == '\'' { in_single = true; }
+        else if ch == '"' { in_double = true; }
+        else if ch == '`' { in_backtick = true; }
+        else if ch == ';' {
+            last_semi_index = Some(i);
+        }
+        i += 1;
+    }
+
+    if let Some(idx) = last_semi_index {
+        let after: String = chars[idx + 1..].iter().collect();
+        if has_only_comments_or_whitespace(&after) {
+            let before: String = chars[..idx].iter().collect();
+            return format!("{}{}", before, after);
+        }
+    }
+
+    sql.to_string()
+}
+
 fn has_single_statement(sql: &str) -> bool {
     let mut chars = sql.chars().peekable();
     let mut in_single = false;
     let mut in_double = false;
     let mut in_backtick = false;
+    let mut found_statement_end = false;
 
     while let Some(ch) = chars.next() {
         if in_single {
@@ -520,9 +635,18 @@ fn has_single_statement(sql: &str) -> bool {
         }
 
         match ch {
-            '\'' => in_single = true,
-            '"' => in_double = true,
-            '`' => in_backtick = true,
+            '\'' => {
+                if found_statement_end { return false; }
+                in_single = true;
+            }
+            '"' => {
+                if found_statement_end { return false; }
+                in_double = true;
+            }
+            '`' => {
+                if found_statement_end { return false; }
+                in_backtick = true;
+            }
             '-' if chars.peek() == Some(&'-') => {
                 chars.next();
                 while let Some(comment_ch) = chars.next() {
@@ -549,7 +673,12 @@ fn has_single_statement(sql: &str) -> bool {
                 }
             }
             ';' => {
-                return chars.all(|rest| rest.is_whitespace());
+                found_statement_end = true;
+            }
+            c if !c.is_whitespace() => {
+                if found_statement_end {
+                    return false;
+                }
             }
             _ => {}
         }
@@ -1179,11 +1308,11 @@ pub async fn run_query_paged(
     let thread_ids = state.thread_ids.clone();
 
     let fetch_limit = page_size + 1;
-    let clean_sql = sql.trim().trim_end_matches(';');
-    let paged_sql = format!("{} LIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
-    let subquery_sql = format!("SELECT * FROM ({}) AS _sub LIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
+    let clean_sql = strip_trailing_semicolon(sql.trim());
+    let paged_sql = format!("{}\nLIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
+    let subquery_sql = format!("SELECT * FROM ({}) AS _sub\nLIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
 
-    let clean_sql_clone = clean_sql.to_string();
+    let clean_sql_clone = clean_sql.clone();
     let paged_sql_clone = paged_sql.clone();
     let subquery_sql_clone = subquery_sql.clone();
 
@@ -2660,6 +2789,16 @@ mod tests {
         assert!(validate_read_only_query("SHOW TABLES").is_ok());
         assert!(validate_read_only_query("EXPLAIN SELECT * FROM users").is_ok());
         assert!(validate_read_only_query("SELECT 1;   ").is_ok());
+        assert!(validate_read_only_query("SELECT 1;\n-- AND create_date BETWEEN '2026-07-17' AND '2026-07-21'\n-- ORDER BY create_date;").is_ok());
+    }
+
+    #[test]
+    fn strip_trailing_semicolon_preserves_trailing_comments() {
+        let sql = "SELECT * FROM users WHERE id = 1;\n-- AND create_date = '2026-01-01'\n-- ORDER BY create_date;";
+        let stripped = strip_trailing_semicolon(sql);
+        assert!(!stripped.starts_with("SELECT * FROM users WHERE id = 1;"));
+        assert!(stripped.contains("SELECT * FROM users WHERE id = 1"));
+        assert!(stripped.contains("-- AND create_date = '2026-01-01'"));
     }
 
     #[test]

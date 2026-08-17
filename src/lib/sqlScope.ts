@@ -337,15 +337,81 @@ function detectActiveClause(textBefore: string): SqlClause {
 /**
  * Finds the SQL statement encompassing the cursor position.
  */
-export function getStatementAtPosition(sql: string, cursorPos: number): string {
+export interface SqlStatementRange {
+  start: number
+  end: number
+  text: string
+  executableSql: string
+}
+
+function findFirstSqlTokenIndex(text: string): number {
   let inSingle = false
   let inDouble = false
   let inBacktick = false
   let inLineComment = false
   let inBlockComment = false
 
-  let lastSemi = 0
-  const statements: { start: number; end: number; text: string }[] = []
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    const nextCh = text[i + 1] || ''
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false
+      continue
+    }
+    if (inBlockComment) {
+      if (ch === '*' && nextCh === '/') {
+        inBlockComment = false
+        i++
+      }
+      continue
+    }
+    if (ch === '-' && nextCh === '-' && !inSingle && !inDouble && !inBacktick) {
+      inLineComment = true
+      i++
+      continue
+    }
+    if (ch === '#' && !inSingle && !inDouble && !inBacktick) {
+      inLineComment = true
+      continue
+    }
+    if (ch === '/' && nextCh === '*' && !inSingle && !inDouble && !inBacktick) {
+      inBlockComment = true
+      i++
+      continue
+    }
+    if (ch === '\'' && !inDouble && !inBacktick) {
+      inSingle = !inSingle
+      return i
+    }
+    if (ch === '"' && !inSingle && !inBacktick) {
+      inDouble = !inDouble
+      return i
+    }
+    if (ch === '`') {
+      inBacktick = !inBacktick
+      return i
+    }
+    if (!/\s/.test(ch)) {
+      return i
+    }
+  }
+  return -1
+}
+
+/**
+ * Splits a SQL script into discrete statements, handling quotes, line comments (-- and #),
+ * block comments (/* * /), and trailing comments after semicolons.
+ */
+export function splitSqlStatements(sql: string): SqlStatementRange[] {
+  let inSingle = false
+  let inDouble = false
+  let inBacktick = false
+  let inLineComment = false
+  let inBlockComment = false
+
+  const rawStatements: { start: number; end: number; text: string }[] = []
+  let stmtStart = 0
 
   for (let i = 0; i < sql.length; i++) {
     const ch = sql[i]
@@ -367,6 +433,10 @@ export function getStatementAtPosition(sql: string, cursorPos: number): string {
       i++
       continue
     }
+    if (ch === '#' && !inSingle && !inDouble && !inBacktick) {
+      inLineComment = true
+      continue
+    }
     if (ch === '/' && nextCh === '*' && !inSingle && !inDouble && !inBacktick) {
       inBlockComment = true
       i++
@@ -376,22 +446,89 @@ export function getStatementAtPosition(sql: string, cursorPos: number): string {
     else if (ch === '"' && !inSingle && !inBacktick) inDouble = !inDouble
     else if (ch === '`') inBacktick = !inBacktick
     else if (ch === ';' && !inSingle && !inDouble && !inBacktick) {
-      statements.push({ start: lastSemi, end: i + 1, text: sql.substring(lastSemi, i + 1) })
-      lastSemi = i + 1
+      const text = sql.substring(stmtStart, i + 1)
+      rawStatements.push({ start: stmtStart, end: i + 1, text })
+      stmtStart = i + 1
     }
   }
 
-  if (lastSemi < sql.length) {
-    statements.push({ start: lastSemi, end: sql.length, text: sql.substring(lastSemi) })
+  if (stmtStart < sql.length) {
+    const text = sql.substring(stmtStart)
+    if (text.trim().length > 0) {
+      rawStatements.push({ start: stmtStart, end: sql.length, text })
+    }
   }
 
-  for (const s of statements) {
+  const results: SqlStatementRange[] = []
+  for (const s of rawStatements) {
+    let currentStart = s.start
+    let currentEnd = s.end
+    let currentText = s.text
+
+    const firstSqlIdx = findFirstSqlTokenIndex(currentText)
+    if (firstSqlIdx === -1) {
+      // Chunk contains only comments/whitespace
+      if (results.length > 0) {
+        results[results.length - 1].end = currentEnd
+        results[results.length - 1].text += currentText
+      }
+      continue
+    }
+
+    if (firstSqlIdx > 0 && results.length > 0) {
+      // Leading comments/whitespace before this statement belong to the preceding statement
+      const leading = currentText.substring(0, firstSqlIdx)
+      results[results.length - 1].end += firstSqlIdx
+      results[results.length - 1].text += leading
+
+      currentStart += firstSqlIdx
+      currentText = currentText.substring(firstSqlIdx)
+    }
+
+    let execSql = currentText.trim()
+    if (execSql.endsWith(';')) {
+      execSql = execSql.slice(0, -1).trim()
+    }
+
+    results.push({
+      start: currentStart,
+      end: currentEnd,
+      text: currentText,
+      executableSql: execSql
+    })
+  }
+
+  return results
+}
+
+/**
+ * Finds the SQL statement encompassing the cursor position.
+ */
+export function getStatementAtPosition(sql: string, cursorPos: number): string {
+  const statements = splitSqlStatements(sql)
+  if (statements.length === 0) return sql.trim()
+
+  for (let i = 0; i < statements.length; i++) {
+    const s = statements[i]
     if (cursorPos >= s.start && cursorPos <= s.end) {
-      return s.text
+      return s.executableSql || s.text
+    }
+    if (i < statements.length - 1) {
+      const nextS = statements[i + 1]
+      if (cursorPos > s.end && cursorPos < nextS.start) {
+        return nextS.executableSql || nextS.text
+      }
     }
   }
 
-  return statements[statements.length - 1]?.text || sql
+  if (cursorPos >= statements[statements.length - 1].end) {
+    return statements[statements.length - 1].executableSql || statements[statements.length - 1].text
+  }
+  if (cursorPos <= statements[0].start) {
+    return statements[0].executableSql || statements[0].text
+  }
+
+  return statements[0]?.executableSql || sql
 }
 
 export interface TableIdentifierMatch {
