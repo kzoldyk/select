@@ -70,8 +70,8 @@ describe("result store", () => {
 
   it("setActiveView changes active view", () => {
     const store = useResultStore();
-    store.setActiveView("json");
-    expect(store.activeView).toBe("json");
+    store.setActiveView("messages");
+    expect(store.activeView).toBe("messages");
     store.setActiveView("table");
     expect(store.activeView).toBe("table");
   });

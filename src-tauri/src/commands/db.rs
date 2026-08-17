@@ -1650,28 +1650,27 @@ pub async fn refresh_thread_id(
 
 #[tauri::command]
 pub async fn cancel_query(
+    id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let (url, thread_id) = {
-        let active_id = state.active_connection_id.lock().await;
-        let id = active_id.as_ref().ok_or("No active connection")?.clone();
-        let urls = state.connection_urls.lock().await;
-        let url = urls.get(&id).cloned().ok_or("Connection URL not found")?;
+    let (conn_id, pool) = resolve_connection(&state, id).await?;
+    let thread_id = {
         let threads = state.thread_ids.lock().await;
-        let tid = threads.get(&id).copied().ok_or("Thread ID not found")?;
-        (url, tid)
+        threads.get(&conn_id).copied().ok_or("No active running query thread found for connection")?
     };
 
-    let opts = Opts::from_url(&url).map_err(|e| safe_error(&e))?;
-    let kill_pool = Pool::new(opts);
-    let mut kill_conn = kill_pool.get_conn().await.map_err(|e| safe_error(&e))?;
-
-    kill_conn
+    let mut kill_conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    let res = kill_conn
         .query_drop(format!("KILL QUERY {}", thread_id))
-        .await
-        .map_err(|e| safe_error(&e))?;
+        .await;
 
-    kill_pool.disconnect().await.map_err(|e| safe_error(&e))?;
+    if let Err(e) = res {
+        let err_str = safe_error(&e);
+        if !err_str.contains("Unknown thread id") && !err_str.contains("1094") {
+            return Err(err_str);
+        }
+    }
+
     Ok(())
 }
 

@@ -33,7 +33,7 @@ export type CellValue = string | number | boolean | null
 export type ResultRow = Record<string, CellValue>
 
 export type ResultStatus = 'idle' | 'running' | 'success' | 'error'
-export type ResultView = 'table' | 'json' | 'plan' | 'messages' | 'history'
+export type ResultView = 'table' | 'plan' | 'messages' | 'history'
 
 export interface PagedQueryResult {
   columns: Column[]
@@ -198,14 +198,27 @@ export const useResultStore = defineStore('result', {
 
   actions: {
     async cancelQuery() {
+      if (this.status !== 'running') return
       this.cancelling = true
+      // Invalidate current execution token immediately so any delayed responses are discarded
+      ++this.requestId
+      const connId = useConnectionStore().activeId
       try {
-        await invoke('cancel_query')
-        this.messages.push('Query cancelled.')
+        await invoke('cancel_query', { id: connId })
+        this.messages.push('Query execution cancelled.')
       } catch (err) {
-        this.messages.push(`Cancel error: ${String(err)}`)
+        this.messages.push(`Cancellation signal: ${String(err)}`)
+      } finally {
+        this.cancelling = false
+        this.status = 'idle'
+        this.error = {
+          code: 'QUERY_CANCELLED',
+          message: 'Query execution was cancelled by user.',
+        }
+        playSound('error')
+        this.messages.push('[QUERY_CANCELLED] Execution stopped.')
+        this.activeView = 'messages'
       }
-      this.cancelling = false
     },
 
     async runQuery(_sql: string) {
@@ -280,13 +293,17 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'table'
       } catch (err) {
         if (requestId !== this.requestId) return
+        const errMsg = String(err)
+        const isInterrupted = errMsg.toLowerCase().includes('interrupted') || errMsg.toLowerCase().includes('cancelled') || errMsg.toLowerCase().includes('kill')
         this.error = {
-          code: 'QUERY_ERROR',
-          message: String(err),
+          code: isInterrupted ? 'QUERY_CANCELLED' : 'QUERY_ERROR',
+          message: isInterrupted ? 'Query execution was interrupted.' : errMsg,
         }
-        this.status = 'error'
+        this.status = isInterrupted ? 'idle' : 'error'
         playSound('error')
-        this.messages = [`Error: ${String(err)}`]
+        this.messages = isInterrupted
+          ? ['[QUERY_CANCELLED] Query execution was interrupted.']
+          : [`Error: ${errMsg}`]
         this.activeView = 'messages'
       }
       this.loadHistory()
@@ -364,10 +381,17 @@ export const useResultStore = defineStore('result', {
         }
       } catch (err) {
         if (requestId !== this.requestId) return
-        this.error = { code: 'MULTI_QUERY_ERROR', message: String(err) }
-        this.status = 'error'
+        const errMsg = String(err)
+        const isInterrupted = errMsg.toLowerCase().includes('interrupted') || errMsg.toLowerCase().includes('cancelled') || errMsg.toLowerCase().includes('kill')
+        this.error = {
+          code: isInterrupted ? 'QUERY_CANCELLED' : 'MULTI_QUERY_ERROR',
+          message: isInterrupted ? 'Query execution was interrupted.' : errMsg,
+        }
+        this.status = isInterrupted ? 'idle' : 'error'
         playSound('error')
-        this.messages = [`Error: ${String(err)}`]
+        this.messages = isInterrupted
+          ? ['[QUERY_CANCELLED] Query execution was interrupted.']
+          : [`Error: ${errMsg}`]
         this.activeView = 'messages'
       }
       this.loadHistory()

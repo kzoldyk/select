@@ -156,19 +156,6 @@
         />
       </template>
 
-      <!-- JSON VIEW -->
-      <template v-else-if="resultStore.activeView === 'json'">
-        <div class="flex-1 overflow-auto p-4 select-text font-mono text-xs">
-          <div class="flex justify-end mb-2">
-            <Button variant="outline" size="sm" class="h-6 px-2.5 text-[10.5px] gap-1 bg-background" @click="copyJson">
-              <PhCopy class="w-3 h-3" />
-              <span>Copy JSON</span>
-            </Button>
-          </div>
-          <pre class="text-foreground/90 whitespace-pre-wrap leading-relaxed">{{ formattedJson }}</pre>
-        </div>
-      </template>
-
       <!-- PLAN VIEW (Explain) -->
       <template v-else-if="resultStore.activeView === 'plan'">
         <div v-if="resultStore.planRows.length" class="flex-1 flex flex-col min-h-0">
@@ -263,7 +250,6 @@ const schemaStore = useSchemaStore()
 
 const VIEWS = [
   { id: 'table', label: 'Table' },
-  { id: 'json', label: 'JSON' },
   { id: 'plan', label: 'Execution Plan' },
   { id: 'messages', label: 'Messages' },
   { id: 'history', label: 'History' },
@@ -351,10 +337,6 @@ const editableTableName = computed(() => {
     return match[1].replace(/[`"']/g, '')
   }
   return schemaStore.activeTable || undefined
-})
-
-const formattedJson = computed(() => {
-  return JSON.stringify(currentRows.value, null, 2)
 })
 
 function getStatementLabel(sql: string): string {
@@ -486,11 +468,6 @@ function refreshActive() {
 
 function runHistoryItem(sql: string) {
   resultStore.runQuery(sql)
-}
-
-function copyJson() {
-  navigator.clipboard.writeText(formattedJson.value)
-  toast.success('Copied JSON to clipboard')
 }
 
 function copyError() {

@@ -106,12 +106,19 @@
       </template>
     </div>
 
-    <!-- Center: Running Feedback -->
-    <div v-if="resultStore.status === 'running'" class="flex items-center gap-1.5 text-primary font-medium">
+    <!-- Center: Running Feedback & Cancel Action -->
+    <div v-if="resultStore.status === 'running'" class="flex items-center gap-2 text-primary font-medium">
       <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
       </svg>
       <span>Executing query…</span>
+      <button
+        class="ml-1 px-1.5 py-0.5 rounded bg-destructive/15 hover:bg-destructive/25 text-destructive text-[10px] font-semibold transition-colors cursor-pointer border border-destructive/30"
+        :disabled="resultStore.cancelling"
+        @click="resultStore.cancelQuery()"
+      >
+        {{ resultStore.cancelling ? 'Cancelling…' : 'Cancel' }}
+      </button>
     </div>
 
     <!-- Right Side: Editor Info & Tools (Settings, Sound, Theme) -->
