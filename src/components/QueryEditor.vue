@@ -55,16 +55,6 @@ function onWheel(e: WheelEvent) {
   }
 }
 
-const cachedColumns = computed(() => {
-  const result: { name: string; table: string; type: string }[] = []
-  for (const [tableName, details] of Object.entries(schemaStore.detailsByTable)) {
-    for (const col of details.columns) {
-      result.push({ name: col.name, table: tableName, type: col.columnType })
-    }
-  }
-  return result
-})
-
 function getSqlAutocomplete() {
   return autocompletion({
     override: [

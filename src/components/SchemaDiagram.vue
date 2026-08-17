@@ -917,12 +917,12 @@ watch(
 )
 
 // Auto-recalculate layout only when new unpositioned tables arrive
-watch(() => schemaStore.detailsByTable, () => {
+watch(() => Object.keys(schemaStore.detailsByTable).length, () => {
   const hasUnpositioned = visibleTables.value.some(t => !positions.value[t.name])
   if (hasUnpositioned) {
     resetLayout(false)
   }
-}, { deep: true })
+})
 </script>
 
 <style scoped>
