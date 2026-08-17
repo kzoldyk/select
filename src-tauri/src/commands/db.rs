@@ -763,9 +763,50 @@ async fn resolve_connection(
     };
     let pool = pools
         .get(&conn_id)
-        .cloned()
+    .cloned()
         .ok_or("No active connection")?;
     Ok((conn_id, pool))
+}
+
+#[inline]
+pub(crate) fn convert_mysql_value_to_json(
+    val: Option<Result<mysql_async::Value, mysql_async::FromValueError>>,
+    col_type: &str,
+) -> Value {
+    match val {
+        Some(Ok(v)) => match v {
+            mysql_async::Value::NULL => Value::Null,
+            mysql_async::Value::Bytes(b) => {
+                if col_type == "binary" {
+                    Value::String(format!("[binary {} bytes]", b.len()))
+                } else {
+                    Value::String(String::from_utf8_lossy(&b).to_string())
+                }
+            }
+            mysql_async::Value::Int(i) => json!(i),
+            mysql_async::Value::UInt(u) => json!(u),
+            mysql_async::Value::Float(f) => json!(f),
+            mysql_async::Value::Double(d) => json!(d),
+            mysql_async::Value::Date(y, m, d, h, mi, s, micro) => {
+                Value::String(format!(
+                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
+                    y, m, d, h, mi, s, micro
+                ))
+            }
+            mysql_async::Value::Time(neg, d, h, m, s, micro) => {
+                let sign = if neg { "-" } else { "" };
+                Value::String(format!(
+                    "{}{:02}:{:02}:{:02}.{:06}",
+                    sign,
+                    d * 24 + h as u32,
+                    m,
+                    s,
+                    micro
+                ))
+            }
+        },
+        _ => Value::Null,
+    }
 }
 
 // ── Tauri Commands ──────────────────────────────────────────────────────────
@@ -802,9 +843,9 @@ pub async fn run_query(
 
     let query_future = async move {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-        if let Ok(Some(tid)) = conn.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-            thread_ids.lock().await.insert(conn_id, tid);
-        }
+        let tid = conn.id();
+        thread_ids.lock().await.insert(conn_id, tid);
+
         let mut result = conn.query_iter(&sql_clone).await.map_err(|e| safe_error(&e))?;
         let mut columns = Vec::new();
         for col in result.columns_ref() {
@@ -835,42 +876,9 @@ pub async fn run_query(
             }
 
             let mut map = serde_json::Map::new();
-            for (col_name, col_type) in &column_refs {
-                let val = row.get_opt::<mysql_async::Value, _>(col_name.as_str());
-                let json_val = match val {
-                    Some(Ok(v)) => match v {
-                        mysql_async::Value::NULL => Value::Null,
-                        mysql_async::Value::Bytes(b) => {
-                            if col_type == "binary" {
-                                Value::String(format!("[binary {} bytes]", b.len()))
-                            } else {
-                                Value::String(String::from_utf8_lossy(&b).to_string())
-                            }
-                        }
-                        mysql_async::Value::Int(i) => json!(i),
-                        mysql_async::Value::UInt(u) => json!(u),
-                        mysql_async::Value::Float(f) => json!(f),
-                        mysql_async::Value::Double(d) => json!(d),
-                        mysql_async::Value::Date(y, m, d, h, mi, s, micro) => {
-                            Value::String(format!(
-                                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
-                                y, m, d, h, mi, s, micro
-                            ))
-                        }
-                        mysql_async::Value::Time(neg, d, h, m, s, micro) => {
-                            let sign = if neg { "-" } else { "" };
-                            Value::String(format!(
-                                "{}{:02}:{:02}:{:02}.{:06}",
-                                sign,
-                                d * 24 + h as u32,
-                                m,
-                                s,
-                                micro
-                            ))
-                        }
-                    },
-                    _ => Value::Null,
-                };
+            for (i, (col_name, col_type)) in column_refs.iter().enumerate() {
+                let val = row.get_opt::<mysql_async::Value, _>(i);
+                let json_val = convert_mysql_value_to_json(val, col_type);
                 map.insert(col_name.clone(), json_val);
             }
             json_rows.push(Value::Object(map));
@@ -997,9 +1005,8 @@ pub async fn run_multi_query(
         .map_err(|_| format!("Connection timed out after {} seconds.", QUERY_TIMEOUT_SECS))?
         .map_err(|e| safe_error(&e))?;
 
-    if let Ok(Some(tid)) = conn.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-        thread_ids.lock().await.insert(conn_id, tid);
-    }
+    let tid = conn.id();
+    thread_ids.lock().await.insert(conn_id, tid);
 
     let mut results = Vec::new();
     for stmt in &statements {
@@ -1047,42 +1054,9 @@ pub async fn run_multi_query(
                         break;
                     }
                     let mut map = serde_json::Map::new();
-                    for (col_name, col_type) in &column_refs {
-                        let val = row.get_opt::<mysql_async::Value, _>(col_name.as_str());
-                        let json_val = match val {
-                            Some(Ok(v)) => match v {
-                                mysql_async::Value::NULL => Value::Null,
-                                mysql_async::Value::Bytes(b) => {
-                                    if col_type == "binary" {
-                                        Value::String(format!("[binary {} bytes]", b.len()))
-                                    } else {
-                                        Value::String(String::from_utf8_lossy(&b).to_string())
-                                    }
-                                }
-                                mysql_async::Value::Int(i) => json!(i),
-                                mysql_async::Value::UInt(u) => json!(u),
-                                mysql_async::Value::Float(f) => json!(f),
-                                mysql_async::Value::Double(d) => json!(d),
-                                mysql_async::Value::Date(y, m, d, h, mi, s, micro) => {
-                                    Value::String(format!(
-                                        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
-                                        y, m, d, h, mi, s, micro
-                                    ))
-                                }
-                                mysql_async::Value::Time(neg, d, h, m, s, micro) => {
-                                    let sign = if neg { "-" } else { "" };
-                                    Value::String(format!(
-                                        "{}{:02}:{:02}:{:02}.{:06}",
-                                        sign,
-                                        d * 24 + h as u32,
-                                        m,
-                                        s,
-                                        micro
-                                    ))
-                                }
-                            },
-                            _ => Value::Null,
-                        };
+                    for (i, (col_name, col_type)) in column_refs.iter().enumerate() {
+                        let val = row.get_opt::<mysql_async::Value, _>(i);
+                        let json_val = convert_mysql_value_to_json(val, col_type);
                         map.insert(col_name.clone(), json_val);
                     }
                     json_rows.push(Value::Object(map));
@@ -1215,9 +1189,8 @@ pub async fn run_query_paged(
 
     let query_future = async move {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-        if let Ok(Some(tid)) = conn.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-            thread_ids.lock().await.insert(conn_id, tid);
-        }
+        let tid = conn.id();
+        thread_ids.lock().await.insert(conn_id, tid);
         
         let mut result_is_fallback = false;
         let mut result = match conn.query_iter(&paged_sql_clone).await {
@@ -1268,42 +1241,9 @@ pub async fn run_query_paged(
                 break;
             }
             let mut map = serde_json::Map::new();
-            for (col_name, col_type) in &column_refs {
-                let val = row.get_opt::<mysql_async::Value, _>(col_name.as_str());
-                let json_val = match val {
-                    Some(Ok(v)) => match v {
-                        mysql_async::Value::NULL => Value::Null,
-                        mysql_async::Value::Bytes(b) => {
-                            if col_type == "binary" {
-                                Value::String(format!("[binary {} bytes]", b.len()))
-                            } else {
-                                Value::String(String::from_utf8_lossy(&b).to_string())
-                            }
-                        }
-                        mysql_async::Value::Int(i) => json!(i),
-                        mysql_async::Value::UInt(u) => json!(u),
-                        mysql_async::Value::Float(f) => json!(f),
-                        mysql_async::Value::Double(d) => json!(d),
-                        mysql_async::Value::Date(y, m, d, h, mi, s, micro) => {
-                            Value::String(format!(
-                                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:06}",
-                                y, m, d, h, mi, s, micro
-                            ))
-                        }
-                        mysql_async::Value::Time(neg, d, h, m, s, micro) => {
-                            let sign = if neg { "-" } else { "" };
-                            Value::String(format!(
-                                "{}{:02}:{:02}:{:02}.{:06}",
-                                sign,
-                                d * 24 + h as u32,
-                                m,
-                                s,
-                                micro
-                            ))
-                        }
-                    },
-                    _ => Value::Null,
-                };
+            for (i, (col_name, col_type)) in column_refs.iter().enumerate() {
+                let val = row.get_opt::<mysql_async::Value, _>(i);
+                let json_val = convert_mysql_value_to_json(val, col_type);
                 map.insert(col_name.clone(), json_val);
             }
             json_rows.push(Value::Object(map));
@@ -1418,9 +1358,9 @@ pub async fn run_write_query(
 
     let affected = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-        if let Ok(Some(tid)) = conn.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-            thread_ids.lock().await.insert(conn_id, tid);
-        }
+        let tid = conn.id();
+        thread_ids.lock().await.insert(conn_id, tid);
+
         let result = conn.query_iter(&sql).await.map_err(|e| safe_error(&e))?;
         Ok::<u64, String>(result.affected_rows())
     })
@@ -1462,6 +1402,117 @@ pub struct PkValue {
     pub value: serde_json::Value,
 }
 
+pub(crate) fn json_to_mysql_val(val: &serde_json::Value) -> mysql_async::Value {
+    match val {
+        serde_json::Value::Null => mysql_async::Value::NULL,
+        serde_json::Value::Bool(b) => mysql_async::Value::from(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                mysql_async::Value::Int(i)
+            } else if let Some(u) = n.as_u64() {
+                mysql_async::Value::UInt(u)
+            } else if let Some(f) = n.as_f64() {
+                mysql_async::Value::Double(f)
+            } else {
+                mysql_async::Value::Bytes(n.to_string().into_bytes())
+            }
+        }
+        serde_json::Value::String(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            mysql_async::Value::Bytes(val.to_string().into_bytes())
+        }
+    }
+}
+
+pub(crate) fn escape_identifier(s: &str) -> String {
+    if s.contains('.') {
+        s.split('.')
+            .map(|part| format!("`{}`", part.replace('`', "``")))
+            .collect::<Vec<_>>()
+            .join(".")
+    } else {
+        format!("`{}`", s.replace('`', "``"))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RowUpdate {
+    pub updates: Vec<UpdateCell>,
+    pub pks: Vec<PkValue>,
+}
+
+#[tauri::command]
+pub async fn batch_update_rows(
+    table: String,
+    batch: Vec<RowUpdate>,
+    id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<WriteQueryResult, String> {
+    let start = std::time::Instant::now();
+    if batch.is_empty() {
+        return Ok(WriteQueryResult {
+            affected_rows: 0,
+            duration_ms: 0,
+            warning: None,
+        });
+    }
+
+    let (conn_id, pool) = resolve_connection(&state, id).await?;
+    let is_read_only = state.read_only_connections.lock().await.get(&conn_id).copied().unwrap_or(false);
+    if is_read_only {
+        return Err("Connection is configured as read-only. Mutating operations are blocked.".into());
+    }
+
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    let tid = conn.id();
+    state.thread_ids.lock().await.insert(conn_id, tid);
+
+    let mut total_affected = 0u64;
+
+    for row_update in batch {
+        if row_update.updates.is_empty() || row_update.pks.is_empty() {
+            continue;
+        }
+        let mut params_vec: Vec<mysql_async::Value> = Vec::new();
+        let set_clause: Vec<String> = row_update.updates
+            .iter()
+            .map(|u| {
+                params_vec.push(json_to_mysql_val(&u.value));
+                format!("{} = ?", escape_identifier(&u.column))
+            })
+            .collect();
+
+        let where_clause: Vec<String> = row_update.pks
+            .iter()
+            .map(|pk| {
+                if pk.value.is_null() {
+                    format!("{} IS NULL", escape_identifier(&pk.column))
+                } else {
+                    params_vec.push(json_to_mysql_val(&pk.value));
+                    format!("{} = ?", escape_identifier(&pk.column))
+                }
+            })
+            .collect();
+
+        let sql = format!(
+            "UPDATE {} SET {} WHERE {} LIMIT 1",
+            escape_identifier(&table),
+            set_clause.join(", "),
+            where_clause.join(" AND ")
+        );
+
+        let res = conn.exec_iter(sql, params_vec).await.map_err(|e| safe_error(&e))?;
+        total_affected += res.affected_rows();
+    }
+
+    let duration = start.elapsed().as_millis() as u64;
+    Ok(WriteQueryResult {
+        affected_rows: total_affected,
+        duration_ms: duration,
+        warning: None,
+    })
+}
+
 #[tauri::command]
 pub async fn update_rows(
     table: String,
@@ -1482,45 +1533,9 @@ pub async fn update_rows(
         return Err("Connection is configured as read-only. Mutating operations are blocked.".into());
     }
 
-    if let Ok(mut c) = pool.get_conn().await {
-        if let Ok(tid) = c.query_first::<u32, _>("SELECT CONNECTION_ID()").await {
-            if let Some(t) = tid {
-                state.thread_ids.lock().await.insert(conn_id, t);
-            }
-        }
-    }
-
-    fn json_to_mysql_val(val: &serde_json::Value) -> mysql_async::Value {
-        match val {
-            serde_json::Value::Null => mysql_async::Value::NULL,
-            serde_json::Value::Bool(b) => mysql_async::Value::from(*b),
-            serde_json::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    mysql_async::Value::Int(i)
-                } else if let Some(u) = n.as_u64() {
-                    mysql_async::Value::UInt(u)
-                } else if let Some(f) = n.as_f64() {
-                    mysql_async::Value::Double(f)
-                } else {
-                    mysql_async::Value::Bytes(n.to_string().into_bytes())
-                }
-            }
-            serde_json::Value::String(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
-            serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
-                mysql_async::Value::Bytes(val.to_string().into_bytes())
-            }
-        }
-    }
-
-    fn escape_identifier(s: &str) -> String {
-        if s.contains('.') {
-            s.split('.')
-                .map(|part| format!("`{}`", part.replace('`', "``")))
-                .collect::<Vec<_>>()
-                .join(".")
-        } else {
-            format!("`{}`", s.replace('`', "``"))
-        }
+    if let Ok(c) = pool.get_conn().await {
+        let t = c.id();
+        state.thread_ids.lock().await.insert(conn_id, t);
     }
 
     let mut params_vec: Vec<mysql_async::Value> = Vec::new();
@@ -2540,6 +2555,69 @@ pub async fn export_csv(result: QueryResult) -> Result<String, String> {
 
     // Prepend UTF-8 BOM for Excel compatibility
     Ok(format!("\u{FEFF}{}\n{}", header, rows.join("\n")))
+}
+
+#[tauri::command]
+pub async fn format_query_data(
+    format: String,
+    columns: Vec<String>,
+    rows: Vec<serde_json::Value>,
+) -> Result<String, String> {
+    fn csv_escape(value: &str) -> String {
+        if value.contains(',')
+            || value.contains('"')
+            || value.contains('\n')
+            || value.contains('\r')
+        {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_string()
+        }
+    }
+
+    match format.to_lowercase().as_str() {
+        "csv" => {
+            let mut out = String::from("\u{FEFF}");
+            let header = columns.iter().map(|c| csv_escape(c)).collect::<Vec<_>>().join(",");
+            out.push_str(&header);
+            out.push('\n');
+            for row in rows {
+                if let Value::Object(map) = row {
+                    let line = columns.iter().map(|col| match map.get(col) {
+                        Some(Value::Null) => String::new(),
+                        Some(Value::String(s)) => csv_escape(s),
+                        Some(v) => csv_escape(&v.to_string()),
+                        None => String::new(),
+                    }).collect::<Vec<_>>().join(",");
+                    out.push_str(&line);
+                    out.push('\n');
+                }
+            }
+            Ok(out)
+        }
+        "tsv" => {
+            let header = columns.join("\t");
+            let mut out = header;
+            out.push('\n');
+            for row in rows {
+                if let Value::Object(map) = row {
+                    let line = columns.iter().map(|col| match map.get(col) {
+                        Some(Value::Null) => String::new(),
+                        Some(Value::String(s)) => s.replace('\t', " ").replace('\n', " "),
+                        Some(v) => v.to_string().replace('\t', " ").replace('\n', " "),
+                        None => String::new(),
+                    }).collect::<Vec<_>>().join("\t");
+                    out.push_str(&line);
+                    out.push('\n');
+                }
+            }
+            Ok(out)
+        }
+        "json" => {
+            serde_json::to_string_pretty(&rows).map_err(|e| e.to_string())
+        }
+        _ => Err(format!("Unsupported format: {}", format)),
+    }
 }
 
 #[tauri::command]

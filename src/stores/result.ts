@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { markRaw } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useConnectionStore } from './connection'
 import { useUiStore } from './ui'
@@ -6,9 +7,9 @@ import { playSound } from '../lib/cuelume'
 
 function cloneSnapshot<T>(value: T): T {
   try {
-    return structuredClone(value)
-  } catch {
     return JSON.parse(JSON.stringify(value)) as T
+  } catch {
+    return value
   }
 }
 
@@ -262,8 +263,8 @@ export const useResultStore = defineStore('result', {
           id: connId,
         })
         if (requestId !== this.requestId) return
-        this.rows = result.rows as ResultRow[]
-        this.originalRows = structuredClone(result.rows)
+        this.rows = markRaw(result.rows as ResultRow[])
+        this.originalRows = markRaw((result.rows as ResultRow[]).map(r => ({ ...r })))
         this.columns = result.columns
         this.planRows = []
         this.planColumns = []
@@ -342,8 +343,9 @@ export const useResultStore = defineStore('result', {
             this.multiResults = []
           }
         } else if (first && first.columns) {
-          this.rows = first.rows as ResultRow[]
-          this.originalRows = structuredClone(first.rows)
+          const rows = (first.rows || []) as ResultRow[]
+          this.rows = markRaw(rows)
+          this.originalRows = markRaw(rows.map(r => ({ ...r })))
           this.columns = first.columns
           this.duration = (first as any).durationMs ?? first.duration_ms
           this.status = 'success'
@@ -380,7 +382,7 @@ export const useResultStore = defineStore('result', {
         this.status = 'error'
         this.activeView = 'messages'
       } else if (result.columns) {
-        this.rows = result.rows as ResultRow[]
+        this.rows = markRaw(result.rows as ResultRow[])
         this.columns = result.columns
         this.duration = (result as any).durationMs ?? result.duration_ms
         this.status = 'success'
@@ -410,8 +412,9 @@ export const useResultStore = defineStore('result', {
           id: connId,
         })
         const newRows = result.rows as ResultRow[]
-        this.rows.push(...newRows)
-        this.originalRows.push(...structuredClone(newRows))
+        const combined = [...this.rows, ...newRows]
+        this.rows = markRaw(combined)
+        this.originalRows = markRaw([...this.originalRows, ...newRows.map(r => ({ ...r }))])
         this.hasMore = result.has_more
         this.pageOffset += newRows.length
         this.duration += (result as any).durationMs ?? result.duration_ms
@@ -466,7 +469,7 @@ export const useResultStore = defineStore('result', {
     },
 
     revertAllEdits() {
-      this.rows = structuredClone(this.originalRows)
+      this.rows = markRaw(this.originalRows.map(r => ({ ...r })))
       this.dirtyCells = {}
     },
 
@@ -511,7 +514,7 @@ export const useResultStore = defineStore('result', {
           }
         }
         this.dirtyCells = {}
-        this.originalRows = structuredClone(this.rows)
+        this.originalRows = markRaw(this.rows.map(r => ({ ...r })))
         this.messages.push('Edits saved successfully.')
       } catch (err) {
         this.messages.push(`Error saving edits: ${String(err)}`)

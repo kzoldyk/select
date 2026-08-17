@@ -418,7 +418,9 @@ async function handleBatchSaveEdits(
     resultStore.savingEdits = true
     const connId = connStore.activeId
 
-    // Dispatch parameterized batch updates to backend
+    // Build all row updates and dispatch a single batch transaction to Rust
+    const batch: { updates: { column: string; value: any }[]; pks: { column: string; value: any }[] }[] = []
+
     for (const update of updates) {
       const row = currentRows.value[update.rowIndex]
       if (!row) continue
@@ -456,17 +458,18 @@ async function handleBatchSaveEdits(
         changesList.push({ column: actualCol, value: val })
       }
 
-      await invoke<{ affected_rows: number; duration_ms: number; warning: string | null }>('update_rows', {
-        table: targetTable,
-        updates: changesList,
-        pks,
-        id: connId,
-      })
+      batch.push({ updates: changesList, pks })
     }
+
+    const res = await invoke<{ affected_rows: number; duration_ms: number; warning: string | null }>('batch_update_rows', {
+      table: targetTable,
+      batch,
+      id: connId,
+    })
 
     onSuccess?.()
     resultStore.dirtyCells = {}
-    toast.success(`Successfully saved ${updates.length} modified row(s)`)
+    toast.success(`Successfully saved ${res.affected_rows} modified row(s) in ${res.duration_ms}ms`)
     refreshActive()
   } catch (err) {
     toast.error('Failed to apply edits', { description: String(err) })

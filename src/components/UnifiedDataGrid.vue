@@ -267,13 +267,13 @@
           <!-- Row Cells -->
           <div
             v-for="(col, colIndex) in columns"
-            :key="col.name"
+            :key="col.name + '_' + colIndex"
             class="relative flex items-center px-2.5 border-r border-border/30 truncate cursor-cell select-none transition-colors"
             :style="{ width: getColumnWidth(col.name) + 'px', minWidth: getColumnWidth(col.name) + 'px' }"
             :class="[
               isCellFocused(item.index, colIndex) ? 'ring-2 ring-primary ring-inset z-10 bg-primary/10' : '',
               isCellInRange(item.index, colIndex) ? 'bg-primary/8' : '',
-              isNumericCol(col) ? 'justify-end tabular-nums text-right font-mono' : 'justify-start'
+              columnMetaMap[col.name]?.isNumeric ? 'justify-end tabular-nums text-right font-mono' : 'justify-start'
             ]"
             @mousedown="onCellMouseDown(item.index, colIndex, $event)"
             @mouseenter="onCellMouseEnter(item.index, colIndex, $event)"
@@ -286,7 +286,7 @@
                 ref="inlineEditInputRef"
                 v-model="editInputValue"
                 class="absolute inset-0 z-30 w-full h-full bg-primary/20 border-2 border-primary text-foreground outline-none font-mono text-[11px] px-2 shadow-lg ring-2 ring-primary/40 rounded-none selection:bg-primary selection:text-primary-foreground"
-                :class="{ 'text-right': isNumericCol(col) }"
+                :class="{ 'text-right': columnMetaMap[col.name]?.isNumeric }"
                 @keydown.enter="commitInlineEdit"
                 @keydown.escape.stop="cancelInlineEdit"
                 @blur="commitInlineEdit"
@@ -304,12 +304,12 @@
               ></span>
 
               <!-- NULL Display -->
-              <template v-if="item.row[col.name] === null">
+              <template v-if="item.row[col.name] === null || item.row[col.name] === undefined">
                 <span class="text-[9.5px] italic text-muted-foreground/40 font-mono">NULL</span>
               </template>
 
               <!-- Boolean Display -->
-              <template v-else-if="col.type === 'boolean'">
+              <template v-else-if="columnMetaMap[col.name]?.isBoolean">
                 <span
                   class="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-bold"
                   :class="item.row[col.name] ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500'"
@@ -326,7 +326,7 @@
 
                 <!-- Foreign Key Peek Action -->
                 <button
-                  v-if="getForeignKeyInfo(col)"
+                  v-if="columnMetaMap[col.name]?.foreignKey"
                   class="ml-auto text-primary/70 hover:text-primary hover:bg-primary/10 p-0.5 rounded cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
                   title="Preview referenced record"
                   @click.stop="peekForeignKey($event, col, item.row[col.name])"
@@ -459,6 +459,7 @@ import {
 } from '@phosphor-icons/vue'
 import { useSchemaStore } from '@/stores/schema'
 import { useUiStore } from '@/stores/ui'
+import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'vue-sonner'
 
 export interface ColumnDef {
@@ -607,35 +608,91 @@ const tableTotalWidth = computed(() => {
   return Math.max(base + cols, 600)
 })
 
+// Pre-computed Column Metadata Map for O(1) cell evaluation
+const columnMetaMap = computed(() => {
+  const map: Record<string, { isNumeric: boolean; isBoolean: boolean; foreignKey: any }> = {}
+  for (const col of props.columns) {
+    const t = (col.type || '').toLowerCase()
+    const isNumeric = ['int', 'bigint', 'decimal', 'float', 'double', 'numeric', 'number'].some(k => t.includes(k))
+    const isBoolean = t === 'boolean' || t === 'bool' || t === 'tinyint(1)'
+    let foreignKey = null
+    if (col.orgTable) {
+      const fks = schemaStore.foreignKeysByTable[col.orgTable]
+      if (fks) {
+        foreignKey = fks.find(fk => (fk.column_name || fk.columnName || '').toLowerCase() === (col.orgName || col.name).toLowerCase()) || null
+      }
+    }
+    map[col.name] = { isNumeric, isBoolean, foreignKey }
+  }
+  return map
+})
+
 // Filtering and Sorting
 const activeFilterCount = computed(() => {
   return Object.values(columnFilters).filter(v => Boolean(v && v.trim())).length
 })
 
 const filteredRows = computed(() => {
-  let result = props.rows.map((row, index) => ({ row, index }))
+  const rows = props.rows
+  if (!rows || rows.length === 0) return []
 
-  if (quickSearch.value.trim()) {
-    const q = quickSearch.value.toLowerCase()
-    result = result.filter(item =>
-      props.columns.some(col => String(item.row[col.name] ?? '').toLowerCase().includes(q))
-    )
+  const search = quickSearch.value.trim().toLowerCase()
+  const activeFilters = Object.entries(columnFilters).filter(([_, v]) => Boolean(v && v.trim()))
+  const activeSortCol = sortCol.value
+  const activeSortDir = sortDir.value
+
+  const hasSearch = Boolean(search)
+  const hasFilters = activeFilters.length > 0
+  const hasSort = Boolean(activeSortCol && activeSortDir)
+
+  if (!hasSearch && !hasFilters && !hasSort) {
+    return rows.map((row, index) => ({ row, index }))
   }
 
-  for (const [colName, val] of Object.entries(columnFilters)) {
-    if (val && val.trim()) {
-      const q = val.toLowerCase()
-      result = result.filter(item => String(item.row[colName] ?? '').toLowerCase().includes(q))
+  const result: { row: GridRow; index: number }[] = []
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    if (!row) continue
+
+    if (hasSearch) {
+      let matched = false
+      for (const col of props.columns) {
+        const val = row[col.name]
+        if (val !== null && val !== undefined && String(val).toLowerCase().includes(search)) {
+          matched = true
+          break
+        }
+      }
+      if (!matched) continue
     }
+
+    if (hasFilters) {
+      let matched = true
+      for (const [colName, val] of activeFilters) {
+        const rowVal = row[colName]
+        if (rowVal === null || rowVal === undefined || !String(rowVal).toLowerCase().includes(val.toLowerCase())) {
+          matched = false
+          break
+        }
+      }
+      if (!matched) continue
+    }
+
+    result.push({ row, index: i })
   }
 
-  if (sortCol.value && sortDir.value) {
-    const col = sortCol.value
-    const dir = sortDir.value
+  if (hasSort) {
+    const col = activeSortCol
+    const dir = activeSortDir
     result.sort((a, b) => {
-      const av = a.row[col]; const bv = b.row[col]
-      if (av === null) return 1; if (bv === null) return -1
-      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      const av = a.row[col]
+      const bv = b.row[col]
+      if (av === null || av === undefined) return 1
+      if (bv === null || bv === undefined) return -1
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
       return dir === 'asc' ? cmp : -cmp
     })
   }
@@ -903,18 +960,30 @@ function copySelectedJson() {
   }
 }
 
-function copyAllTsv() {
-  const header = props.columns.map(c => c.name).join('\t')
-  const lines = props.rows.map(r => props.columns.map(c => r[c.name] ?? '').join('\t'))
-  navigator.clipboard.writeText([header, ...lines].join('\n'))
-  toast.success('Copied all data as TSV')
+async function copyAllTsv() {
+  try {
+    const text = await invoke<string>('format_query_data', { format: 'tsv', columns: props.columns.map(c => c.name), rows: props.rows })
+    navigator.clipboard.writeText(text)
+    toast.success('Copied all data as TSV')
+  } catch {
+    const header = props.columns.map(c => c.name).join('\t')
+    const lines = props.rows.map(r => props.columns.map(c => r[c.name] ?? '').join('\t'))
+    navigator.clipboard.writeText([header, ...lines].join('\n'))
+    toast.success('Copied all data as TSV')
+  }
 }
 
-function exportCsv() {
-  const escape = (val: string) => /[",\n\r]/.test(val) ? `"${val.replace(/"/g, '""')}"` : val
-  const header = props.columns.map(c => escape(c.name)).join(',')
-  const body = props.rows.map(row => props.columns.map(c => escape(String(row[c.name] ?? ''))).join(','))
-  const blob = new Blob([[header, ...body].join('\n')], { type: 'text/csv' })
+async function exportCsv() {
+  let text = ''
+  try {
+    text = await invoke<string>('format_query_data', { format: 'csv', columns: props.columns.map(c => c.name), rows: props.rows })
+  } catch {
+    const escape = (val: string) => /[",\n\r]/.test(val) ? `"${val.replace(/"/g, '""')}"` : val
+    const header = props.columns.map(c => escape(c.name)).join(',')
+    const body = props.rows.map(row => props.columns.map(c => escape(String(row[c.name] ?? ''))).join(','))
+    text = [header, ...body].join('\n')
+  }
+  const blob = new Blob([text], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -923,8 +992,14 @@ function exportCsv() {
   URL.revokeObjectURL(url)
 }
 
-function exportJson() {
-  const blob = new Blob([JSON.stringify(props.rows, null, 2)], { type: 'application/json' })
+async function exportJson() {
+  let text = ''
+  try {
+    text = await invoke<string>('format_query_data', { format: 'json', columns: props.columns.map(c => c.name), rows: props.rows })
+  } catch {
+    text = JSON.stringify(props.rows, null, 2)
+  }
+  const blob = new Blob([text], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -934,8 +1009,7 @@ function exportJson() {
 }
 
 function isNumericCol(col: ColumnDef): boolean {
-  const t = (col.type || '').toLowerCase()
-  return ['int', 'bigint', 'decimal', 'float', 'double', 'numeric', 'number'].some(k => t.includes(k))
+  return columnMetaMap.value[col.name]?.isNumeric ?? false
 }
 
 function isLargeValue(val: any): boolean {
@@ -945,7 +1019,7 @@ function isLargeValue(val: any): boolean {
 }
 
 function formatCellText(val: any): string {
-  if (val === null) return 'NULL'
+  if (val === null || val === undefined) return 'NULL'
   const s = String(val)
   return s.length > 60 ? s.slice(0, 57) + '…' : s
 }
@@ -968,10 +1042,7 @@ function onInspectorSaveValue(newVal: any) {
 }
 
 function getForeignKeyInfo(col: ColumnDef) {
-  if (!col.orgTable) return null
-  const fks = schemaStore.foreignKeysByTable[col.orgTable]
-  if (!fks) return null
-  return fks.find(fk => (fk.column_name || fk.columnName || '').toLowerCase() === (col.orgName || col.name).toLowerCase())
+  return columnMetaMap.value[col.name]?.foreignKey ?? null
 }
 
 function peekForeignKey(e: MouseEvent, col: ColumnDef, val: any) {

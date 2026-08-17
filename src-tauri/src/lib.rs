@@ -38,6 +38,8 @@ pub fn run() {
             commands::run_write_query,
             commands::run_query_paged,
             commands::update_rows,
+            commands::batch_update_rows,
+            commands::format_query_data,
             commands::cancel_query,
             commands::refresh_thread_id,
             commands::connect,
