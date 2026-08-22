@@ -426,7 +426,10 @@ const allGroups = computed<Group[]>(() => {
       shortcut: '⌘S',
       iconComponent: PhFloppyDisk,
       category: 'query',
-      action: () => { uiStore.openSaveQuery(); uiStore.closePalette() },
+      action: () => {
+        if (editorStore.activeTabId) editorStore.saveTab(editorStore.activeTabId)
+        uiStore.closePalette()
+      },
     },
     {
       id: 'close-active-tab',

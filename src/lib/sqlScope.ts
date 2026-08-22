@@ -399,9 +399,56 @@ function findFirstSqlTokenIndex(text: string): number {
   return -1
 }
 
+const TOP_LEVEL_STATEMENT_KEYWORDS = new Set([
+  'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'WITH', 'SHOW', 'DESCRIBE',
+  'EXPLAIN', 'CREATE', 'ALTER', 'DROP', 'USE', 'TRUNCATE', 'REPLACE', 'CALL', 'SET'
+])
+
+function firstKeywordAfter(text: string, pos: number): string | null {
+  const rest = text.substring(pos)
+  const cleaned = sanitizeSql(rest).trim()
+  if (!cleaned) return null
+  const match = cleaned.match(/^([a-zA-Z_]+)/)
+  return match ? match[1].toUpperCase() : null
+}
+
+function splitRawChunkOnBlankLines(start: number, end: number, text: string): { start: number; end: number; text: string }[] {
+  const blankLineRegex = /\n\s*\n+/g
+  const chunks: { start: number; end: number; text: string }[] = []
+  let currentStart = 0
+  let match: RegExpExecArray | null
+
+  while ((match = blankLineRegex.exec(text)) !== null) {
+    const splitIndex = match.index + match[0].length
+    const nextKeyword = firstKeywordAfter(text, splitIndex)
+    if (nextKeyword && TOP_LEVEL_STATEMENT_KEYWORDS.has(nextKeyword)) {
+      const chunkText = text.substring(currentStart, splitIndex)
+      if (chunkText.trim().length > 0) {
+        chunks.push({
+          start: start + currentStart,
+          end: start + splitIndex,
+          text: chunkText,
+        })
+      }
+      currentStart = splitIndex
+    }
+  }
+
+  const remaining = text.substring(currentStart)
+  if (remaining.trim().length > 0) {
+    chunks.push({
+      start: start + currentStart,
+      end,
+      text: remaining,
+    })
+  }
+
+  return chunks.length > 0 ? chunks : [{ start, end, text }]
+}
+
 /**
  * Splits a SQL script into discrete statements, handling quotes, line comments (-- and #),
- * block comments (/* * /), and trailing comments after semicolons.
+ * block comments (/* * /), trailing comments after semicolons, and blank-line boundaries for un-terminated statements.
  */
 export function splitSqlStatements(sql: string): SqlStatementRange[] {
   let inSingle = false
@@ -410,7 +457,7 @@ export function splitSqlStatements(sql: string): SqlStatementRange[] {
   let inLineComment = false
   let inBlockComment = false
 
-  const rawStatements: { start: number; end: number; text: string }[] = []
+  const initialRawStatements: { start: number; end: number; text: string }[] = []
   let stmtStart = 0
 
   for (let i = 0; i < sql.length; i++) {
@@ -447,7 +494,7 @@ export function splitSqlStatements(sql: string): SqlStatementRange[] {
     else if (ch === '`') inBacktick = !inBacktick
     else if (ch === ';' && !inSingle && !inDouble && !inBacktick) {
       const text = sql.substring(stmtStart, i + 1)
-      rawStatements.push({ start: stmtStart, end: i + 1, text })
+      initialRawStatements.push({ start: stmtStart, end: i + 1, text })
       stmtStart = i + 1
     }
   }
@@ -455,8 +502,15 @@ export function splitSqlStatements(sql: string): SqlStatementRange[] {
   if (stmtStart < sql.length) {
     const text = sql.substring(stmtStart)
     if (text.trim().length > 0) {
-      rawStatements.push({ start: stmtStart, end: sql.length, text })
+      initialRawStatements.push({ start: stmtStart, end: sql.length, text })
     }
+  }
+
+  // Refine raw statements by splitting chunks without semicolons on double newlines
+  const rawStatements: { start: number; end: number; text: string }[] = []
+  for (const s of initialRawStatements) {
+    const subChunks = splitRawChunkOnBlankLines(s.start, s.end, s.text)
+    rawStatements.push(...subChunks)
   }
 
   const results: SqlStatementRange[] = []

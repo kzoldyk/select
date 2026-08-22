@@ -1,6 +1,6 @@
 import type { EditorView } from '@codemirror/view'
 import { startCompletion } from '@codemirror/autocomplete'
-import { analyzeSqlScope, type InScopeTable } from './sqlScope'
+import { analyzeSqlScope, sanitizeSql, type InScopeTable } from './sqlScope'
 
 export interface CompletionOption {
   label: string
@@ -8,6 +8,87 @@ export interface CompletionOption {
   detail?: string
   boost?: number
   apply?: string | ((view: EditorView, completion: any, from: number, to: number) => void)
+}
+
+export interface BacktickContext {
+  insideBacktick: boolean
+  /** Index in the original doc right after the opening backtick (only meaningful when insideBacktick) */
+  tokenStart: number
+}
+
+/**
+ * Detects whether the cursor sits inside a backtick-quoted identifier.
+ * Uses the length-preserving sanitizer so backticks inside strings/comments don't count.
+ */
+export function getBacktickContext(doc: string, pos: number): BacktickContext {
+  const sanitized = sanitizeSql(doc).slice(0, pos)
+  let count = 0
+  for (let i = 0; i < sanitized.length; i++) {
+    if (sanitized[i] === '`') count++
+  }
+  if (count % 2 === 1) {
+    let seen = 0
+    let lastTick = -1
+    for (let i = 0; i < sanitized.length; i++) {
+      if (sanitized[i] === '`') {
+        seen++
+        if (seen === count) {
+          lastTick = i
+          break
+        }
+      }
+    }
+    return { insideBacktick: true, tokenStart: lastTick + 1 }
+  }
+  return { insideBacktick: false, tokenStart: pos }
+}
+
+export interface QuoteCompletionOptions {
+  /** Cursor is completing inside an unterminated `identifier` */
+  insideBacktick?: boolean
+}
+
+/**
+ * Builds an apply handler that completes an identifier while respecting the
+ * surrounding backticks: expands over the rest of the token, preserves/re-adds
+ * the closing backtick, and parks the cursor before it.
+ */
+function makeIdentApply(name: string, insideBacktick: boolean) {
+  if (!insideBacktick) return undefined
+  return (view: EditorView, _completion: unknown, from: number, to: number) => {
+    const doc = view.state.doc.toString()
+    let end = to
+    while (end < doc.length && /[\w$]/.test(doc[end])) end++
+    if (doc[end] === '`') end++
+    view.dispatch({
+      changes: { from, to: end, insert: `${name}\`` },
+      selection: { anchor: from + name.length },
+    })
+  }
+}
+
+/**
+ * Completing a schema name inside backticks should yield `` `schema`.` `` so the
+ * following table identifier stays quoted and continues to autocomplete.
+ */
+function makeSchemaDotApply(schema: string, insideBacktick: boolean) {
+  if (!insideBacktick) {
+    return (view: EditorView, _completion: unknown, from: number, to: number) => {
+      view.dispatch({ changes: { from, to, insert: `${schema}.` } })
+      setTimeout(() => startCompletion(view), 10)
+    }
+  }
+  return (view: EditorView, _completion: unknown, from: number, to: number) => {
+    const doc = view.state.doc.toString()
+    let end = to
+    while (end < doc.length && /[\w$]/.test(doc[end])) end++
+    if (doc[end] === '`') end++
+    view.dispatch({
+      changes: { from, to: end, insert: `${schema}\`.\`` },
+      selection: { anchor: from + schema.length + 3 },
+    })
+    setTimeout(() => startCompletion(view), 10)
+  }
 }
 
 export const SQL_KEYWORDS = [
@@ -41,11 +122,15 @@ export async function getSqlCompletionOptions(
   doc: string,
   pos: number,
   wordText: string,
-  schemaStore: any
+  schemaStore: any,
+  quoteOpts?: QuoteCompletionOptions
 ): Promise<CompletionOption[]> {
   const q = wordText.toLowerCase()
   const ctx = analyzeSqlScope(doc, pos)
   const options: CompletionOption[] = []
+  // Inside a backtick-quoted identifier only real identifiers are valid
+  // completions: no keywords, functions, join conditions or alias variants.
+  const inTick = !!quoteOpts?.insideBacktick
 
   // Ensure databases list is populated if available
   if ((!schemaStore.databases || schemaStore.databases.length === 0) && schemaStore.fetchDatabases) {
@@ -69,6 +154,7 @@ export async function getSqlCompletionOptions(
               type: 'type',
               detail: `table · ${ctx.dotPrefix}`,
               boost: 100,
+              apply: makeIdentApply(t, inTick),
             }))
         }
       }
@@ -97,6 +183,7 @@ export async function getSqlCompletionOptions(
           type: c.pk ? 'keyword' : 'property',
           detail: `${c.columnType || c.type} · ${targetTable}${aliasLabel}`,
           boost: 100,
+          apply: makeIdentApply(c.name, inTick),
         }))
     }
 
@@ -111,6 +198,7 @@ export async function getSqlCompletionOptions(
             type: 'type',
             detail: `table · ${ctx.dotPrefix}`,
             boost: 100,
+            apply: makeIdentApply(t, inTick),
           }))
       }
     }
@@ -132,6 +220,7 @@ export async function getSqlCompletionOptions(
           type: 'property',
           detail: `${c.type} · ${c.table}`,
           boost: 90,
+          apply: makeIdentApply(c.name, inTick),
         }))
     }
 
@@ -139,7 +228,7 @@ export async function getSqlCompletionOptions(
   }
 
   // 2. JOIN ... ON Trigger (Propose Foreign Key Join Conditions & column equality)
-  if (ctx.isAfterOn && ctx.currentJoinTable) {
+  if (ctx.isAfterOn && ctx.currentJoinTable && !inTick) {
     const joinTbl = ctx.currentJoinTable
     const priorTables = ctx.inScopeTables.filter(t => 
       t.table.toLowerCase() !== joinTbl.table.toLowerCase() || 
@@ -230,10 +319,7 @@ export async function getSqlCompletionOptions(
             type: 'namespace',
             detail: 'schema',
             boost: 85,
-            apply: (view: EditorView, completion: any, from: number, to: number) => {
-              view.dispatch({ changes: { from, to, insert: `${d}.` } })
-              setTimeout(() => startCompletion(view), 10)
-            }
+            apply: makeSchemaDotApply(d, inTick),
           })
         }
       }
@@ -248,9 +334,12 @@ export async function getSqlCompletionOptions(
           type: t.type === 'view' ? 'interface' : 'type',
           detail: t.type || 'table',
           boost: 95,
+          apply: makeIdentApply(t.name, inTick),
         })
         const autoAlias = generateAutoAlias(t.name)
-        if (autoAlias && autoAlias.length > 0 && autoAlias !== t.name) {
+        // Alias variants would inject a space inside the quoted identifier and
+        // break the SQL, so they are only offered for unquoted input.
+        if (!inTick && autoAlias && autoAlias.length > 0 && autoAlias !== t.name) {
           options.push({
             label: `${t.name} ${autoAlias}`,
             type: 'type',
@@ -285,9 +374,10 @@ export async function getSqlCompletionOptions(
               type: col.pk ? 'keyword' : 'property',
               detail: `${col.columnType || col.type} · ${tbl.table}${aliasLabel}`,
               boost: 100, // Top priority for in-scope columns
+              apply: makeIdentApply(col.name, inTick),
             })
             // If alias is defined and multiple tables are in scope, also offer prefixed alias
-            if (tbl.alias && ctx.inScopeTables.length > 1) {
+            if (!inTick && tbl.alias && ctx.inScopeTables.length > 1) {
               const prefixed = `${tbl.alias}.${col.name}`
               if (prefixed.toLowerCase().startsWith(q)) {
                 options.push({
@@ -304,28 +394,32 @@ export async function getSqlCompletionOptions(
     }
   }
 
-  // 5. Functions
-  for (const fn of SQL_FUNCTIONS) {
-    if (fn.label.toLowerCase().startsWith(q)) {
-      options.push({
-        label: fn.label,
-        type: 'function',
-        detail: fn.detail,
-        boost: 60,
-      })
+  // 5. Functions (meaningless inside a quoted identifier)
+  if (!inTick) {
+    for (const fn of SQL_FUNCTIONS) {
+      if (fn.label.toLowerCase().startsWith(q)) {
+        options.push({
+          label: fn.label,
+          type: 'function',
+          detail: fn.detail,
+          boost: 60,
+        })
+      }
     }
   }
 
-  // 6. Keywords
-  for (const k of SQL_KEYWORDS) {
-    if (k.toLowerCase().startsWith(q)) {
-      options.push({
-        label: k,
-        type: 'keyword',
-        detail: 'SQL keyword',
-        boost: 50,
-        apply: `${k} `,
-      })
+  // 6. Keywords (meaningless inside a quoted identifier)
+  if (!inTick) {
+    for (const k of SQL_KEYWORDS) {
+      if (k.toLowerCase().startsWith(q)) {
+        options.push({
+          label: k,
+          type: 'keyword',
+          detail: 'SQL keyword',
+          boost: 50,
+          apply: `${k} `,
+        })
+      }
     }
   }
 
@@ -338,6 +432,7 @@ export async function getSqlCompletionOptions(
         type: 'type',
         detail: 'table',
         boost: 40,
+        apply: makeIdentApply(t.name, inTick),
       })
     }
   }

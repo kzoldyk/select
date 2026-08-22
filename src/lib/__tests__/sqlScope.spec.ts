@@ -219,5 +219,20 @@ select max(id) as id, skid  from thirdparty.b2b_order_sku_skid_mapping where ski
     expect(stmt2).toContain('thirdparty.b2b_order_sku_skid_mapping')
     expect(stmt2).not.toContain('history.productunit_log')
   })
+
+  it('splits queries on double newlines when preceding query has no semicolon', () => {
+    const unSemicolonedSql = `select * from courier.wms_courier_partner_daily_cutoff -- for cutoff time logic
+
+select * from courier.clickpost_delayed_delivery_orders;`
+
+    const stmts = splitSqlStatements(unSemicolonedSql)
+    expect(stmts).toHaveLength(2)
+    expect(stmts[0].executableSql).toBe('select * from courier.wms_courier_partner_daily_cutoff -- for cutoff time logic')
+    expect(stmts[1].executableSql).toBe('select * from courier.clickpost_delayed_delivery_orders')
+
+    const posTarget = unSemicolonedSql.indexOf('clickpost_delayed_delivery_orders')
+    const extracted = getStatementAtPosition(unSemicolonedSql, posTarget)
+    expect(extracted).toBe('select * from courier.clickpost_delayed_delivery_orders')
+  })
 })
 

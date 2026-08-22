@@ -603,12 +603,25 @@ fn strip_trailing_semicolon(sql: &str) -> String {
     sql.to_string()
 }
 
-fn has_single_statement(sql: &str) -> bool {
+/// A word token from SQL annotated with its position relative to dots, so
+/// qualified references (`repair.id`, `db.load`) can be told apart from verbs.
+struct IdentToken {
+    text: String,
+    /// Token was immediately preceded by `.`
+    after_dot: bool,
+    /// Token is immediately followed by `.`
+    before_dot: bool,
+}
+
+fn sql_identifier_tokens(sql: &str) -> Vec<IdentToken> {
+    // First blank out literals/comments while remembering where the separators were,
+    // mirroring sql_tokens_outside_literals state handling.
+    enum Sep { None, Dot }
+    let mut cleaned: Vec<(char, Sep)> = Vec::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
     let mut in_single = false;
     let mut in_double = false;
     let mut in_backtick = false;
-    let mut found_statement_end = false;
 
     while let Some(ch) = chars.next() {
         if in_single {
@@ -617,6 +630,7 @@ fn has_single_statement(sql: &str) -> bool {
             } else if ch == '\'' {
                 in_single = false;
             }
+            cleaned.push((' ', Sep::None));
             continue;
         }
         if in_double {
@@ -625,103 +639,158 @@ fn has_single_statement(sql: &str) -> bool {
             } else if ch == '"' {
                 in_double = false;
             }
+            cleaned.push((' ', Sep::None));
             continue;
         }
         if in_backtick {
             if ch == '`' {
                 in_backtick = false;
             }
+            cleaned.push((' ', Sep::None));
             continue;
         }
-
         match ch {
             '\'' => {
-                if found_statement_end { return false; }
                 in_single = true;
+                cleaned.push((' ', Sep::None));
             }
             '"' => {
-                if found_statement_end { return false; }
                 in_double = true;
+                cleaned.push((' ', Sep::None));
             }
             '`' => {
-                if found_statement_end { return false; }
                 in_backtick = true;
+                cleaned.push((' ', Sep::None));
             }
             '-' if chars.peek() == Some(&'-') => {
                 chars.next();
-                while let Some(comment_ch) = chars.next() {
-                    if comment_ch == '\n' {
+                while let Some(c) = chars.next() {
+                    if c == '\n' {
                         break;
                     }
                 }
+                cleaned.push((' ', Sep::None));
             }
             '#' => {
-                while let Some(comment_ch) = chars.next() {
-                    if comment_ch == '\n' {
+                while let Some(c) = chars.next() {
+                    if c == '\n' {
                         break;
                     }
                 }
+                cleaned.push((' ', Sep::None));
             }
             '/' if chars.peek() == Some(&'*') => {
                 chars.next();
                 let mut prev = '\0';
-                while let Some(comment_ch) = chars.next() {
-                    if prev == '*' && comment_ch == '/' {
+                while let Some(c) = chars.next() {
+                    if prev == '*' && c == '/' {
                         break;
                     }
-                    prev = comment_ch;
+                    prev = c;
                 }
+                cleaned.push((' ', Sep::None));
             }
-            ';' => {
-                found_statement_end = true;
-            }
-            c if !c.is_whitespace() => {
-                if found_statement_end {
-                    return false;
-                }
-            }
-            _ => {}
+            _ => cleaned.push((ch, Sep::None)),
         }
     }
 
-    true
+    // Mark explicit dot separators (outside literals already blanked).
+    for i in 0..cleaned.len() {
+        if cleaned[i].0 == '.' {
+            cleaned[i].1 = Sep::Dot;
+        }
+    }
+
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut current_after_dot = false;
+    let mut pending_dot = false;
+    for (ch, sep) in cleaned {
+        if matches!(sep, Sep::Dot) {
+            if !current.is_empty() {
+                tokens.push(IdentToken {
+                    before_dot: true,
+                    text: std::mem::take(&mut current).to_ascii_uppercase(),
+                    after_dot: current_after_dot,
+                });
+            }
+            pending_dot = true;
+            continue;
+        }
+        let is_word = ch.is_ascii_alphanumeric() || ch == '_';
+        if is_word {
+            if current.is_empty() {
+                current_after_dot = pending_dot;
+            }
+            pending_dot = false;
+            current.push(ch);
+        } else if !current.is_empty() {
+            tokens.push(IdentToken {
+                before_dot: false,
+                text: std::mem::take(&mut current).to_ascii_uppercase(),
+                after_dot: current_after_dot,
+            });
+            current_after_dot = false;
+            pending_dot = false;
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(IdentToken {
+            before_dot: false,
+            text: current.to_ascii_uppercase(),
+            after_dot: current_after_dot,
+        });
+    }
+    tokens
 }
 
 fn validate_read_only_query(sql: &str) -> Result<(), String> {
-    let tokens = sql_tokens_outside_literals(sql);
+    let tokens = sql_identifier_tokens(sql);
     let first = tokens.first().ok_or("Query is empty.")?;
     let allowed = ["SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH", "TABLE", "VALUES"];
-    if !allowed.contains(&first.as_str()) {
+    if !allowed.contains(&first.text.as_str()) {
 	    return Err(
 	        "Only read-only queries (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH, TABLE, VALUES) are allowed."
 	            .into(),
 	    );
 	}
 
-    if !has_single_statement(sql) {
-        return Err("Only one SQL statement can be executed at a time.".into());
-    }
+    let is_show_query = first.text == "SHOW";
 
-    let is_show_query = first == "SHOW";
-
-    let blocked = [
-        "ALTER", "ANALYZE", "BEGIN", "CALL", "CHECK", "COMMIT", "CREATE", "DEALLOCATE",
-        "DELETE", "DROP", "EXECUTE", "FLUSH", "GRANT", "IMPORT", "INSERT", "INSTALL",
-        "KILL", "LOAD", "LOCK", "MERGE", "OPTIMIZE", "PREPARE", "PURGE", "RENAME",
-        "REPAIR", "REPLACE", "RESET", "REVOKE", "ROLLBACK", "SAVEPOINT", "SET",
-        "START", "STOP", "TRUNCATE", "UNINSTALL", "UPDATE",
+    // Reserved words / statement-only verbs. They can never be unquoted
+    // identifiers in MySQL, so they stay blocked in every position.
+    let always_blocked = [
+        "ALTER", "BEGIN", "CALL", "CHECK", "COMMIT", "CREATE", "DEALLOCATE",
+        "DELETE", "DROP", "DUMPFILE", "EXECUTE", "GRANT", "INSERT", "INSTALL",
+        "MERGE", "OUTFILE", "PREPARE", "RENAME", "REPLACE", "REVOKE", "ROLLBACK",
+        "SAVEPOINT", "SET", "TRUNCATE", "UNINSTALL", "UPDATE",
     ];
-    if let Some(token) = tokens
-        .iter()
-        .find(|token| {
-            if is_show_query && *token == "CREATE" {
-                false
-            } else {
-                blocked.contains(&token.as_str())
+    // Statement keywords that are still valid unquoted identifiers. Blocked
+    // unless they clearly occupy an identifier position.
+    let context_blocked = [
+        "ANALYZE", "FLUSH", "IMPORT", "KILL", "LOAD", "LOCK", "OPTIMIZE",
+        "PURGE", "REPAIR", "RESET", "START", "STOP",
+    ];
+    // Keywords whose following token must be an identifier.
+    let ident_context = ["FROM", "JOIN", "TABLE", "DATABASE", "SCHEMA"];
+
+    let mut prev_text: Option<&str> = None;
+    for token in tokens.iter() {
+        let is_always = always_blocked.contains(&token.text.as_str());
+        let is_contextual = context_blocked.contains(&token.text.as_str());
+        if is_always || is_contextual {
+            if !(is_show_query && token.text == "CREATE") {
+                let in_ident_position = !is_always && (
+                    token.after_dot
+                        || token.before_dot
+                        || prev_text.map(|p| ident_context.contains(&p)).unwrap_or(false)
+                );
+                if !in_ident_position {
+                    return Err(format!("Query contains disallowed keyword '{}'.", token.text));
+                }
             }
-        })
-    {
-        return Err(format!("Query contains disallowed keyword '{}'.", token));
+        }
+        prev_text = Some(token.text.as_str());
     }
 
     Ok(())
@@ -1309,12 +1378,21 @@ pub async fn run_query_paged(
 
     let fetch_limit = page_size + 1;
     let clean_sql = strip_trailing_semicolon(sql.trim());
+    let has_top_limit = has_top_level_limit(&clean_sql);
     let paged_sql = format!("{}\nLIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
     let subquery_sql = format!("SELECT * FROM ({}) AS _sub\nLIMIT {} OFFSET {}", clean_sql, fetch_limit, page_offset);
 
+    // When the statement already carries a top-level LIMIT, appending another one
+    // is a guaranteed syntax error — go straight to the derived-table wrap.
+    let (first_sql, second_sql) = if has_top_limit {
+        (subquery_sql.clone(), None)
+    } else {
+        (paged_sql.clone(), Some(subquery_sql.clone()))
+    };
+
     let clean_sql_clone = clean_sql.clone();
-    let paged_sql_clone = paged_sql.clone();
-    let subquery_sql_clone = subquery_sql.clone();
+    let first_sql_clone = first_sql.clone();
+    let second_sql_clone = second_sql.clone();
 
     let query_future = async move {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -1322,14 +1400,23 @@ pub async fn run_query_paged(
         thread_ids.lock().await.insert(conn_id, tid);
         
         let mut result_is_fallback = false;
-        let mut result = match conn.query_iter(&paged_sql_clone).await {
+        let mut result = match conn.query_iter(&first_sql_clone).await {
             Ok(r) => r,
             Err(e) => {
                 let err_msg = safe_error(&e);
                 if err_msg.to_lowercase().contains("syntax") || err_msg.to_lowercase().contains("parse") {
-                    match conn.query_iter(&subquery_sql_clone).await {
-                        Ok(r) => r,
-                        Err(_) => {
+                    let second_attempt = if let Some(second) = second_sql_clone.as_deref() {
+                        conn.query_iter(second)
+                            .await
+                            .map(Some)
+                            .map_err(|e| safe_error(&e))
+                    } else {
+                        Err(String::new())
+                    };
+                    match second_attempt {
+                        Ok(Some(r)) => r,
+                        _ => {
+                            // Last resort: run the raw statement and page manually.
                             result_is_fallback = true;
                             conn.query_iter(&clean_sql_clone).await.map_err(|e| safe_error(&e))?
                         }
@@ -1443,6 +1530,117 @@ fn is_mutating_query(sql: &str) -> bool {
 fn has_where_clause(sql: &str) -> bool {
     let tokens = sql_tokens_outside_literals(sql);
     tokens.iter().any(|t| t == "WHERE")
+}
+
+/// Detects a top-level (outside parentheses, literals and comments) LIMIT clause,
+/// so pagination doesn't blindly append a second LIMIT and break the statement.
+fn has_top_level_limit(sql: &str) -> bool {
+    for (token, depth) in tokenize_with_depth(sql) {
+        if token.eq_ignore_ascii_case("LIMIT") && depth == 0 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Tokenizes SQL into `(uppercase_token, paren_depth)` pairs, skipping literals
+/// and comments. Tokens are emitted with the depth at which they ended.
+fn tokenize_with_depth(sql: &str) -> Vec<(String, i32)> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut depth: i32 = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_backtick = false;
+
+    fn flush(current: &mut String, depth: i32, tokens: &mut Vec<(String, i32)>) {
+        if !current.is_empty() {
+            tokens.push((current.to_ascii_uppercase(), depth));
+            current.clear();
+        }
+    }
+
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if in_single {
+            if ch == '\\' {
+                chars.next();
+            } else if ch == '\'' {
+                in_single = false;
+            }
+            continue;
+        }
+        if in_double {
+            if ch == '\\' {
+                chars.next();
+            } else if ch == '"' {
+                in_double = false;
+            }
+            continue;
+        }
+        if in_backtick {
+            if ch == '`' {
+                in_backtick = false;
+            }
+            continue;
+        }
+        match ch {
+            '\'' => {
+                in_single = true;
+                flush(&mut current, depth, &mut tokens);
+            }
+            '"' => {
+                in_double = true;
+                flush(&mut current, depth, &mut tokens);
+            }
+            '`' => {
+                in_backtick = true;
+                flush(&mut current, depth, &mut tokens);
+            }
+            '(' => {
+                depth += 1;
+                flush(&mut current, depth, &mut tokens);
+            }
+            ')' => {
+                depth -= 1;
+                flush(&mut current, depth, &mut tokens);
+            }
+            '-' if chars.peek() == Some(&'-') => {
+                chars.next();
+                while let Some(c) = chars.next() {
+                    if c == '\n' {
+                        break;
+                    }
+                }
+                flush(&mut current, depth, &mut tokens);
+            }
+            '#' => {
+                while let Some(c) = chars.next() {
+                    if c == '\n' {
+                        break;
+                    }
+                }
+                flush(&mut current, depth, &mut tokens);
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut prev = '\0';
+                while let Some(c) = chars.next() {
+                    if prev == '*' && c == '/' {
+                        break;
+                    }
+                    prev = c;
+                }
+                flush(&mut current, depth, &mut tokens);
+            }
+            c if c.is_whitespace() || c == ',' || c == ';' => {
+                flush(&mut current, depth, &mut tokens);
+            }
+            _ => current.push(ch),
+        }
+    }
+    flush(&mut current, depth, &mut tokens);
+    tokens
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2804,7 +3002,26 @@ mod tests {
     #[test]
     fn read_only_validation_rejects_multi_statement_bypass() {
         let err = validate_read_only_query("SELECT 1; DROP TABLE users").unwrap_err();
-        assert!(err.contains("one SQL statement"));
+        assert!(err.contains("disallowed keyword"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn read_only_validation_allows_keyword_named_identifiers() {
+        // Non-reserved words are legal unquoted identifiers in MySQL and must
+        // behave the same whether or not they are backtick-quoted.
+        assert!(validate_read_only_query("SELECT * FROM load").is_ok());
+        assert!(validate_read_only_query("SELECT * FROM `load`").is_ok());
+        assert!(validate_read_only_query("SELECT * FROM lock").is_ok());
+        assert!(validate_read_only_query("SHOW CREATE TABLE optimize").is_ok());
+        assert!(validate_read_only_query("SELECT * FROM t JOIN repair ON t.id = repair.id").is_ok());
+    }
+
+    #[test]
+    fn read_only_validation_still_blocks_commands_after_identifier_context_words() {
+        // The identifier-context exemption must not become an injection hole.
+        assert!(validate_read_only_query("SELECT * FROM users; DROP TABLE users").is_err());
+        assert!(validate_read_only_query("SELECT 1 UNION SELECT * FROM users INTO OUTFILE '/tmp/x'").is_err());
+        assert!(validate_read_only_query("WITH x AS (DELETE FROM users) SELECT 1").is_err());
     }
 
     #[test]
@@ -2838,6 +3055,22 @@ mod tests {
         assert!(validate_read_only_query("PREPARE stmt FROM 'SELECT 1'").is_err());
         assert!(validate_read_only_query("EXECUTE stmt").is_err());
         assert!(validate_read_only_query("DEALLOCATE PREPARE stmt").is_err());
+    }
+
+    #[test]
+    fn top_level_limit_detection() {
+        assert!(!has_top_level_limit("SELECT * FROM users"));
+        assert!(has_top_level_limit("SELECT * FROM users LIMIT 100"));
+        assert!(has_top_level_limit("select * from users limit 10 offset 5"));
+        // Subquery-scoped limits are not top-level
+        assert!(!has_top_level_limit("SELECT * FROM (SELECT * FROM t LIMIT 5) AS x"));
+        // Literals and comments don't count
+        assert!(!has_top_level_limit("SELECT 'LIMIT' FROM users"));
+        assert!(!has_top_level_limit("SELECT * FROM users -- LIMIT 5\n"));
+        assert!(!has_top_level_limit("/* LIMIT */ SELECT 1"));
+        // Backtick identifiers
+        assert!(has_top_level_limit("SELECT * FROM `users` LIMIT 10"));
+        assert!(!has_top_level_limit("SELECT `limit` FROM t"));
     }
 
     #[test]

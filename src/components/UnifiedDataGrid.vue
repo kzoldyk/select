@@ -318,6 +318,29 @@
                 </span>
               </template>
 
+              <!-- Color Value Display -->
+              <template v-else-if="isColorValue(col.name, item.row[col.name])">
+                <div class="inline-flex items-center gap-1.5 font-mono text-[11px] truncate">
+                  <span
+                    class="w-3.5 h-3.5 rounded-full flex-shrink-0 border border-border/80 shadow-2xs"
+                    :style="{ backgroundColor: String(item.row[col.name]) }"
+                    :title="`Color swatch: ${item.row[col.name]}`"
+                  ></span>
+                  <span class="truncate font-medium">{{ item.row[col.name] }}</span>
+                </div>
+              </template>
+
+              <!-- Status Value Display (Chips / Badges) -->
+              <template v-else-if="isStatusValue(col.name, item.row[col.name])">
+                <span
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono border tracking-wide uppercase transition-all shadow-2xs"
+                  :class="getStatusChipClass(col.name, String(item.row[col.name]))"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full mr-1 flex-shrink-0" :class="getStatusDotClass(col.name, String(item.row[col.name]))"></span>
+                  {{ String(item.row[col.name]) }}
+                </span>
+              </template>
+
               <!-- Standard Value Display with FK Link & Large Value Peek -->
               <template v-else>
                 <span class="truncate font-mono" :title="String(item.row[col.name])">
@@ -442,6 +465,72 @@
       @update:open="(val) => valueInspectorState.open = val"
       @save-value="onInspectorSaveValue"
     />
+
+    <!-- Foreign Key Referenced-Record Peek -->
+    <Teleport to="body">
+      <div
+        v-if="fkPeekState.visible"
+        class="fixed z-[100] w-80 max-h-64 bg-popover border border-border/80 rounded-lg shadow-2xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-fast"
+        :style="{ left: fkPeekState.x + 'px', top: fkPeekState.y + 'px' }"
+        @click.stop
+      >
+        <div class="flex items-center justify-between px-3 py-1.5 border-b border-border/60 bg-accent/40">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <PhArrowSquareOut class="w-3.5 h-3.5 text-primary flex-shrink-0" />
+            <span class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">
+              {{ fkPeekState.refTable }} · {{ fkPeekState.refColumn }}
+            </span>
+          </div>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button
+              v-if="fkPeekState.row"
+              class="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer border-none bg-transparent"
+              title="Copy as JSON"
+              @click="copyFkRowAsJson"
+            >
+              <PhCopy class="w-3 h-3" />
+            </button>
+            <button
+              class="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer border-none bg-transparent"
+              title="Close"
+              @click="fkPeekState.visible = false"
+            >
+              <PhX class="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+
+        <div class="max-h-52 overflow-y-auto p-2 text-[11px] font-mono">
+          <div v-if="fkPeekState.loading" class="flex items-center justify-center gap-2 py-6 text-muted-foreground">
+            <svg class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+            <span>Fetching referenced record…</span>
+          </div>
+
+          <div v-else-if="fkPeekState.error" class="px-2 py-3 text-destructive break-words">
+            {{ fkPeekState.error }}
+          </div>
+
+          <div v-else-if="!fkPeekState.row" class="px-2 py-3 text-muted-foreground text-center">
+            No referenced record found.
+          </div>
+
+          <div v-else class="flex flex-col gap-0.5">
+            <div
+              v-for="(value, key) in fkPeekState.row"
+              :key="key"
+              class="flex gap-2 px-1.5 py-0.5 rounded hover:bg-accent/60"
+            >
+              <span class="text-muted-foreground/80 flex-shrink-0 max-w-[110px] truncate" :title="String(key)">{{ key }}:</span>
+              <span class="truncate" :class="{ 'italic text-muted-foreground/60': value === null }" :title="value === null ? 'NULL' : String(value)">
+                {{ value === null ? 'NULL' : String(value) }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -458,6 +547,7 @@ import {
   PhArrowSquareOut, PhArrowsOutSimple, PhDatabase, PhArrowsOutLineHorizontal
 } from '@phosphor-icons/vue'
 import { useSchemaStore } from '@/stores/schema'
+import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
 import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'vue-sonner'
@@ -626,6 +716,74 @@ const columnMetaMap = computed(() => {
   }
   return map
 })
+
+function isColorValue(colName: string, val: unknown): boolean {
+  if (typeof val !== 'string') return false
+  const str = val.trim()
+  if (!str) return false
+  const isHex = /^#(?:[0-9a-fA-F]{3,4}){1,2}$/.test(str)
+  const isRgbOrHsl = /^(?:rgb|hsl)a?\([^)]+\)$/i.test(str)
+  if (isHex || isRgbOrHsl) return true
+  const lowerCol = colName.toLowerCase()
+  if ((lowerCol.includes('color') || lowerCol.includes('hex')) && str.length <= 30 && (str.startsWith('#') || /^[a-z]+$/i.test(str))) {
+    return true
+  }
+  return false
+}
+
+const KNOWN_STATUS_VALUES = new Set([
+  'CO', 'CC', 'CD', 'CO_PENDING', 'CO_DONE',
+  'PENDING', 'COMPLETED', 'DELIVERED', 'SUCCESS', 'FAILED', 'ERROR', 'CANCELLED',
+  'CANCELED', 'REJECTED', 'ACTIVE', 'INACTIVE', 'PROCESSING', 'APPROVED',
+  'OPEN', 'CLOSED', 'DRAFT', 'SHIPPED', 'RETURNED', 'PASSED', 'QUEUED',
+  'IN_PROGRESS', 'INPROGRESS', 'WAITING', 'HOLD', 'RESOLVED', 'PAID', 'UNPAID',
+  'RTS', 'TRUCK_AT_RTS', 'CREATING', 'INITIATED', 'EXPIRED', 'DEAD'
+])
+
+function isStatusValue(colName: string, val: unknown): boolean {
+  if (val === null || val === undefined || typeof val === 'number' || typeof val === 'boolean') return false
+  const str = String(val).trim()
+  if (!str || str.length > 35 || str.includes('\n')) return false
+
+  const lowerCol = colName.toLowerCase()
+  const isStatusCol = lowerCol === 'status' || lowerCol.includes('status') || lowerCol.includes('state') || lowerCol.endsWith('_code') || lowerCol === 'code' || lowerCol === 'statuscode'
+
+  if (isStatusCol) return true
+  if (KNOWN_STATUS_VALUES.has(str.toUpperCase())) return true
+  return false
+}
+
+function getStatusChipClass(colName: string, val: string): string {
+  const upper = val.trim().toUpperCase()
+
+  if (['CO', 'CD', 'COMPLETED', 'DELIVERED', 'SUCCESS', 'ACTIVE', 'PASSED', 'APPROVED', 'RESOLVED', 'PAID', 'DONE', 'FINISHED', 'SETTLED', 'OK', 'READY'].includes(upper)) {
+    return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+  }
+
+  if (['CC', 'PENDING', 'PROCESSING', 'IN_PROGRESS', 'INPROGRESS', 'QUEUED', 'WAITING', 'SHIPPED', 'OPEN', 'REVIEW', 'DRAFT', 'HOLD', 'INITIATED', 'RUNNING', 'RTS', 'TRUCK_AT_RTS'].includes(upper)) {
+    return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+  }
+
+  if (['FAILED', 'ERROR', 'CANCELLED', 'CANCELED', 'REJECTED', 'ABORTED', 'BLOCKED', 'EXPIRED', 'INACTIVE', 'DEAD', 'STOPPED', 'FAIL', 'RETURNED', 'REFUNDED', 'UNPAID'].includes(upper)) {
+    return 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30'
+  }
+
+  return 'bg-primary/10 text-primary border-primary/25'
+}
+
+function getStatusDotClass(colName: string, val: string): string {
+  const upper = val.trim().toUpperCase()
+  if (['CO', 'CD', 'COMPLETED', 'DELIVERED', 'SUCCESS', 'ACTIVE', 'PASSED', 'APPROVED', 'RESOLVED', 'PAID', 'DONE', 'FINISHED', 'SETTLED', 'OK', 'READY'].includes(upper)) {
+    return 'bg-emerald-500'
+  }
+  if (['CC', 'PENDING', 'PROCESSING', 'IN_PROGRESS', 'INPROGRESS', 'QUEUED', 'WAITING', 'SHIPPED', 'OPEN', 'REVIEW', 'DRAFT', 'HOLD', 'INITIATED', 'RUNNING', 'RTS', 'TRUCK_AT_RTS'].includes(upper)) {
+    return 'bg-amber-500'
+  }
+  if (['FAILED', 'ERROR', 'CANCELLED', 'CANCELED', 'REJECTED', 'ABORTED', 'BLOCKED', 'EXPIRED', 'INACTIVE', 'DEAD', 'STOPPED', 'FAIL', 'RETURNED', 'REFUNDED', 'UNPAID'].includes(upper)) {
+    return 'bg-red-500'
+  }
+  return 'bg-primary'
+}
 
 // Filtering and Sorting
 const activeFilterCount = computed(() => {
@@ -1045,8 +1203,65 @@ function getForeignKeyInfo(col: ColumnDef) {
   return columnMetaMap.value[col.name]?.foreignKey ?? null
 }
 
-function peekForeignKey(e: MouseEvent, col: ColumnDef, val: any) {
-  // Trigger FK preview popover
+const fkPeekState = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  loading: false,
+  error: '' ,
+  row: null as Record<string, any> | null,
+  refTable: '',
+  refColumn: '',
+})
+
+async function peekForeignKey(e: MouseEvent, col: ColumnDef, val: any) {
+  if (val === null || val === undefined) {
+    toast.info('Cannot preview referenced record: value is NULL')
+    return
+  }
+  const fk = getForeignKeyInfo(col)
+  if (!fk) return
+
+  const refTable = fk.referenced_table || fk.referencedTable || ''
+  const refColumn = fk.referenced_column || fk.referencedColumn || ''
+  if (!refTable || !refColumn) {
+    toast.error('Foreign key metadata unavailable')
+    return
+  }
+
+  // Position the popover near the cursor, clamped to the viewport.
+  const POPOVER_W = 320
+  const POPOVER_H = 260
+  fkPeekState.x = Math.min(e.clientX + 8, window.innerWidth - POPOVER_W - 12)
+  fkPeekState.y = Math.min(e.clientY + 8, window.innerHeight - POPOVER_H - 12)
+  fkPeekState.refTable = refTable
+  fkPeekState.refColumn = refColumn
+  fkPeekState.row = null
+  fkPeekState.error = ''
+  fkPeekState.loading = true
+  fkPeekState.visible = true
+
+  try {
+    const connId = useConnectionStore().activeId
+    const row = await invoke<Record<string, any> | null>('fetch_referenced_row', {
+      table: refTable,
+      column: refColumn,
+      value: String(val),
+      id: connId,
+    })
+    fkPeekState.row = row
+  } catch (err) {
+    fkPeekState.error = String(err)
+  } finally {
+    fkPeekState.loading = false
+  }
+}
+
+function copyFkRowAsJson() {
+  if (!fkPeekState.row) return
+  navigator.clipboard.writeText(JSON.stringify(fkPeekState.row, null, 2))
+    .then(() => toast.success('Referenced record copied as JSON'))
+    .catch(() => toast.error('Failed to copy'))
 }
 
 function sortBy(colName: string) {
@@ -1150,6 +1365,7 @@ function copyColumnName() {
 function closeAllContextMenus() {
   cellContextMenu.visible = false
   headerContextMenu.visible = false
+  fkPeekState.visible = false
   isMouseDown.value = false
 }
 

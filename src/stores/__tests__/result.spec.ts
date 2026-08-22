@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
-import { useResultStore } from "../result";
+import { useResultStore, parseDatabaseError } from "../result";
 import { useConnectionStore } from "../connection";
 
 const mockInvoke = vi.fn();
@@ -178,6 +178,27 @@ describe("result store", () => {
       
       await store.runQuery("SELECT * FROM products");
       expect(store.activeResultTabId).toBe("current");
+    });
+  });
+
+  describe("parseDatabaseError", () => {
+    it("parses MySQL syntax error line number and near token", () => {
+      const errStr = "Server error: 'ERROR 42000 (1064): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'select * from courier.clickpost_delayed_delivery_orders' at line 3'";
+      const parsed = parseDatabaseError(errStr);
+      expect(parsed.code).toContain("1064");
+      expect(parsed.line).toBe(3);
+      expect(parsed.near).toBe("select * from courier.clickpost_delayed_delivery_orders");
+      expect(parsed.hint).toContain("Line 3");
+    });
+  });
+
+  describe("running status protection", () => {
+    it("ignores duplicate runQuery triggers when status is running without setting error status", async () => {
+      const store = useResultStore();
+      store.status = "running";
+      await store.runQuery("SELECT * FROM test");
+      expect(store.status).toBe("running");
+      expect(store.error).toBeNull();
     });
   });
 });

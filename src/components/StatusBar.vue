@@ -93,17 +93,6 @@
         <PhActivity class="w-3 h-3 text-emerald-500" />
         <span>{{ pingLatency !== null ? `${pingLatency}ms` : 'Connected' }}</span>
       </div>
-
-      <!-- Transaction State (if any) -->
-      <template v-if="isInTransaction">
-        <span class="w-px h-3 bg-border/60"></span>
-        <div class="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-500 font-semibold animate-pulse">
-          <PhWarning class="w-3 h-3" />
-          <span>IN TRANSACTION</span>
-          <button class="px-1 bg-amber-500/20 hover:bg-amber-500/30 rounded text-[9px] cursor-pointer border-none text-amber-400" @click="runCommit">Commit</button>
-          <button class="px-1 bg-red-500/20 hover:bg-red-500/30 rounded text-[9px] cursor-pointer border-none text-red-400" @click="runRollback">Rollback</button>
-        </div>
-      </template>
     </div>
 
     <!-- Center: Running Feedback & Cancel Action -->
@@ -176,7 +165,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import {
-  PhActivity, PhWarning, PhSun, PhMoon, PhSpeakerHigh, PhSpeakerSlash,
+  PhActivity, PhSun, PhMoon, PhSpeakerHigh, PhSpeakerSlash,
   PhGear, PhCaretDown, PhCheck, PhPlug, PhPower
 } from '@phosphor-icons/vue'
 import { useConnectionStore } from '../stores/connection'
@@ -193,7 +182,6 @@ const uiStore = useUiStore()
 const showConnMenu = ref(false)
 const connMenuRef = ref<HTMLDivElement | null>(null)
 const pingLatency = ref<number | null>(null)
-const isInTransaction = ref(false)
 let pingInterval: ReturnType<typeof setInterval> | null = null
 
 async function switchConnection(id: string) {
@@ -227,18 +215,6 @@ async function checkHealth() {
       pingLatency.value = null
     }
   }
-}
-
-function runCommit() {
-  resultStore.runQuery('COMMIT;')
-  isInTransaction.value = false
-  toast.success('Transaction committed')
-}
-
-function runRollback() {
-  resultStore.runQuery('ROLLBACK;')
-  isInTransaction.value = false
-  toast.info('Transaction rolled back')
 }
 
 function handleDocClick(e: MouseEvent) {

@@ -279,13 +279,16 @@ export const useSchemaStore = defineStore('schema', {
       }
     },
     async fetchAllTableDetails() {
-      const batchSize = 4
+      const batchSize = 12
       for (let i = 0; i < this.tables.length; i += batchSize) {
         const batch = this.tables.slice(i, i + batchSize)
         await Promise.all(
           batch
             .filter(t => !this.detailsByTable[t.name])
-            .map(t => this.fetchTableDetails(t.name).catch(() => null))
+            .map(t => Promise.all([
+              this.fetchTableDetails(t.name).catch(() => null),
+              this.fetchForeignKeys(t.name).catch(() => []),
+            ]))
         )
       }
     },

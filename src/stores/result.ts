@@ -26,6 +26,67 @@ export interface DbError {
   message: string
   line?: number
   col?: number
+  near?: string
+  hint?: string
+}
+
+export function parseDatabaseError(err: unknown, sql?: string): DbError {
+  const errMsg = typeof err === 'string' ? err : (err && typeof err === 'object' && 'message' in err) ? String((err as any).message) : String(err)
+  const isInterrupted = errMsg.toLowerCase().includes('interrupted') || errMsg.toLowerCase().includes('cancelled') || errMsg.toLowerCase().includes('kill')
+
+  if (isInterrupted) {
+    return {
+      code: 'QUERY_CANCELLED',
+      message: 'Query execution was cancelled or interrupted.',
+    }
+  }
+
+  let code = 'QUERY_ERROR'
+  let line: number | undefined
+  let col: number | undefined
+  let near: string | undefined
+  let hint: string | undefined
+
+  const mysqlCodeMatch = errMsg.match(/(?:ERROR\s+\d+\s*\(\s*(\w+)\s*\)|ERROR\s+(\d+))/i)
+  if (mysqlCodeMatch) {
+    code = `MYSQL_${mysqlCodeMatch[1] || mysqlCodeMatch[2]}`
+  } else if (errMsg.includes('1064')) {
+    code = 'MYSQL_1064 (Syntax Error)'
+  }
+
+  const lineMatch = errMsg.match(/\bat\s+line\s+(\d+)\b/i) || errMsg.match(/\bline\s+(\d+)\b/i) || errMsg.match(/LINE\s+(\d+):/i)
+  if (lineMatch) {
+    line = parseInt(lineMatch[1], 10)
+  }
+
+  const colMatch = errMsg.match(/\b(?:position|column|character)\s+(\d+)\b/i)
+  if (colMatch) {
+    col = parseInt(colMatch[1], 10)
+  }
+
+  const nearMatch = errMsg.match(/near\s+'([^']+)'/i) || errMsg.match(/near\s+"([^"]+)"/i)
+  if (nearMatch) {
+    near = nearMatch[1]
+  }
+
+  if (errMsg.toLowerCase().includes('syntax error') || errMsg.toLowerCase().includes('1064') || code.includes('1064')) {
+    if (line !== undefined) {
+      hint = `Syntax error around Line ${line}${near ? ` near '${near}'` : ''}. Check if a preceding statement is missing a semicolon ';'.`
+    } else if (near) {
+      hint = `Syntax error near '${near}'. Check your SQL syntax and ensure preceding queries end with a semicolon ';'.`
+    } else {
+      hint = `Check your SQL syntax and ensure statements are properly terminated with semicolons ';'.`
+    }
+  }
+
+  return {
+    code,
+    message: errMsg,
+    line,
+    col,
+    near,
+    hint,
+  }
 }
 
 export type CellValue = string | number | boolean | null
@@ -225,11 +286,6 @@ export const useResultStore = defineStore('result', {
       useUiStore().setResultPanelOpen(true)
       this.activeResultTabId = 'current'
       if (this.status === 'running') {
-        this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
-        this.status = 'error'
-        playSound('error')
-        this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
-        this.activeView = 'messages'
         return
       }
       _sql = fixBacktickedIdentifiers(_sql)
@@ -293,17 +349,11 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'table'
       } catch (err) {
         if (requestId !== this.requestId) return
-        const errMsg = String(err)
-        const isInterrupted = errMsg.toLowerCase().includes('interrupted') || errMsg.toLowerCase().includes('cancelled') || errMsg.toLowerCase().includes('kill')
-        this.error = {
-          code: isInterrupted ? 'QUERY_CANCELLED' : 'QUERY_ERROR',
-          message: isInterrupted ? 'Query execution was interrupted.' : errMsg,
-        }
-        this.status = isInterrupted ? 'idle' : 'error'
+        const parsedErr = parseDatabaseError(err, _sql)
+        this.error = parsedErr
+        this.status = parsedErr.code === 'QUERY_CANCELLED' ? 'idle' : 'error'
         playSound('error')
-        this.messages = isInterrupted
-          ? ['[QUERY_CANCELLED] Query execution was interrupted.']
-          : [`Error: ${errMsg}`]
+        this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
         this.activeView = 'messages'
       }
       this.loadHistory()
@@ -311,11 +361,6 @@ export const useResultStore = defineStore('result', {
 
     async runMultiQuery(_sql: string) {
       if (this.status === 'running') {
-        this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
-        this.status = 'error'
-        playSound('error')
-        this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
-        this.activeView = 'messages'
         return
       }
       _sql = fixBacktickedIdentifiers(_sql)
@@ -351,10 +396,11 @@ export const useResultStore = defineStore('result', {
 
         const first = results[0]
         if (first && first.error) {
-          this.error = { code: 'MULTI_QUERY_ERROR', message: first.error }
+          const parsedErr = parseDatabaseError(first.error, _sql)
+          this.error = parsedErr
           this.status = 'error'
           playSound('error')
-          this.messages = [`Error: ${first.error}`]
+          this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
           this.activeView = 'messages'
           if (results.length === 1) {
             this.multiResults = []
@@ -381,17 +427,11 @@ export const useResultStore = defineStore('result', {
         }
       } catch (err) {
         if (requestId !== this.requestId) return
-        const errMsg = String(err)
-        const isInterrupted = errMsg.toLowerCase().includes('interrupted') || errMsg.toLowerCase().includes('cancelled') || errMsg.toLowerCase().includes('kill')
-        this.error = {
-          code: isInterrupted ? 'QUERY_CANCELLED' : 'MULTI_QUERY_ERROR',
-          message: isInterrupted ? 'Query execution was interrupted.' : errMsg,
-        }
-        this.status = isInterrupted ? 'idle' : 'error'
+        const parsedErr = parseDatabaseError(err, _sql)
+        this.error = parsedErr
+        this.status = parsedErr.code === 'QUERY_CANCELLED' ? 'idle' : 'error'
         playSound('error')
-        this.messages = isInterrupted
-          ? ['[QUERY_CANCELLED] Query execution was interrupted.']
-          : [`Error: ${errMsg}`]
+        this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
         this.activeView = 'messages'
       }
       this.loadHistory()
@@ -551,11 +591,6 @@ export const useResultStore = defineStore('result', {
     async runWriteQuery(_sql: string) {
       this.activeResultTabId = 'current'
       if (this.status === 'running') {
-        this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
-        this.status = 'error'
-        playSound('error')
-        this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
-        this.activeView = 'messages'
         return
       }
       _sql = fixBacktickedIdentifiers(_sql)
@@ -595,13 +630,11 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'messages'
       } catch (err) {
         if (requestId !== this.requestId) return
-        this.error = {
-          code: 'WRITE_ERROR',
-          message: String(err),
-        }
+        const parsedErr = parseDatabaseError(err, _sql)
+        this.error = parsedErr
         this.status = 'error'
         playSound('error')
-        this.messages = [`Error: ${String(err)}`]
+        this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
         this.activeView = 'messages'
       }
       this.loadHistory()
@@ -611,11 +644,6 @@ export const useResultStore = defineStore('result', {
       useUiStore().setResultPanelOpen(true)
       this.activeResultTabId = 'current'
       if (this.status === 'running') {
-        this.error = { code: 'QUERY_RUNNING', message: 'Only one SQL statement can be executed at a time.' }
-        this.status = 'error'
-        playSound('error')
-        this.messages = ['[QUERY_ERROR] Only one SQL statement can be executed at a time.']
-        this.activeView = 'messages'
         return
       }
       sql = fixBacktickedIdentifiers(sql)
@@ -640,13 +668,11 @@ export const useResultStore = defineStore('result', {
         this.activeView = 'plan'
       } catch (err) {
         if (requestId !== this.requestId) return
-        this.error = {
-          code: 'EXPLAIN_ERROR',
-          message: String(err),
-        }
+        const parsedErr = parseDatabaseError(err, sql)
+        this.error = parsedErr
         this.status = 'error'
         playSound('error')
-        this.messages = [`Explain error: ${String(err)}`]
+        this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Explain error: ${parsedErr.message}`]
         this.activeView = 'messages'
       }
     },

@@ -141,6 +141,15 @@
         </div>
 
         <pre class="text-xs text-red-300 font-mono whitespace-pre-wrap break-all bg-black/30 p-2.5 rounded border border-red-500/20 leading-relaxed">{{ currentError.message }}</pre>
+
+        <!-- Dynamic Helpful Diagnostic Hint -->
+        <div v-if="currentError.hint" class="flex items-start gap-2 text-[11.5px] text-amber-300 bg-amber-500/10 border border-amber-500/25 px-3 py-2 rounded-md font-mono">
+          <PhLightbulb class="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div class="flex-1 min-w-0">
+            <span class="font-semibold text-amber-300">Diagnostic Hint:</span>
+            <p class="text-amber-200/90 mt-0.5 leading-relaxed">{{ currentError.hint }}</p>
+          </div>
+        </div>
       </div>
 
       <!-- TABLE VIEW: Powered by UnifiedDataGrid -->
@@ -241,7 +250,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import { Button } from '@/components/ui/button'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import {
-  PhPushPin, PhX, PhTreeStructure, PhCopy, PhTrash, PhWarningCircle
+  PhPushPin, PhX, PhTreeStructure, PhCopy, PhTrash, PhWarningCircle, PhLightbulb
 } from '@phosphor-icons/vue'
 import { toast } from 'vue-sonner'
 

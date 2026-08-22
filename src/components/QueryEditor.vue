@@ -28,7 +28,7 @@ import { useEditorStore } from '../stores/editor'
 import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
 import { useUiStore } from '../stores/ui'
-import { getSqlCompletionOptions } from '../lib/sqlAutocomplete'
+import { getSqlCompletionOptions, getBacktickContext } from '../lib/sqlAutocomplete'
 import { extractTableIdentifierAt, getStatementAtPosition } from '../lib/sqlScope'
 
 
@@ -59,19 +59,29 @@ function getSqlAutocomplete() {
   return autocompletion({
     override: [
       async (context) => {
+        const doc = context.state.doc.toString()
+        const bt = getBacktickContext(doc, context.pos)
+        // Inside a backtick identifier the token starts after the opening tick
         const word = context.matchBefore(/\w*/)
         const isAfterDot = context.matchBefore(/[\w`"\]]+\.\s*\w*/) !== null
         const isAfterOn = context.matchBefore(/\bON\s+\w*/) !== null
-        if (!word || (word.from === word.to && !context.explicit && !isAfterDot && !isAfterOn)) return null
+        const justOpenedTick = bt.insideBacktick && context.pos === bt.tokenStart
+        if (
+          !word ||
+          (word.from === word.to && !context.explicit && !isAfterDot && !isAfterOn && !justOpenedTick)
+        ) {
+          return null
+        }
         const q = word.text
 
-        const doc = context.state.doc.toString()
-        const options = await getSqlCompletionOptions(doc, context.pos, q, schemaStore)
+        const options = await getSqlCompletionOptions(doc, context.pos, q, schemaStore, {
+          insideBacktick: bt.insideBacktick,
+        })
 
         if (options.length === 0) return null
 
         return {
-          from: word.from,
+          from: bt.insideBacktick ? Math.max(word.from, bt.tokenStart) : word.from,
           options: options.slice(0, 30),
         }
       },
