@@ -264,6 +264,54 @@
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <!-- Confirm Delete Custom Theme Dialog -->
+  <Dialog :open="Boolean(themeToDelete)" @update:open="(val) => { if (!val) themeToDelete = null }">
+    <DialogContent class="sm:max-w-md font-mono select-none">
+      <DialogHeader>
+        <DialogTitle class="text-sm font-semibold flex items-center gap-2 text-destructive">
+          <Trash2 class="w-4 h-4" />
+          Delete Custom Theme
+        </DialogTitle>
+        <DialogDescription class="text-xs text-muted-foreground pt-1">
+          Are you sure you want to delete this custom theme? This action cannot be undone.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter class="flex items-center justify-end gap-2 pt-2">
+        <Button variant="ghost" size="sm" class="h-8 text-xs font-mono cursor-pointer" @click="themeToDelete = null">
+          Cancel
+        </Button>
+        <Button variant="destructive" size="sm" class="h-8 text-xs font-mono gap-1.5 cursor-pointer" @click="confirmDeleteTheme">
+          <Trash2 class="w-3.5 h-3.5" />
+          Delete Theme
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <!-- Confirm Reset Themes Dialog -->
+  <Dialog :open="showResetConfirm" @update:open="(val) => showResetConfirm = val">
+    <DialogContent class="sm:max-w-md font-mono select-none">
+      <DialogHeader>
+        <DialogTitle class="text-sm font-semibold flex items-center gap-2 text-destructive">
+          <Trash2 class="w-4 h-4" />
+          Reset Themes to Default
+        </DialogTitle>
+        <DialogDescription class="text-xs text-muted-foreground pt-1">
+          Are you sure you want to reset all themes? This deletes all custom themes and favorites.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter class="flex items-center justify-end gap-2 pt-2">
+        <Button variant="ghost" size="sm" class="h-8 text-xs font-mono cursor-pointer" @click="showResetConfirm = false">
+          Cancel
+        </Button>
+        <Button variant="destructive" size="sm" class="h-8 text-xs font-mono gap-1.5 cursor-pointer" @click="confirmResetSystem">
+          <Trash2 class="w-3.5 h-3.5" />
+          Reset Everything
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <script setup lang="ts">
@@ -329,6 +377,9 @@ const keyboardSelectedIndex = ref(-1)
 const gridContainer = ref<HTMLDivElement | null>(null)
 const cardRefs = ref<Record<string, HTMLElement>>({})
 const fileInput = ref<HTMLInputElement | null>(null)
+
+const themeToDelete = ref<string | null>(null)
+const showResetConfirm = ref(false)
 
 // Core editable keys
 const editableColors = [
@@ -533,10 +584,14 @@ function duplicateThemeAction(id: string) {
 }
 
 function deleteThemeAction(id: string) {
-  if (confirm('Are you sure you want to delete this custom theme?')) {
-    deleteTheme(id)
-    toast.success('Theme deleted successfully')
-  }
+  themeToDelete.value = id
+}
+
+function confirmDeleteTheme() {
+  if (!themeToDelete.value) return
+  deleteTheme(themeToDelete.value)
+  toast.success('Theme deleted successfully')
+  themeToDelete.value = null
 }
 
 function triggerImport() {
@@ -575,10 +630,13 @@ function applyRandomTheme() {
 }
 
 function resetSystem() {
-  if (confirm('Reset theme state? This deletes all custom themes and favorites.')) {
-    resetThemeSystem()
-    toast.success('Themes reset to default.')
-  }
+  showResetConfirm.value = true
+}
+
+function confirmResetSystem() {
+  resetThemeSystem()
+  toast.success('Themes reset to default.')
+  showResetConfirm.value = false
 }
 
 function resetFilters() {

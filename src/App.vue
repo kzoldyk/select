@@ -84,6 +84,9 @@
         <QueryHistoryDialog />
         <Toaster position="top-right" />
       </div>
+
+      <!-- Subtle film grain / tactile micro-noise overlay -->
+      <div v-if="uiStore.filmGrainEnabled" class="film-grain-overlay" aria-hidden="true" />
     </div>
   </TooltipProvider>
 </template>
@@ -323,12 +326,6 @@ function resetSplit() {
 }
 
 .overlays {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 999;
-}
-.overlays > * {
-  pointer-events: auto;
+  display: contents;
 }
 </style>

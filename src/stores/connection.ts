@@ -144,12 +144,25 @@ export const useConnectionStore = defineStore('connection', {
     },
 
     async removeConnection(id: string) {
+      const wasActive = this.activeId === id
+      if (wasActive && this.status === 'connected') {
+        try {
+          await invoke('disconnect', { id })
+        } catch (err) {
+          console.warn('Failed to disconnect removed connection:', err)
+        }
+      }
       this.connections = this.connections.filter(c => c.id !== id)
       this.recentIds = this.recentIds.filter(x => x !== id)
       await saveRecentConnectionIds(this.recentIds)
-      if (this.activeId === id) {
+      if (wasActive) {
         this.activeId = this.connections[0]?.id ?? null
+        if (!this.activeId) {
+          this.status = 'idle'
+        }
         await saveActiveConnectionId(this.activeId)
+        useResultStore().clearResults()
+        useSchemaStore().clearSchema()
       }
       await saveConnections(await encryptConnections(this.connections))
     },
@@ -255,7 +268,12 @@ function validateConnection(conn: Partial<Connection>): string | null {
 
 async function encryptConnections(connections: Connection[]): Promise<Connection[]> {
   if (!connections.length) return connections
-  return await invoke<Connection[]>('seal_connections_for_storage', { connections })
+  try {
+    return await invoke<Connection[]>('seal_connections_for_storage', { connections })
+  } catch (e) {
+    console.warn('Failed to encrypt connections for storage, falling back to unsealed:', e)
+    return connections
+  }
 }
 
 async function decryptConnections(connections: Connection[]): Promise<{

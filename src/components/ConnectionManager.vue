@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="isOpen"
-    class="fixed inset-0 z-[999] flex flex-col bg-background text-foreground overflow-hidden select-none"
+    class="fixed inset-0 z-40 flex flex-col bg-background text-foreground overflow-hidden select-none"
   >
     <!-- Subtle theme-aware backdrop -->
     <div
@@ -115,12 +115,14 @@
           </div>
 
           <div v-if="filteredConnections.length" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <button
+            <div
               v-for="conn in filteredConnections"
               :key="conn.id"
-              type="button"
-              class="group relative flex items-start gap-3 p-3.5 rounded-lg border border-border bg-card hover:border-primary/30 hover:bg-accent/20 text-left transition-[border-color,background,box-shadow] duration-normal ease-premium cursor-pointer shadow-sm hover:shadow-md"
+              role="button"
+              tabindex="0"
+              class="group relative flex items-start gap-3 p-3.5 rounded-lg border border-border bg-card hover:border-primary/30 hover:bg-accent/20 text-left transition-[border-color,background,box-shadow] duration-normal ease-premium cursor-pointer shadow-sm hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               @click="handleConnect(conn.id)"
+              @keydown.enter.space.prevent="handleConnect(conn.id)"
             >
               <div
                 class="w-9 h-9 rounded-md flex items-center justify-center text-white flex-shrink-0 shadow-sm"
@@ -150,14 +152,15 @@
               </div>
 
               <div
-                class="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity rounded-md border border-border bg-popover p-0.5 shadow-sm"
+                class="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity rounded-md border border-border bg-popover p-0.5 shadow-sm"
                 @click.stop
               >
                 <button
                   type="button"
                   class="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer border-none bg-transparent"
                   title="Edit"
-                  @click="openEditConnection(conn.id)"
+                  aria-label="Edit connection"
+                  @click.stop="openEditConnection(conn.id)"
                 >
                   <Pencil class="w-3 h-3" />
                 </button>
@@ -165,7 +168,8 @@
                   type="button"
                   class="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer border-none bg-transparent"
                   title="Delete"
-                  @click="confirmDeleteConn(conn.id)"
+                  aria-label="Delete connection"
+                  @click.stop="requestDeleteConnection(conn.id)"
                 >
                   <Trash2 class="w-3 h-3" />
                 </button>
@@ -176,7 +180,7 @@
                 class="absolute bottom-2.5 right-2.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-background"
                 title="Active connection"
               />
-            </button>
+            </div>
           </div>
 
           <div
@@ -220,27 +224,30 @@
           </div>
 
           <div class="flex-1 overflow-y-auto p-1.5 space-y-0.5 min-h-0">
-            <button
+            <div
               v-for="conn in filteredEditConnections"
               :key="conn.id"
-              type="button"
-              class="group w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors cursor-pointer border-none text-left"
+              role="button"
+              tabindex="0"
+              class="group w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition-colors cursor-pointer border-none text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               :class="selectedId === conn.id ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50 bg-transparent'"
               @click="selectConn(conn.id)"
+              @keydown.enter.space.prevent="selectConn(conn.id)"
             >
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: conn.color || '#9CA3AF' }" />
                 <span class="truncate">{{ conn.name }}</span>
               </div>
               <button
-                v-if="connStore.connections.length > 1"
                 type="button"
-                class="opacity-0 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-destructive rounded transition-opacity cursor-pointer border-none bg-transparent"
-                @click.stop="confirmDeleteConn(conn.id)"
+                class="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-0.5 text-muted-foreground hover:text-destructive rounded transition-opacity cursor-pointer border-none bg-transparent"
+                title="Delete connection"
+                aria-label="Delete connection"
+                @click.stop="requestDeleteConnection(conn.id)"
               >
                 <Trash2 class="w-3 h-3" />
               </button>
-            </button>
+            </div>
           </div>
 
           <div class="p-2 border-t border-border">
@@ -267,10 +274,22 @@
                   </p>
                 </div>
               </div>
-              <Button variant="ghost" size="sm" class="h-7 text-xs gap-1 flex-shrink-0" @click="duplicateConn">
-                <Copy class="w-3.5 h-3.5" />
-                Duplicate
-              </Button>
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                <Button
+                  v-if="!isNew && selectedId"
+                  variant="ghost"
+                  size="sm"
+                  class="h-7 text-xs gap-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                  @click="requestDeleteConnection(selectedId)"
+                >
+                  <Trash2 class="w-3.5 h-3.5" />
+                  Delete
+                </Button>
+                <Button variant="ghost" size="sm" class="h-7 text-xs gap-1 cursor-pointer" @click="duplicateConn">
+                  <Copy class="w-3.5 h-3.5" />
+                  Duplicate
+                </Button>
+              </div>
             </div>
 
             <!-- Tabs -->
@@ -522,11 +541,59 @@
         </div>
       </div>
     </div>
+
+    <!-- Delete Confirmation Modal -->
+    <Dialog :open="Boolean(connectionToDelete)" @update:open="(open) => { if (!open) connectionToDelete = null }">
+      <DialogContent class="sm:max-w-md font-mono select-none">
+        <DialogHeader>
+          <DialogTitle class="text-sm font-semibold flex items-center gap-2 text-destructive">
+            <Trash2 class="w-4 h-4" />
+            Delete Connection
+          </DialogTitle>
+          <DialogDescription class="text-xs text-muted-foreground pt-1">
+            Are you sure you want to delete <span class="font-semibold text-foreground">"{{ connectionToDelete?.name }}"</span> ({{ connectionToDelete?.host }})? This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogFooter class="flex items-center justify-end gap-2 pt-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-8 text-xs font-mono cursor-pointer"
+            :disabled="isDeleting"
+            @click="connectionToDelete = null"
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            class="h-8 text-xs font-mono gap-1.5 cursor-pointer"
+            :disabled="isDeleting"
+            @click="executeDeleteConnection"
+          >
+            <svg v-if="isDeleting" class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+            <Trash2 v-else class="w-3.5 h-3.5" />
+            <span>{{ isDeleting ? 'Deleting…' : 'Delete Connection' }}</span>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, type Component } from 'vue'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -566,6 +633,9 @@ const editSearchQuery = ref('')
 const activeTab = ref<'general' | 'ssl' | 'advanced'>('general')
 const testResult = ref<{ ok: boolean; latency?: number; error?: string } | null>(null)
 const uriInput = ref('')
+
+const connectionToDelete = ref<Connection | null>(null)
+const isDeleting = ref(false)
 
 const connectingId = ref<string | null>(null)
 const currentView = ref<'dashboard' | 'edit'>('dashboard')
@@ -751,14 +821,28 @@ function duplicateConn() {
   selectedId.value = null
 }
 
-async function confirmDeleteConn(id: string) {
+function requestDeleteConnection(id: string) {
   const conn = connStore.connections.find(c => c.id === id)
-  if (!conn) return
-  if (window.confirm(`Delete connection "${conn.name}"?`)) {
+  if (conn) {
+    connectionToDelete.value = conn
+  }
+}
+
+async function executeDeleteConnection() {
+  if (!connectionToDelete.value) return
+  const id = connectionToDelete.value.id
+  isDeleting.value = true
+  try {
     await connStore.removeConnection(id)
+    toast.success('Connection deleted')
     if (selectedId.value === id) {
       selectInitialConnection()
     }
+    connectionToDelete.value = null
+  } catch (err) {
+    toast.error('Failed to delete connection: ' + String(err))
+  } finally {
+    isDeleting.value = false
   }
 }
 

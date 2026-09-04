@@ -151,4 +151,70 @@ describe("ui store", () => {
     const store = useUiStore();
     expect(store.soundsEnabled).toBe(false);
   });
+
+  it("starts with film grain enabled by default", () => {
+    const store = useUiStore();
+    expect(store.filmGrainEnabled).toBe(true);
+  });
+
+  it("manages film grain toggle, set, and localStorage persistence", () => {
+    const store = useUiStore();
+    expect(store.filmGrainEnabled).toBe(true);
+
+    store.toggleFilmGrain();
+    expect(store.filmGrainEnabled).toBe(false);
+    expect(localStorage.getItem("filmGrainEnabled")).toBe("false");
+
+    store.setFilmGrainEnabled(true);
+    expect(store.filmGrainEnabled).toBe(true);
+    expect(localStorage.getItem("filmGrainEnabled")).toBe("true");
+  });
+
+  it("restores film grain preference from localStorage", () => {
+    localStorage.setItem("filmGrainEnabled", "false");
+    const store = useUiStore();
+    expect(store.filmGrainEnabled).toBe(false);
+  });
+
+  it("manages grain intensity levels and persistence", () => {
+    const store = useUiStore();
+    expect(store.grainIntensity).toBe("subtle");
+
+    store.setGrainIntensity("high");
+    expect(store.grainIntensity).toBe("high");
+    expect(localStorage.getItem("grainIntensity")).toBe("high");
+
+    store.setGrainIntensity("medium");
+    expect(store.grainIntensity).toBe("medium");
+    expect(localStorage.getItem("grainIntensity")).toBe("medium");
+
+    store.setGrainIntensity("subtle");
+    expect(store.grainIntensity).toBe("subtle");
+    expect(localStorage.getItem("grainIntensity")).toBe("subtle");
+  });
+
+  it("manages unified setGrainLevel action across off, subtle, medium, and high", () => {
+    const store = useUiStore();
+    expect(store.currentGrainLevel).toBe("subtle");
+
+    store.setGrainLevel("off");
+    expect(store.filmGrainEnabled).toBe(false);
+    expect(store.currentGrainLevel).toBe("off");
+    expect(localStorage.getItem("filmGrainEnabled")).toBe("false");
+
+    store.setGrainLevel("medium");
+    expect(store.filmGrainEnabled).toBe(true);
+    expect(store.grainIntensity).toBe("medium");
+    expect(store.currentGrainLevel).toBe("medium");
+
+    store.setGrainLevel("high");
+    expect(store.filmGrainEnabled).toBe(true);
+    expect(store.grainIntensity).toBe("high");
+    expect(store.currentGrainLevel).toBe("high");
+
+    store.setGrainLevel("subtle");
+    expect(store.filmGrainEnabled).toBe(true);
+    expect(store.grainIntensity).toBe("subtle");
+    expect(store.currentGrainLevel).toBe("subtle");
+  });
 });

@@ -638,6 +638,18 @@ const allGroups = computed<Group[]>(() => {
       action: () => { uiStore.toggleResultPanel(); uiStore.closePalette() },
     },
     {
+      id: 'toggle-film-grain',
+      label: 'Toggle Film Grain Texture',
+      description: 'Enable or disable tactile micro-noise background texture',
+      iconComponent: PhSparkle,
+      category: 'tools',
+      action: () => {
+        uiStore.toggleFilmGrain()
+        toast.info(uiStore.filmGrainEnabled ? 'Film grain texture enabled' : 'Film grain texture disabled')
+        uiStore.closePalette()
+      },
+    },
+    {
       id: 'refresh-schema',
       label: 'Refresh Schema Objects',
       description: 'Reload tables, columns, indexes, and routines',

@@ -3,11 +3,25 @@ import { setTheme as setThemeFromSystem } from '../theme/manager'
 import { syncSoundsEnabled } from '../lib/cuelume'
 
 export type Theme = 'dark' | 'light' | 'system'
+export type GrainIntensity = 'subtle' | 'medium' | 'high'
 
 function readSoundsEnabled(): boolean {
   if (typeof window === 'undefined') return true
   const stored = localStorage.getItem('soundsEnabled')
   return stored !== 'false'
+}
+
+function readFilmGrainEnabled(): boolean {
+  if (typeof window === 'undefined') return true
+  const stored = localStorage.getItem('filmGrainEnabled')
+  return stored !== 'false'
+}
+
+function readGrainIntensity(): GrainIntensity {
+  if (typeof window === 'undefined') return 'subtle'
+  const stored = localStorage.getItem('grainIntensity')
+  if (stored === 'subtle' || stored === 'medium' || stored === 'high') return stored
+  return 'subtle'
 }
 
 export const useUiStore = defineStore('ui', {
@@ -30,6 +44,8 @@ export const useUiStore = defineStore('ui', {
     systemIsDark: false,
     resultPanelOpen: typeof window !== 'undefined' ? localStorage.getItem('resultPanelOpen') !== 'false' : true,
     soundsEnabled: readSoundsEnabled(),
+    filmGrainEnabled: readFilmGrainEnabled(),
+    grainIntensity: readGrainIntensity(),
   }),
 
   getters: {
@@ -38,6 +54,10 @@ export const useUiStore = defineStore('ui', {
         return state.systemIsDark
       }
       return state.theme === 'dark'
+    },
+    currentGrainLevel(state): 'off' | 'subtle' | 'medium' | 'high' {
+      if (!state.filmGrainEnabled) return 'off'
+      return state.grainIntensity
     },
   },
 
@@ -167,6 +187,7 @@ export const useUiStore = defineStore('ui', {
     applyTheme() {
       if (typeof window !== 'undefined') {
         document.documentElement.classList.toggle('dark', this.isDark)
+        document.documentElement.setAttribute('data-grain-intensity', this.grainIntensity)
       }
     },
     toggleSounds() {
@@ -178,6 +199,30 @@ export const useUiStore = defineStore('ui', {
         localStorage.setItem('soundsEnabled', String(enabled))
       }
       syncSoundsEnabled(enabled)
+    },
+    toggleFilmGrain() {
+      this.setFilmGrainEnabled(!this.filmGrainEnabled)
+    },
+    setFilmGrainEnabled(enabled: boolean) {
+      this.filmGrainEnabled = enabled
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('filmGrainEnabled', String(enabled))
+      }
+    },
+    setGrainIntensity(intensity: GrainIntensity) {
+      this.grainIntensity = intensity
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('grainIntensity', intensity)
+        document.documentElement.setAttribute('data-grain-intensity', intensity)
+      }
+    },
+    setGrainLevel(level: 'off' | 'subtle' | 'medium' | 'high') {
+      if (level === 'off') {
+        this.setFilmGrainEnabled(false)
+      } else {
+        this.setFilmGrainEnabled(true)
+        this.setGrainIntensity(level)
+      }
     },
     setResultPanelOpen(open: boolean) {
       this.resultPanelOpen = open

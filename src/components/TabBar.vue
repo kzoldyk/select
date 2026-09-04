@@ -19,17 +19,19 @@
 
       <!-- Scrollable Tabs list & Add Tab button -->
       <div class="flex items-end h-full overflow-x-auto overflow-y-hidden gap-1 pt-1 min-w-0 flex-1" role="tablist" aria-label="Query tabs">
-        <button
+        <div
           v-for="tab in editorStore.tabs"
           :key="tab.id"
-          class="group inline-flex items-center gap-2 px-3 h-7 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 border border-transparent rounded-t-md cursor-pointer whitespace-nowrap flex-shrink-0 relative transition-[color,background,box-shadow] duration-fast ease-premium"
+          class="group inline-flex items-center gap-2 px-3 h-7 text-[12px] text-muted-foreground hover:text-foreground hover:bg-accent/40 border border-transparent rounded-t-md cursor-pointer whitespace-nowrap flex-shrink-0 relative transition-[color,background,box-shadow] duration-fast ease-premium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
           :class="{
             'bg-background text-foreground border-border border-b-transparent font-medium shadow-[inset_0_-2px_0_0_var(--primary)]': editorStore.activeTabId === tab.id,
           }"
           role="tab"
+          tabindex="0"
           :aria-selected="editorStore.activeTabId === tab.id"
           :title="tab.name"
           @click="editorStore.selectTab(tab.id)"
+          @keydown.enter.space.prevent="editorStore.selectTab(tab.id)"
           @auxclick.stop="editorStore.closeTab(tab.id)"
         >
           <component 
@@ -42,18 +44,16 @@
           <span v-if="tab.isUnsaved" class="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" title="Unsaved changes"></span>
 
           <!-- Close Tab Button -->
-          <div
-            class="inline-flex items-center justify-center w-4 h-4 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent flex-shrink-0 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+          <button
+            type="button"
+            class="inline-flex items-center justify-center w-4 h-4 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent flex-shrink-0 cursor-pointer opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity border-none bg-transparent p-0"
             :class="{ 'opacity-100': tab.isUnsaved }"
-            role="button"
             :aria-label="`Close tab ${tab.name}`"
-            tabindex="0"
             @click.stop="editorStore.closeTab(tab.id)"
-            @keydown.enter.stop="editorStore.closeTab(tab.id)"
           >
             <PhX class="w-3 h-3" />
-          </div>
-        </button>
+          </button>
+        </div>
 
         <ActionTooltip text="New Query Tab (⌘T)">
           <button

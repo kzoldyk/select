@@ -10,33 +10,70 @@
 
       <div class="py-4 space-y-6">
         <!-- Appearance section -->
-        <div class="space-y-3">
-          <Label class="text-xs font-medium text-foreground">Theme Mode</Label>
-          <div class="grid grid-cols-3 gap-2">
-            <button
-              v-for="opt in themeOptions"
-              :key="opt.value"
-              class="flex flex-col items-center justify-center gap-2 p-3.5 rounded-lg border text-xs transition-all duration-200 cursor-pointer text-center bg-transparent group"
-              :class="uiStore.theme === opt.value 
-                ? 'border-primary bg-primary/5 text-primary font-medium shadow-[0_0_12px_rgba(225,29,72,0.15)]' 
-                : 'border-border/80 text-muted-foreground hover:text-foreground hover:bg-accent/50 hover:border-border'"
-              @click="uiStore.setTheme(opt.value)"
-              type="button"
-            >
-              <component :is="opt.icon" class="w-4 h-4" />
-              <span>{{ opt.label }}</span>
-            </button>
+        <div class="space-y-4">
+          <div class="space-y-2">
+            <Label class="text-xs font-medium text-foreground">Theme Mode</Label>
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                v-for="opt in themeOptions"
+                :key="opt.value"
+                class="flex flex-col items-center justify-center gap-2 p-3.5 rounded-lg border text-xs transition-all duration-200 cursor-pointer text-center bg-transparent group"
+                :class="uiStore.theme === opt.value 
+                  ? 'border-primary bg-primary/5 text-primary font-medium shadow-[0_0_12px_rgba(225,29,72,0.15)]' 
+                  : 'border-border/80 text-muted-foreground hover:text-foreground hover:bg-accent/50 hover:border-border'"
+                @click="uiStore.setTheme(opt.value)"
+                type="button"
+              >
+                <component :is="opt.icon" class="w-4 h-4" />
+                <span>{{ opt.label }}</span>
+              </button>
+            </div>
           </div>
-          <div class="pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              class="w-full text-xs gap-2 justify-center cursor-pointer"
-              @click="openGallery"
-            >
-              <Palette class="w-4 h-4 text-primary" />
-              Browse Themes Gallery...
-            </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            class="w-full text-xs gap-2 justify-center cursor-pointer"
+            @click="openGallery"
+          >
+            <Palette class="w-4 h-4 text-primary" />
+            Browse Themes Gallery...
+          </Button>
+
+          <!-- Film Grain Texture Switch & Level Selector -->
+          <div class="space-y-3 p-3 rounded-lg border border-border/60 bg-muted/20">
+            <div class="flex items-center justify-between">
+              <div class="space-y-0.5">
+                <Label class="text-xs font-medium text-foreground cursor-pointer" for="film-grain-toggle">Film Grain Texture</Label>
+                <p class="text-[11px] text-muted-foreground">
+                  {{ uiStore.filmGrainEnabled ? `Active: ${uiStore.grainIntensity.charAt(0).toUpperCase() + uiStore.grainIntensity.slice(1)}` : 'Disabled (No texture)' }}
+                </p>
+              </div>
+              <Switch
+                id="film-grain-toggle"
+                :checked="uiStore.filmGrainEnabled"
+                @update:checked="uiStore.setFilmGrainEnabled"
+              />
+            </div>
+
+            <!-- Level Selector (Off, Subtle, Medium, High) -->
+            <div class="pt-2 border-t border-border/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <span class="text-xs font-medium text-foreground">Effect Level</span>
+              <div class="inline-flex rounded-lg border border-border/60 p-0.5 bg-background/70 shadow-xs">
+                <button
+                  v-for="lvl in (['off', 'subtle', 'medium', 'high'] as const)"
+                  :key="lvl"
+                  type="button"
+                  class="px-2.5 py-1 text-[10px] font-medium rounded-md capitalize transition-all cursor-pointer"
+                  :class="uiStore.currentGrainLevel === lvl 
+                    ? 'bg-primary text-primary-foreground font-semibold shadow-xs' 
+                    : 'text-muted-foreground hover:text-foreground'"
+                  @click="uiStore.setGrainLevel(lvl)"
+                >
+                  {{ lvl === 'subtle' ? 'Subtle' : lvl }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -80,6 +117,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { Sun, Moon, Monitor, Palette, FolderOpen } from '@lucide/vue'
 import { useUiStore, type Theme } from '../stores/ui'
 import { useEditorStore } from '../stores/editor'

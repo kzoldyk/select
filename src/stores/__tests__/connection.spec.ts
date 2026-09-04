@@ -133,4 +133,37 @@ describe("connection store", () => {
     expect(mockInvoke).toHaveBeenCalledWith("connect", expect.objectContaining({ id: conn2Id }));
     expect(store.activeId).toBe(conn2Id);
   });
+
+  it("removeConnection removes a connection and cleans up active state", async () => {
+    mockInvoke.mockResolvedValue("ok");
+    const store = useConnectionStore();
+    await store.load();
+    const conn1Id = store.connections[0].id;
+    const conn2Id = await store.addConnection({
+      name: "Second DB",
+      host: "localhost",
+      port: 3306,
+      database: "second",
+      username: "root",
+      password: "",
+      dbType: "mysql",
+      ssl: false,
+    });
+
+    await store.connect(conn2Id);
+    expect(store.activeId).toBe(conn2Id);
+    expect(store.status).toBe("connected");
+
+    // Remove active connection
+    await store.removeConnection(conn2Id);
+    expect(mockInvoke).toHaveBeenCalledWith("disconnect", { id: conn2Id });
+    expect(store.connections.some((c) => c.id === conn2Id)).toBe(false);
+    expect(store.activeId).toBe(conn1Id);
+
+    // Remove last connection
+    await store.removeConnection(conn1Id);
+    expect(store.connections).toHaveLength(0);
+    expect(store.activeId).toBeNull();
+    expect(store.status).toBe("idle");
+  });
 });
