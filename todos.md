@@ -8,218 +8,114 @@
 
 ### [P0] TODO 1: Restrict to MySQL/MariaDB only
 - [x] Backend validates dbType
-- [ ] UI shows only MySQL/MariaDB in connection type dropdown
-- [ ] README says "V1 supports MySQL/MariaDB"
-- [ ] User cannot create fake Postgres/Mongo connection
+- [x] UI shows only MySQL/MariaDB in connection type dropdown
+- [x] README says "V1 supports MySQL/MariaDB"
+- [x] User cannot create fake Postgres/Mongo connection
 
 ### [P0] TODO 2: Paged result fetching with infinite scroll
-- [ ] Backend: `run_query` accepts `limit`, `offset`, `mode`, `autoLimit`
-- [ ] Backend returns `hasMore`, `totalFetched`, `appliedLimit`, `warning`
-- [ ] Frontend: default row limit 200
-- [ ] Infinite scroll: fetch next page when near bottom
-- [ ] Limit dropdown: 100 / 200 / 500 / 1000 / 5000 / No limit / Custom
-- [ ] Fetch Next / Fetch All buttons in result toolbar
-- [ ] Show "Rows: 1-200 fetched" counter
-- [ ] Don't double-append LIMIT if query already has one
-- [ ] Fetch All shows confirmation warning for large sets
-- [ ] Stop/cancel in-flight fetch
+- [x] Backend: paged queries accept `limit`, `offset`
+- [x] Backend returns `hasMore`, `offset`, `limit`
+- [x] Frontend default page size with infinite scroll near bottom
+- [x] Limit dropdown: 50 / 100 / 200 / 500
+- [x] Show "Rows: N returned" counter
+- [x] Don't double-append LIMIT if query already has one (top-level LIMIT detection)
+- [ ] Fetch Next / Fetch All buttons in result toolbar (Fetch All + confirmation for large sets)
+- [ ] Custom page size entry (up to 5000 / No limit)
 
 ### [P0] TODO 3: Editable result grid with primary key safety
-- [ ] Detect single-table, PK-present, non-aggregate queries
-- [ ] Double-click cell to edit
-- [ ] Track dirty cells with rose corner indicator
-- [ ] Save / Revert buttons in toolbar
-- [ ] Generate UPDATE SQL from pending changes
+- [x] Detect single-table queries via column metadata (`orgTable`)
+- [x] Double-click cell to edit
+- [x] Track dirty cells with indicator + amber review bar
+- [x] Save / Revert actions (`batch_update_rows`, revert all)
+- [x] Block editing on read-only connections
+- [x] Virtual unique keys for PK-less tables
+- [x] Deterministic UPDATE (`ORDER BY pk … LIMIT 1`)
 - [ ] Confirmation dialog before applying changes
 - [ ] Copy UPDATE SQL without executing
-- [ ] Block editing when no PK/unique key
+- [ ] Hard-block editing when no PK/unique/virtual key (currently falls back to all-columns match)
 
 ### [P0] TODO 4: Proper copy system (cell/row/range)
-- [ ] Right-click: Copy cell, Copy row as TSV/JSON, Copy selected as CSV/INSERT/UPDATE
-- [ ] Cmd+C = copy selected as TSV
-- [ ] Copy formats escape strings/nulls/dates correctly
-- [ ] Copy pastes cleanly into Excel/Sheets
+- [x] Right-click: Copy cell, row as JSON, row as INSERT, selected as TSV
+- [x] Cmd+C = copy selection as TSV
+- [x] Backend-formatted CSV/TSV/JSON export with JS fallback
 
 ### [P0] TODO 5: Schema-aware autocomplete
-- [ ] Level 1: keywords + table/column/schema names
-- [ ] Level 2: context-aware (after FROM → tables, after SELECT → columns, after alias → that table's columns)
-- [ ] Level 3: smart snippets (SELECT * FROM x LIMIT 200)
-- [ ] Suggestions show icons + type info
-- [ ] FK-aware JOIN suggestions
-- [ ] Fast for large schemas
+- [x] Context-aware (FROM → tables, alias → columns, dot-triggers)
+- [x] FK-aware JOIN condition proposals
+- [x] Suggestions show type info + row counts
+- [x] Auto-alias suggestions (`order_items oi`)
+- [x] Backtick-aware completion (quote-preserving insertion, no broken aliases inside `` ` ``)
 
 ### [P0] TODO 6: Schema explorer upgrade
-- [ ] Tree: Connection → Database → Tables/Views/Procedures/Functions/Events
-- [ ] Per-table: columns, PKs, unique keys, indexes, FKs, triggers, row estimate, engine, collation
-- [ ] Right-click: Open data, Generate SELECT/INSERT/UPDATE/DELETE, Copy name, Show DDL
-- [ ] Column right-click: Copy name, Add to SELECT/WHERE/ORDER BY
+- [x] Sections: Tables / Views / Functions / Procs / Indexes / Saved Queries
+- [x] Row estimates, schema inspector (columns, PKs, indexes, constraints, DDL)
+- [x] Right-click: Open data, Copy name, View DDL, Visualize Relations
+- [x] ER diagram canvas (global + focused, pan/zoom/drag)
+- [ ] Column right-click: Add to SELECT/WHERE/ORDER BY
 
 ### [P0] TODO 7: Destructive query detection
-- [ ] Detect UPDATE/DELETE/DROP/TRUNCATE/ALTER/CREATE/INSERT/REPLACE
-- [ ] Confirmation dialog before dangerous queries
-- [ ] Stronger warning for DELETE/UPDATE without WHERE
-- [ ] Connection-level read-only mode ON/OFF
-- [ ] Block DROP/TRUNCATE option
-- [ ] Auto rollback option
+- [x] Detect mutating statements outside literals/comments
+- [x] Confirmation dialog before dangerous queries
+- [x] Stronger warning for DELETE/UPDATE without WHERE
+- [x] Connection-level read-only mode enforced at 3 layers
+- [x] Validator understands keyword-named identifiers (`SELECT * FROM load` ≡ `` FROM `load` ``)
+- [x] Blocked: reserved verbs everywhere, non-reserved only outside identifier positions
+- [x] `INTO OUTFILE/DUMPFILE` blocked
+- [ ] Per-connection "block DROP/TRUNCATE" toggle
+- [ ] Auto-rollback option
 
 ---
 
 ## Phase 2 — Make it powerful
 
-### [P1] TODO 8: Professional grid behavior
-- [ ] Virtualized rows + columns
-- [ ] Sticky header, resizable/reorderable columns
-- [ ] Hide/show columns
-- [ ] Sort by column (server-side for tables, client-side fallback)
-- [ ] Filter by column
-- [ ] Search inside result
-- [ ] Keyboard navigation (arrow keys, tab, enter)
-- [ ] NULL styling, binary/blob placeholder, JSON viewer
-- [ ] Long text: ellipsis + double-click full value panel
-
-### [P1] TODO 9: Filter builder
-- [ ] Column / Operator / Value UI
-- [ ] Operators: =, !=, contains, starts with, >, <, IS NULL, IN, BETWEEN
-- [ ] Client-side filter first, server-side when safe
-
-### [P1] TODO 10: Column sort
-- [ ] Click header: ASC → DESC → none
-- [ ] Server-side ORDER BY for table queries
-- [ ] Client-side sort fallback
-
-### [P1] TODO 11: Query tabs with session restore
-- [ ] Multiple editor tabs
-- [ ] Rename, close, dirty indicator, duplicate, pin
-- [ ] Restore tabs on app reopen
-- [ ] Each tab tied to connection + database
-
-### [P1] TODO 12: Query history
-- [ ] Store every executed query (connection, database, duration, status, error, timestamp)
-- [ ] History panel with search
-- [ ] Re-run, copy, pin, delete
-- [ ] Failed queries also stored
-- [ ] Privacy setting to exclude sensitive queries
-
-### [P1] TODO 13: SQL snippets/templates
-- [ ] Built-in snippets: COUNT, recent rows, date range
-- [ ] Custom snippets with {{variable}} support
-- [ ] Insert via Command Palette or /snippet
-
-### [P1] TODO 14: Generate SQL from schema/result
-- [ ] From table: Generate SELECT/INSERT/UPDATE/DELETE/COUNT/DDL
-- [ ] From row: Copy as INSERT/UPDATE/DELETE
-- [ ] From edits: Copy pending UPDATE SQL
-
-### [P1] TODO 15: Connection profiles
-- [ ] Fields: Name, Type, Host, Port, Username, Password, Database, SSL, Read-only, Color, Environment
-- [ ] Production: red badge, stronger confirmations, block destructive
-- [ ] Secure password storage (OS keychain)
-
-### [P1] TODO 16: Export result data
-- [ ] Formats: CSV, TSV, JSON, SQL INSERT, Markdown table
-- [ ] Scope: selected cells, selected rows, fetched rows, all rows
-- [ ] CSV escaping: commas, quotes, newlines, nulls, dates
-- [ ] Large export streaming
-
-### [P1] TODO 17: Cell value viewer/editor
-- [ ] Value panel: Raw, Formatted, JSON, Text, Binary
-- [ ] JSON: pretty-print, collapse/expand, copy path
-- [ ] Long text: full editor modal, word wrap, search
-
-### [P1] TODO 18: Foreign key navigation
-- [ ] Detect FK relationships from schema
-- [ ] Cell context menu: View related records
-- [ ] Opens related data in new tab
+### [P1] Done
+- [x] Virtualized unified grid (rows, sticky header, resizable + auto-fit columns persisted)
+- [x] Tri-state sort, quick search, per-column filters
+- [x] Keyboard navigation + anchor/range selection
+- [x] NULL styling, boolean pills, color swatches, status chips, binary placeholders
+- [x] Large Value Inspector (JSON pretty-print/edit, wrap, size, apply-back)
+- [x] Multi-statement execution with per-statement result tabs
+- [x] EXPLAIN plan view
+- [x] Messages + query history views (click-to-rerun, capped at 100)
+- [x] Pinned result snapshots (max 10, persisted)
+- [x] Query tabs with session restore (max 20, per-tab editor state)
+- [x] Saved queries as .sql files (custom dir picker, rename/delete, legacy JSON migration)
+- [x] Connection profiles: SSL modes, read-only, URI import, env colors, recents, import/export
+- [x] Passwords sealed with AES-256-GCM; **key stored in OS keychain** (legacy files migrated automatically; file fallback for headless Linux)
+- [x] FK peek popover in data grid (referenced record preview)
+- [x] Command palette (~100 commands) + shortcuts cheat sheet
+- [x] 44-theme gallery (live preview, favorites, custom/import/export)
+- [x] Sound feedback (cuelume) with mute
+- [x] Processlist view + KILL session
 
 ---
 
 ## Phase 3 — Make it serious
 
-### [P2] TODO 19: Multiple statements
-- [ ] Detect multi-statement queries
-- [ ] Show multiple result tabs per statement
-
-### [P2] TODO 20: Stop/cancel query
-- [ ] Run | Stop UI with running timer
-- [ ] Backend query cancellation
-
-### [P2] TODO 21: Query timeout
-- [ ] Connection-level timeout setting
-- [ ] Default: 30s
-
-### [P2] TODO 22: Execution plan
-- [ ] EXPLAIN integration
-- [ ] Visual plan display
-
-### [P2] TODO 23: Command palette
-- [ ] All actions accessible via Cmd+K
-- [ ] Search, execute, show shortcuts
-
-### [P2] TODO 24: Global search
-- [ ] Search across connections, databases, tables, columns, history, snippets
-
-### [P2] TODO 25: UI/UX polish
-- [ ] Resizable panels, collapsible sidebar
-- [ ] Status bar with connection/db/rows/time/read-only info
-- [ ] Loading skeletons, empty states, error toasts
-- [ ] Dark mode, rose accent, keyboard-first
+- [x] Stop/cancel running query (`KILL QUERY` via tracked thread IDs)
+- [x] 600s query timeout, 10k row safety cap (with proper connection draining)
+- [x] Global Esc overlay priority, focus pane shortcuts
+- [ ] Global search across connections/tables/columns/history/snippets
+- [ ] Snippets/templates with {{variable}} support
 
 ---
 
-## Completed (previous sessions)
+## Security & Robustness Hardening (session: 2026-08)
 
-### Security
-- [x] SQL injection prevention via `sql_tokens_outside_literals`
-- [x] Password redaction from error paths
-- [x] Read-only SQL validator (SELECT, SHOW, DESCRIBE, EXPLAIN, WITH, TABLE, VALUES)
-- [x] Blocked keywords: ALTER, ANALYZE, BEGIN, CALL, CHECK, COMMIT, CREATE, DEALLOCATE, DELETE, DROP, EXECUTE, FLUSH, GRANT, IMPORT, INSERT, INSTALL, KILL, LOAD, LOCK, MERGE, OPTIMIZE, PREPARE, PURGE, RENAME, REPAIR, REPLACE, RESET, REVOKE, ROLLBACK, SAVEPOINT, SET, START, STOP, TRUNCATE, UNINSTALL, UPDATE
-- [x] Passwords encrypted at rest (AES-256-GCM)
-- [x] Query timeout (30s)
-- [x] 10K max result row cap
-- [x] Multi-pool connection state with id tracking
+- [x] CSP enabled (strict, `'self'` + inline styles + Google Fonts hosts); dev CSP allows HMR websocket
+- [x] Credential redaction in query history (`PASSWORD`, `IDENTIFIED`, `SECRET`, `TOKEN`, `CREDENTIAL` statements get literals masked before disk write)
+- [x] Result-set drain fix — hitting row/page caps no longer poisons pooled connections
+- [x] `select_folder` native dialog moved off async workers (`spawn_blocking`)
+- [x] Read-only validator: dot-aware tokenizer, two-tier keyword classification, identifier-context exemptions (security-reviewed)
+- [x] `fixBacktickedIdentifiers` only rewrites strict identifier parts (won't mangle special-char dotted names)
+- [x] `isInCommentOrString` tracks backticks so quotes inside `` `it's` `` don't break ctrl-click navigation
+- [x] Removed dead code: TableDataViewer (1.3k lines), SchemaSection, ShaderGradient, ConnectionSwitcherPopover, `has_single_statement`
+- [x] StatusBar shows real dbType (MariaDB no longer labeled MySQL); dead transaction banner removed
+- [x] Command palette "Save Query to Snippets" crash fixed
+- [x] Regression tests: validator contexts, top-level LIMIT detection, history redaction, UPDATE builder, backtick completion, sqlScope scanner
 
-### Core features
-- [x] MySQL/MariaDB Rust backend (connect, query, schema, history, save/load queries, CSV export)
-- [x] Connection manager (CRUD, test, connect, disconnect, change database)
-- [x] Tabbed CodeMirror 6 SQL editor with per-tab EditorView isolation
-- [x] Dark theme + SQL syntax highlighting
-- [x] Custom autocomplete (tables, views, columns, keywords)
-- [x] Format SQL, Explain, Run (Cmd+Enter, Cmd+Shift+Enter)
-- [x] Save/rename/delete queries with UUID IDs
-- [x] Unsaved changes confirmation
-- [x] Cap max open tabs at 20
-
-### Result panel
-- [x] Tabular result view with sort, filter, column type colors
-- [x] JSON view with syntax highlighting
-- [x] Execution Plan tab
-- [x] Messages tab
-- [x] History tab with auto-refresh, click-to-restore SQL
-- [x] CSV export with UTF-8 BOM
-- [x] Column search/filter
-- [x] NULL styling, boolean colors, status badges
-
-### Schema
-- [x] Sidebar tree: Tables, Views, Functions, Indexes, Saved Queries
-- [x] Schema inspector sheet (columns, indexes, constraints, DDL)
-- [x] Database selector
-- [x] Search/filter tables
-- [x] Right-click: Open tab, Copy name, View DDL
-- [x] Row count display
-
-### UI/UX
-- [x] shadcn-vue / reka-ui / Tailwind CSS v4
-- [x] Dark mode
-- [x] Command palette (Cmd+K)
-- [x] Keyboard shortcuts (~15 commands)
-- [x] Status bar (connection, query status, cursor position)
-- [x] Esc overlay prioritization fix
-- [x] Resize handle pointer capture fix
-- [x] Connection error toast on failed auto-connect
-- [x] Sidebar collapse with transition
-
-### Infrastructure
-- [x] Pinia stores (connection, editor, result, schema, ui)
-- [x] tauri-plugin-store persistence with localStorage fallback
-- [x] shadcn-vue UI components library
-- [x] Rust tests: 11 passing (validation, encryption, URL encoding)
+### Remaining hardening ideas
+- [ ] Self-host Inter/JetBrains Mono fonts (drop Google Fonts dependency entirely; then remove the two font hosts from CSP)
+- [ ] E2E smoke suite (playwright is installed, zero specs exist)
+- [ ] Component tests: QueryEditor, CommandPalette, ConnectionManager, ResultPanel internals
+- [ ] Optional: per-query "exclude from history" privacy toggle

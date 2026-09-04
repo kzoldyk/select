@@ -1,5 +1,6 @@
 <template>
   <div
+    id="result-grid-table"
     class="unified-grid-container flex flex-col flex-1 h-full min-h-0 bg-background overflow-hidden select-none font-mono text-xs relative"
     tabindex="0"
     ref="gridContainerRef"
@@ -7,15 +8,14 @@
   >
     <!-- Grid Control Bar -->
     <div v-if="showControls" class="flex items-center justify-between px-3 py-1.5 border-b border-border/80 bg-muted/20 flex-shrink-0 text-xs">
-      <!-- Left: Search, Filter, Sort, Actions -->
       <div class="flex items-center gap-2 min-w-0">
-        <!-- Quick Search -->
         <div class="relative flex items-center">
           <PhMagnifyingGlass class="w-3.5 h-3.5 absolute left-2 text-muted-foreground/60 pointer-events-none" />
           <input
+            ref="findInputRef"
             v-model="quickSearch"
-            placeholder="Search rows…"
-            class="h-6.5 w-36 sm:w-48 rounded border border-border/60 bg-background/80 pl-7 pr-2 text-[11px] font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all"
+            placeholder="Find…"
+            class="h-6.5 w-36 sm:w-44 rounded border border-border/60 bg-background/80 pl-7 pr-7 text-[11px] font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all"
             @input="onSearchInput"
           />
           <button
@@ -27,22 +27,21 @@
           </button>
         </div>
 
-        <!-- Filter Toggle Button -->
         <Button
           variant="outline"
           size="sm"
           class="h-6.5 px-2 text-[11px] gap-1 rounded bg-background"
-          :class="{ 'border-primary text-primary bg-primary/5': showFilterBar || activeFilterCount > 0 }"
-          @click="showFilterBar = !showFilterBar"
+          :class="{ 'border-primary text-primary bg-primary/5': filterPopover.visible || activeFilters.length > 0 }"
+          @click.stop="openAddFilter($event)"
         >
           <PhFunnel class="w-3 h-3" />
           <span>Filter</span>
-          <Badge v-if="activeFilterCount > 0" variant="secondary" class="h-3.5 px-1 text-[9px] bg-primary/20 text-primary">
-            {{ activeFilterCount }}
-          </Badge>
+          <span
+            v-if="activeFilters.length > 0"
+            class="min-w-3.5 h-3.5 px-1 rounded text-[9px] bg-primary/20 text-primary leading-3.5"
+          >{{ activeFilters.length }}</span>
         </Button>
 
-        <!-- Sort Indicator / Reset -->
         <Button
           v-if="sortCol"
           variant="outline"
@@ -52,11 +51,10 @@
         >
           <PhSortAscending v-if="sortDir === 'asc'" class="w-3 h-3" />
           <PhSortDescending v-else class="w-3 h-3" />
-          <span class="max-w-[100px] truncate">{{ sortCol }}</span>
+          <span class="max-w-[100px] truncate">{{ getColDisplayName(sortCol) }}</span>
           <PhX class="w-2.5 h-2.5 opacity-70 hover:opacity-100" />
         </Button>
 
-        <!-- Key / PK Status Pill -->
         <ActionTooltip :text="keyStatusTooltip">
           <button
             v-if="tableName"
@@ -69,10 +67,8 @@
         </ActionTooltip>
       </div>
 
-      <!-- Right: Selection actions & Row counts -->
       <div class="flex items-center gap-2 flex-shrink-0">
-        <!-- Contextual Selection Actions -->
-        <div v-if="hasSelection" class="flex items-center gap-1.5 bg-primary/10 border border-primary/20 px-2 py-0.5 rounded animate-in fade-in duration-100">
+        <div v-if="hasCellRangeSelection || selectedRowIndices.size > 0" class="flex items-center gap-1.5 bg-primary/10 border border-primary/20 px-2 py-0.5 rounded animate-in fade-in duration-100">
           <span class="text-[10px] font-semibold text-primary">
             {{ selectionSummaryText }}
           </span>
@@ -102,7 +98,6 @@
 
         <div class="h-3.5 w-px bg-border/60 mx-0.5"></div>
 
-        <!-- Export Dropdown -->
         <div class="relative">
           <Button
             variant="outline"
@@ -126,41 +121,86 @@
           </div>
         </div>
 
-        <!-- Row Count & Duration -->
+        <div v-if="pageSize !== undefined" class="flex items-center border border-border/60 rounded bg-background h-6.5 text-[10.5px]">
+          <select
+            class="bg-transparent px-1.5 text-foreground outline-none font-mono cursor-pointer border-none"
+            :value="pageSize"
+            @change="onPageSizeSelect"
+          >
+            <option v-for="n in pageSizeOptions" :key="n" :value="n">{{ n }}</option>
+          </select>
+        </div>
+
         <div class="flex items-center gap-1.5 text-[10.5px] text-muted-foreground font-mono bg-muted/40 px-2 py-0.5 rounded border border-border/40">
-          <span class="font-medium text-foreground">{{ filteredRows.length }} / {{ rows.length }} rows</span>
+          <span class="font-medium text-foreground">{{ filteredRows.length }} / {{ rows.length }}</span>
+          <span v-if="hasMore" class="text-amber-500">+</span>
+          <span v-if="activeFilters.length || quickSearch" class="text-primary">local</span>
           <template v-if="durationMs !== undefined && durationMs > 0">
             <span class="text-border">·</span>
             <span>{{ durationMs }}ms</span>
           </template>
         </div>
+        <Button
+          v-if="hasMore"
+          variant="outline"
+          size="sm"
+          class="h-6.5 px-2 text-[11px] rounded bg-background"
+          :disabled="loadingMore"
+          @click="emit('fetch-next')"
+        >
+          {{ loadingMore ? 'Loading…' : 'Fetch next' }}
+        </Button>
+        <Button
+          v-if="hasMore"
+          variant="outline"
+          size="sm"
+          class="h-6.5 px-2 text-[11px] rounded bg-background"
+          :disabled="loadingMore"
+          @click="emit('fetch-all')"
+        >
+          Fetch all
+        </Button>
       </div>
     </div>
 
-    <!-- Filter Bar (Collapsible) -->
-    <div v-if="showFilterBar" class="flex flex-col gap-1.5 px-3 py-2 border-b border-border/80 bg-muted/15 text-xs flex-shrink-0 animate-in slide-in-from-top-1 duration-fast">
-      <div class="flex items-center gap-2 flex-wrap">
-        <template v-for="col in columns" :key="col.name">
-          <div class="flex items-center gap-1 bg-background border border-border/60 rounded px-1.5 py-0.5">
-            <span class="text-[10px] text-muted-foreground font-semibold">{{ col.name }}:</span>
-            <input
-              v-model="columnFilters[col.name]"
-              :placeholder="col.type"
-              class="h-5 w-24 bg-transparent text-[10px] font-mono outline-none"
-              @input="onSearchInput"
-            />
-          </div>
-        </template>
-        <Button variant="ghost" size="sm" class="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground" @click="clearAllFilters">
-          Clear Filters
-        </Button>
-      </div>
+    <!-- Predicate chips: only when filters are active -->
+    <div
+      v-if="showControls && columnFilters.length"
+      class="flex items-center gap-1.5 px-3 py-1 border-b border-border/80 bg-muted/10 text-xs flex-shrink-0 min-h-7 overflow-x-auto"
+    >
+      <button
+        v-for="filter in columnFilters"
+        :key="filter.id"
+        class="group inline-flex items-center gap-1 h-5.5 max-w-[280px] px-1.5 rounded border border-primary/25 bg-primary/8 text-[10.5px] text-foreground font-mono cursor-pointer hover:bg-primary/12"
+        @click.stop="openFilterForColumn($event, filter.column)"
+      >
+        <span class="truncate">{{ getFilterChipLabel(filter) }}</span>
+        <span
+          class="opacity-50 group-hover:opacity-100 p-0.5"
+          @click.stop="removeFilter(filter.column)"
+        >
+          <PhX class="w-2.5 h-2.5" />
+        </span>
+      </button>
+      <button
+        v-if="filtersToSql(columnFilters)"
+        class="h-5.5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer border-none bg-transparent whitespace-nowrap"
+        @click="promoteFiltersToWhere"
+      >
+        Promote to WHERE
+      </button>
+      <button
+        class="h-5.5 px-1.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer border-none bg-transparent"
+        @click="clearColumnFilters"
+      >
+        Clear
+      </button>
     </div>
 
     <!-- Virtualized Scroll Viewport -->
     <div
       ref="scrollViewportRef"
-      class="flex-1 min-h-0 overflow-auto relative bg-background outline-none"
+      class="flex-1 min-h-0 overflow-auto relative bg-background outline-none spreadsheet-viewport"
       @scroll="onScroll"
     >
       <!-- Empty State -->
@@ -175,6 +215,25 @@
         </EmptyState>
       </div>
 
+      <div
+        v-else-if="filteredRows.length === 0 && !loading"
+        class="absolute inset-0 flex items-center justify-center surface-inset p-4 z-10"
+      >
+        <EmptyState
+          title="No matching rows"
+          :description="`0 of ${rows.length} loaded rows match the current find/filters.`"
+        >
+          <template #icon>
+            <PhFunnel class="w-6 h-6 text-muted-foreground/60" />
+          </template>
+          <template #action>
+            <Button variant="outline" size="sm" class="h-7" @click="clearAllFilters">
+              Clear filters
+            </Button>
+          </template>
+        </EmptyState>
+      </div>
+
       <!-- Loading Overlay -->
       <div v-if="loading" class="absolute inset-0 bg-background/50 backdrop-blur-[1px] z-30 flex items-center justify-center gap-2">
         <svg class="w-5 h-5 animate-spin text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -184,11 +243,11 @@
       </div>
 
       <!-- Main Data Table with Row Virtualization -->
-      <div class="inline-block min-w-full align-top" :style="{ width: tableTotalWidth + 'px' }">
+      <div class="inline-block min-w-full align-top border-l border-t border-border/70" :style="{ width: tableTotalWidth + 'px' }">
         <!-- Sticky Header -->
-        <div class="sticky top-0 z-20 flex bg-muted/95 backdrop-blur-md border-b border-border shadow-[0_1px_0_0_var(--border)] select-none">
+        <div class="sticky top-0 z-20 flex bg-muted/90 backdrop-blur-sm border-b border-border select-none shadow-[0_1px_0_0_hsl(var(--border))]">
           <!-- Select All Checkbox -->
-          <div class="w-9 h-7 flex items-center justify-center border-r border-border/40 flex-shrink-0 bg-muted/80">
+          <div class="grid-corner-cell w-9 flex items-center justify-center border-r border-border/70 flex-shrink-0">
             <input
               type="checkbox"
               :checked="allRowsSelected"
@@ -199,35 +258,53 @@
           </div>
 
           <!-- Row Number Column Header -->
-          <div class="w-10 h-7 flex items-center justify-center border-r border-border/40 text-[9.5px] font-medium text-muted-foreground/80 flex-shrink-0 bg-muted/80">
+          <div class="grid-corner-cell w-10 flex items-center justify-center border-r border-border/70 text-[10px] font-semibold text-muted-foreground flex-shrink-0 tabular-nums">
             #
           </div>
 
           <!-- Data Column Headers -->
           <div
             v-for="(col, colIndex) in columns"
-            :key="col.name"
-            class="group/head relative flex items-center justify-between px-2.5 h-7 border-r border-border/40 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer bg-muted/80"
-            :style="{ width: getColumnWidth(col.name) + 'px', minWidth: getColumnWidth(col.name) + 'px' }"
-            @click="sortBy(col.name)"
-            @contextmenu.prevent="openHeaderMenu($event, col.name)"
+            :key="(col.key || col.name) + '_' + colIndex"
+            class="group/head relative flex items-center justify-between px-2.5 border-r border-border/70 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer grid-header-cell"
+            :class="sortCol === (col.key || col.name) ? 'bg-primary/8 text-foreground' : ''"
+            :style="{ width: getColumnWidth(col.key || col.name) + 'px', minWidth: getColumnWidth(col.key || col.name) + 'px' }"
+            @click="sortBy(col.key || col.name)"
+            @contextmenu.prevent="openHeaderMenu($event, col.key || col.name)"
           >
-            <div class="flex items-center gap-1.5 truncate">
-              <span class="truncate">{{ col.name }}</span>
-              <span v-if="sortCol === col.name" class="text-primary font-bold text-[10px]">
+            <div class="flex items-center gap-1.5 truncate min-w-0">
+              <span class="truncate" :title="getHeaderTitle(col)">{{ col.name }}</span>
+              <span v-if="col.orgTable" class="text-[9.5px] text-muted-foreground/60 font-normal truncate hidden sm:inline" :title="col.orgTable">
+                ({{ col.orgTable }})
+              </span>
+              <span v-else-if="isDuplicateColName(col.name) && getColDuplicateIndex(col, colIndex) > 1" class="text-[9px] text-primary/70 font-mono">
+                #{{ getColDuplicateIndex(col, colIndex) }}
+              </span>
+              <span v-if="sortCol === (col.key || col.name)" class="text-primary font-bold text-[10px]">
                 {{ sortDir === 'asc' ? '↑' : '↓' }}
               </span>
             </div>
 
-            <span class="text-[9px] font-mono text-muted-foreground/50 font-normal group-hover/head:text-muted-foreground/80 transition-colors">
-              {{ col.type }}
-            </span>
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button
+                class="p-0.5 rounded cursor-pointer border-none"
+                :class="filterForColumn(col.key || col.name) ? 'text-primary bg-primary/15 opacity-100' : 'text-muted-foreground/50 opacity-0 group-hover/head:opacity-100 hover:text-foreground bg-transparent'"
+                title="Filter column"
+                @click.stop="openFilterForColumn($event, col.key || col.name)"
+                @mousedown.stop
+              >
+                <PhFunnel class="w-3 h-3" weight="bold" />
+              </button>
+              <span class="text-[9px] font-mono text-muted-foreground/50 font-normal hidden lg:inline group-hover/head:text-muted-foreground/80 transition-colors">
+                {{ col.type }}
+              </span>
+            </div>
 
             <!-- Column Resizer Drag Handle -->
             <div
               class="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/50 transition-colors z-10"
-              @mousedown.stop="startResizeColumn($event, col.name)"
-              @dblclick.stop="autoFitColumn(col.name)"
+              @mousedown.stop="startResizeColumn($event, col.key || col.name)"
+              @dblclick.stop="autoFitColumn(col.key || col.name)"
             ></div>
           </div>
         </div>
@@ -239,16 +316,20 @@
         <div
           v-for="item in visibleRows"
           :key="item.index"
-          class="flex border-b border-border/30 hover:bg-muted/30 transition-colors duration-fast text-[11px]"
+          class="group flex text-[11px]"
           :class="[
-            item.index % 2 === 0 ? 'bg-transparent' : 'bg-muted/5',
-            selectedRowIndices.has(item.index) ? 'bg-primary/8 hover:bg-primary/12' : ''
+            isRowInSelection(item.index) ? '' : (item.index % 2 === 0 ? 'bg-background' : 'bg-muted/20'),
+            !isRowInSelection(item.index) && selectedRowIndices.has(item.index) ? 'bg-primary/6' : '',
+            !isRowInSelection(item.index) && !selectedRowIndices.has(item.index) ? 'hover:bg-muted/35' : ''
           ]"
           :style="{ height: ROW_HEIGHT + 'px' }"
         >
           <!-- Row Checkbox -->
-          <div class="w-9 h-full flex items-center justify-center border-r border-border/30 flex-shrink-0 relative">
-            <div v-if="selectedRowIndices.has(item.index)" class="absolute left-0 top-0 bottom-0 w-[2.5px] bg-primary"></div>
+          <div
+            class="w-9 h-full flex items-center justify-center border-r border-b border-border/70 flex-shrink-0 relative grid-corner-cell"
+            :class="isRowInSelection(item.index) ? 'bg-primary/[0.06]' : ''"
+          >
+            <div v-if="selectedRowIndices.has(item.index)" class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary"></div>
             <input
               type="checkbox"
               :checked="selectedRowIndices.has(item.index)"
@@ -260,33 +341,39 @@
           </div>
 
           <!-- Row Number -->
-          <div class="w-10 h-full flex items-center justify-center border-r border-border/30 text-[9.5px] text-muted-foreground/60 tabular-nums flex-shrink-0 select-none">
+          <div
+            class="w-10 h-full flex items-center justify-center border-r border-b border-border/70 text-[10px] text-muted-foreground tabular-nums flex-shrink-0 select-none grid-corner-cell"
+            :class="isRowInSelection(item.index) ? 'text-primary font-semibold bg-primary/[0.06]' : ''"
+          >
             {{ item.index + 1 }}
           </div>
 
           <!-- Row Cells -->
           <div
             v-for="(col, colIndex) in columns"
-            :key="col.name + '_' + colIndex"
-            class="relative flex items-center px-2.5 border-r border-border/30 truncate cursor-cell select-none transition-colors"
-            :style="{ width: getColumnWidth(col.name) + 'px', minWidth: getColumnWidth(col.name) + 'px' }"
+            :key="(col.key || col.name) + '_' + colIndex"
+            class="relative flex items-center px-2 border-r border-b border-border/70 truncate cursor-cell select-none grid-data-cell"
+            :style="{
+              width: getColumnWidth(col.key || col.name) + 'px',
+              minWidth: getColumnWidth(col.key || col.name) + 'px',
+              ...getCellSelectionStyle(item.index, colIndex)
+            }"
             :class="[
-              isCellFocused(item.index, colIndex) ? 'ring-2 ring-primary ring-inset z-10 bg-primary/10' : '',
-              isCellInRange(item.index, colIndex) ? 'bg-primary/8' : '',
-              columnMetaMap[col.name]?.isNumeric ? 'justify-end tabular-nums text-right font-mono' : 'justify-start'
+              getCellClass(item.index, colIndex, col.key || col.name),
+              columnMetaMap[col.key || col.name]?.isNumeric ? 'justify-end tabular-nums text-right font-mono' : 'justify-start'
             ]"
             @mousedown="onCellMouseDown(item.index, colIndex, $event)"
             @mouseenter="onCellMouseEnter(item.index, colIndex, $event)"
-            @dblclick="startEditCell(item.index, col.name, $event)"
-            @contextmenu.prevent="openCellContextMenu($event, item.row, item.index, col.name)"
+            @dblclick="startEditCell(item.index, col.key || col.name, $event)"
+            @contextmenu.prevent="openCellContextMenu($event, item.index, col.key || col.name)"
           >
-            <!-- In-Place Cell Editor Input (Renders strictly exclusively with distinct highlight) -->
-            <template v-if="editingCell?.rowIndex === item.index && editingCell?.colName === col.name">
+            <!-- In-Place Cell Editor Input -->
+            <template v-if="editingCell?.rowIndex === item.index && editingCell?.colKey === (col.key || col.name)">
               <input
                 ref="inlineEditInputRef"
                 v-model="editInputValue"
-                class="absolute inset-0 z-30 w-full h-full bg-primary/20 border-2 border-primary text-foreground outline-none font-mono text-[11px] px-2 shadow-lg ring-2 ring-primary/40 rounded-none selection:bg-primary selection:text-primary-foreground"
-                :class="{ 'text-right': columnMetaMap[col.name]?.isNumeric }"
+                class="absolute inset-0 z-30 w-full h-full bg-background border-2 border-primary text-foreground outline-none font-mono text-[11px] px-2 shadow-[0_0_0_1px_hsl(var(--primary)/0.25)] rounded-none selection:bg-primary selection:text-primary-foreground"
+                :class="{ 'text-right': columnMetaMap[col.key || col.name]?.isNumeric }"
                 @keydown.enter="commitInlineEdit"
                 @keydown.escape.stop="cancelInlineEdit"
                 @blur="commitInlineEdit"
@@ -296,73 +383,73 @@
 
             <!-- Standard Cell Value Display (when NOT editing) -->
             <template v-else>
-              <!-- Dirty Cell Indicator Badge -->
+              <!-- Dirty Cell Indicator -->
               <span
-                v-if="isCellDirty(item.index, col.name)"
-                class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500 shadow-xs z-10"
-                title="Modified (Unsaved)"
+                v-if="isCellDirty(item.index, col.key || col.name)"
+                class="absolute top-0 left-0 w-0 h-0 border-t-[6px] border-r-[6px] border-t-amber-500 border-r-transparent z-10"
+                title="Modified (unsaved)"
               ></span>
 
               <!-- NULL Display -->
-              <template v-if="item.row[col.name] === null || item.row[col.name] === undefined">
-                <span class="text-[9.5px] italic text-muted-foreground/40 font-mono">NULL</span>
+              <template v-if="getCellValue(item.index, col.key || col.name) === null || getCellValue(item.index, col.key || col.name) === undefined">
+                <span class="text-[10px] italic text-muted-foreground/45 font-mono">NULL</span>
               </template>
 
               <!-- Boolean Display -->
-              <template v-else-if="columnMetaMap[col.name]?.isBoolean">
+              <template v-else-if="columnMetaMap[col.key || col.name]?.isBoolean">
                 <span
-                  class="inline-flex items-center px-1.5 py-0.2 rounded-full text-[9px] font-bold"
-                  :class="item.row[col.name] ? 'bg-emerald-500/15 text-emerald-500' : 'bg-red-500/15 text-red-500'"
+                  class="inline-flex items-center px-1.5 py-0 rounded-sm text-[9px] font-semibold border"
+                  :class="getCellValue(item.index, col.key || col.name) ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' : 'bg-red-500/12 text-red-600 dark:text-red-400 border-red-500/25'"
                 >
-                  {{ item.row[col.name] ? 'TRUE' : 'FALSE' }}
+                  {{ getCellValue(item.index, col.key || col.name) ? 'TRUE' : 'FALSE' }}
                 </span>
               </template>
 
               <!-- Color Value Display -->
-              <template v-else-if="isColorValue(col.name, item.row[col.name])">
+              <template v-else-if="isColorValue(col.name, getCellValue(item.index, col.key || col.name))">
                 <div class="inline-flex items-center gap-1.5 font-mono text-[11px] truncate">
                   <span
-                    class="w-3.5 h-3.5 rounded-full flex-shrink-0 border border-border/80 shadow-2xs"
-                    :style="{ backgroundColor: String(item.row[col.name]) }"
-                    :title="`Color swatch: ${item.row[col.name]}`"
+                    class="w-3.5 h-3.5 rounded-sm flex-shrink-0 border border-border/80 shadow-2xs"
+                    :style="{ backgroundColor: String(getCellValue(item.index, col.key || col.name)) }"
+                    :title="`Color: ${getCellValue(item.index, col.key || col.name)}`"
                   ></span>
-                  <span class="truncate font-medium">{{ item.row[col.name] }}</span>
+                  <span class="truncate">{{ getCellValue(item.index, col.key || col.name) }}</span>
                 </div>
               </template>
 
-              <!-- Status Value Display (Chips / Badges) -->
-              <template v-else-if="isStatusValue(col.name, item.row[col.name])">
+              <!-- Status Value Display -->
+              <template v-else-if="isStatusValue(col.name, getCellValue(item.index, col.key || col.name))">
                 <span
-                  class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono border tracking-wide uppercase transition-all shadow-2xs"
-                  :class="getStatusChipClass(col.name, String(item.row[col.name]))"
+                  class="inline-flex items-center px-1.5 py-0 rounded-sm text-[9.5px] font-medium font-mono border tracking-wide uppercase"
+                  :class="getStatusChipClass(col.name, String(getCellValue(item.index, col.key || col.name)))"
                 >
-                  <span class="w-1.5 h-1.5 rounded-full mr-1 flex-shrink-0" :class="getStatusDotClass(col.name, String(item.row[col.name]))"></span>
-                  {{ String(item.row[col.name]) }}
+                  <span class="w-1.5 h-1.5 rounded-full mr-1 flex-shrink-0" :class="getStatusDotClass(col.name, String(getCellValue(item.index, col.key || col.name)))"></span>
+                  {{ String(getCellValue(item.index, col.key || col.name)) }}
                 </span>
               </template>
 
-              <!-- Standard Value Display with FK Link & Large Value Peek -->
+              <!-- Standard Value Display -->
               <template v-else>
-                <span class="truncate font-mono" :title="String(item.row[col.name])">
-                  {{ formatCellText(item.row[col.name]) }}
+                <span class="truncate" :title="String(getCellValue(item.index, col.key || col.name))">
+                  {{ formatCellText(getCellValue(item.index, col.key || col.name)) }}
                 </span>
 
                 <!-- Foreign Key Peek Action -->
                 <button
-                  v-if="columnMetaMap[col.name]?.foreignKey"
+                  v-if="columnMetaMap[col.key || col.name]?.foreignKey"
                   class="ml-auto text-primary/70 hover:text-primary hover:bg-primary/10 p-0.5 rounded cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
                   title="Preview referenced record"
-                  @click.stop="peekForeignKey($event, col, item.row[col.name])"
+                  @click.stop="peekForeignKey($event, col, getCellValue(item.index, col.key || col.name))"
                 >
                   <PhArrowSquareOut class="w-3 h-3" />
                 </button>
 
                 <!-- Large Value Inspector Trigger -->
                 <button
-                  v-if="isLargeValue(item.row[col.name])"
+                  v-if="isLargeValue(getCellValue(item.index, col.key || col.name))"
                   class="ml-auto text-muted-foreground hover:text-foreground hover:bg-accent p-0.5 rounded cursor-pointer transition-colors opacity-0 group-hover:opacity-100"
                   title="Open Value Inspector"
-                  @click.stop="openValueInspector(item.row[col.name], col.name, item.index)"
+                  @click.stop="openValueInspector(getCellValue(item.index, col.key || col.name), col.key || col.name, item.index)"
                 >
                   <PhArrowsOutSimple class="w-3 h-3" />
                 </button>
@@ -393,7 +480,7 @@
           variant="outline"
           size="sm"
           class="h-6.5 px-2.5 text-[11px] rounded bg-background"
-          :disabled="isSaving"
+          :disabled="saving"
           @click="discardAllEdits"
         >
           Discard
@@ -401,11 +488,11 @@
         <Button
           size="sm"
           class="h-6.5 px-3 text-[11px] font-semibold rounded bg-emerald-600 hover:bg-emerald-700 text-white gap-1 shadow-sm"
-          :disabled="isSaving"
+          :disabled="saving"
           @click="applyDirtyEdits"
         >
           <PhCheck class="w-3 h-3" />
-          <span>{{ isSaving ? 'Saving…' : 'Review & Apply (⌘S)' }}</span>
+          <span>{{ saving ? 'Saving…' : 'Review & Apply (⌘S)' }}</span>
         </Button>
       </div>
     </div>
@@ -428,9 +515,78 @@
           <PhDatabase class="w-3 h-3" /> Copy Row as INSERT
         </button>
         <div class="h-px bg-border/60 my-1"></div>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="filterByCurrentCell">
+          <PhFunnel class="w-3 h-3" /> Filter by this cell
+        </button>
         <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="inspectCurrentCell">
           <PhArrowsOutSimple class="w-3 h-3" /> Inspect in Full Viewer
         </button>
+      </div>
+
+      <!-- Column filter popover -->
+      <div
+        v-if="filterPopover.visible"
+        ref="filterPopoverRef"
+        class="fixed z-[9999] w-64 bg-popover border border-border/80 rounded-md shadow-xl text-xs font-mono select-none overflow-hidden"
+        :style="{ left: filterPopover.x + 'px', top: filterPopover.y + 'px' }"
+        @click.stop
+        @mousedown.stop
+      >
+        <div v-if="filterPopover.mode === 'pick-column'" class="max-h-64 overflow-y-auto py-1">
+          <div class="px-2.5 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">Column</div>
+          <button
+            v-for="(col, colIdx) in columns"
+            :key="(col.key || col.name) + '_' + colIdx"
+            class="w-full text-left px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent flex items-center justify-between gap-2"
+            @click="selectFilterColumn(col.key || col.name)"
+          >
+            <div class="flex items-center gap-1.5 truncate min-w-0">
+              <span class="truncate">{{ col.name }}</span>
+              <span v-if="col.orgTable" class="text-[9px] text-muted-foreground/60 truncate">({{ col.orgTable }})</span>
+            </div>
+            <span class="text-[9px] text-muted-foreground truncate">{{ col.type }}</span>
+          </button>
+        </div>
+        <div v-else class="flex flex-col">
+          <div class="px-2.5 py-1.5 border-b border-border/60 flex items-center justify-between gap-2">
+            <span class="font-semibold truncate">{{ getColDisplayName(filterPopover.column) }}</span>
+            <span class="text-[9px] text-muted-foreground">local</span>
+          </div>
+          <div class="p-2 flex flex-col gap-1.5">
+            <select
+              class="h-7 w-full rounded border border-border/60 bg-background px-1.5 text-[11px] outline-none"
+              :value="draftFilter.op"
+              @change="onDraftOpChange"
+            >
+              <option v-for="opt in draftOps" :key="opt.op" :value="opt.op">{{ opt.label }}</option>
+            </select>
+            <input
+              v-if="opNeedsValue(draftFilter.op)"
+              ref="filterValueInputRef"
+              v-model="draftFilter.value"
+              class="h-7 w-full rounded border border-border/60 bg-background px-2 text-[11px] outline-none focus:border-primary"
+              placeholder="Value"
+              @input="applyDraftFilter"
+            />
+          </div>
+          <div v-if="popoverDistinct.length" class="border-t border-border/60 max-h-40 overflow-y-auto py-1">
+            <div class="px-2.5 py-1 text-[10px] text-muted-foreground">Values in this page</div>
+            <button
+              v-for="item in popoverDistinct"
+              :key="item.key"
+              class="w-full text-left px-3 py-1 hover:bg-accent cursor-pointer border-none bg-transparent flex items-center justify-between gap-2"
+              :class="{ 'bg-primary/10 text-foreground': isDistinctSelected(item) }"
+              @click="applyDistinctValue(item)"
+            >
+              <span class="truncate" :class="{ 'italic text-muted-foreground': item.raw === null || item.raw === undefined }">{{ item.label }}</span>
+              <span class="text-[9px] text-muted-foreground tabular-nums">{{ item.count }}</span>
+            </button>
+          </div>
+          <div class="border-t border-border/60 px-2 py-1.5 flex justify-between">
+            <button class="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer border-none bg-transparent" @click="clearPopoverColumn">Clear</button>
+            <button class="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer border-none bg-transparent" @click="filterPopover.visible = false">Done</button>
+          </div>
+        </div>
       </div>
 
       <!-- Header Context Menu -->
@@ -447,10 +603,13 @@
           <PhSortDescending class="w-3 h-3" /> Sort Descending
         </button>
         <div class="h-px bg-border/60 my-1"></div>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="filterFromHeaderMenu">
+          <PhFunnel class="w-3 h-3" /> Filter this column
+        </button>
         <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="copyColumnName">
           <PhCopy class="w-3 h-3" /> Copy Column Name
         </button>
-        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="autoFitColumn(headerContextMenu.colName)">
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="autoFitColumn(headerContextMenu.colKey)">
           <PhArrowsOutLineHorizontal class="w-3 h-3" /> Auto-fit Column Width
         </button>
       </div>
@@ -537,7 +696,6 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ValueInspector from './ValueInspector.vue'
@@ -551,12 +709,27 @@ import { useConnectionStore } from '@/stores/connection'
 import { useUiStore } from '@/stores/ui'
 import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'vue-sonner'
+import {
+  defaultOpForKind,
+  distinctValues,
+  filtersToSql,
+  formatFilterChip,
+  inferFilterKind,
+  opNeedsValue,
+  operatorsForKind,
+  rowMatchesFilter,
+  type ColumnFilter,
+  type DistinctValue,
+  type FilterOp,
+} from '@/lib/gridFilters'
 
 export interface ColumnDef {
   name: string
   type: string
+  key?: string
   orgName?: string
   orgTable?: string
+  schema?: string
 }
 
 export type GridRow = Record<string, any>
@@ -568,36 +741,48 @@ const props = withDefaults(defineProps<{
   durationMs?: number
   loading?: boolean
   showControls?: boolean
+  pageSize?: number
+  hasMore?: boolean
+  loadingMore?: boolean
+  canEdit?: boolean
+  saving?: boolean
 }>(), {
   showControls: true,
-  loading: false
+  loading: false,
+  canEdit: true,
 })
 
 const emit = defineEmits<{
   'save-edits': [updates: { rowIndex: number; changes: Record<string, any> }[], onSuccess?: () => void]
   'refresh': []
+  'page-size-change': [size: number]
+  'promote-where': [predicate: string]
+  'fetch-next': []
+  'fetch-all': []
 }>()
 
 const schemaStore = useSchemaStore()
 const uiStore = useUiStore()
 
-const ROW_HEIGHT = 28
+const ROW_HEIGHT = 32
 const OVERSCAN = 8
 
 const gridContainerRef = ref<HTMLDivElement | null>(null)
 const scrollViewportRef = ref<HTMLDivElement | null>(null)
 const inlineEditInputRef = ref<HTMLInputElement | null>(null)
+const findInputRef = ref<HTMLInputElement | null>(null)
+const filterPopoverRef = ref<HTMLDivElement | null>(null)
+const filterValueInputRef = ref<HTMLInputElement | null>(null)
 
 const scrollTop = ref(0)
 const viewportHeight = ref(400)
 const quickSearch = ref('')
-const showFilterBar = ref(false)
 const showExportMenu = ref(false)
-const isSaving = ref(false)
+const pageSizeOptions = [50, 100, 250, 500, 1000]
 
 const sortCol = ref('')
 const sortDir = ref<'asc' | 'desc' | ''>('')
-const columnFilters = reactive<Record<string, string>>({})
+const columnFilters = ref<ColumnFilter[]>([])
 const columnWidths = reactive<Record<string, number>>({})
 
 const dirtyEdits = reactive<Record<number, Record<string, any>>>({})
@@ -607,12 +792,13 @@ const focusedCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
 const anchorCell = ref<{ rowIndex: number; colIndex: number } | null>(null)
 const isMouseDown = ref(false)
 
-const editingCell = ref<{ rowIndex: number; colName: string } | null>(null)
+const editingCell = ref<{ rowIndex: number; colKey: string } | null>(null)
 const editInputValue = ref('')
 
 const valueInspectorState = reactive({
   open: false,
   value: null as any,
+  colKey: '',
   columnName: '',
   rowIndex: 0
 })
@@ -621,22 +807,77 @@ const cellContextMenu = reactive({
   visible: false,
   x: 0,
   y: 0,
-  row: null as GridRow | null,
   rowIndex: 0,
-  colName: ''
+  colKey: ''
 })
 
 const headerContextMenu = reactive({
   visible: false,
   x: 0,
   y: 0,
-  colName: ''
+  colKey: ''
 })
 
+const filterPopover = reactive({
+  visible: false,
+  mode: 'column' as 'pick-column' | 'column',
+  column: '',
+  x: 0,
+  y: 0,
+})
+
+const draftFilter = reactive<ColumnFilter>({
+  id: '',
+  column: '',
+  op: 'contains',
+  value: '',
+})
+
+function getColKey(col: ColumnDef): string {
+  return col.key || col.name
+}
+
+function getColByKey(colKey: string): ColumnDef | undefined {
+  return props.columns.find(c => (c.key || c.name) === colKey)
+}
+
+function isDuplicateColName(name: string): boolean {
+  return props.columns.filter(c => c.name === name).length > 1
+}
+
+function getColDuplicateIndex(col: ColumnDef, colIndex: number): number {
+  let count = 0
+  for (let i = 0; i <= colIndex; i++) {
+    if (props.columns[i].name === col.name) {
+      count++
+    }
+  }
+  return count
+}
+
+function getHeaderTitle(col: ColumnDef): string {
+  if (col.orgTable) return `${col.orgTable}.${col.name} (${col.type})`
+  return `${col.name} (${col.type})`
+}
+
+function getColDisplayName(colKey: string): string {
+  const col = getColByKey(colKey)
+  if (!col) return colKey
+  if (col.orgTable) return `${col.orgTable}.${col.name}`
+  return col.name
+}
+
+function getFilterChipLabel(filter: ColumnFilter): string {
+  const col = getColByKey(filter.column)
+  const displayCol = col ? (col.orgTable ? `${col.orgTable}.${col.name}` : col.name) : filter.column
+  return formatFilterChip({ ...filter, column: displayCol })
+}
+
 // Column widths persistence
-const storageKey = computed(() => `select_grid_widths_${props.tableName || 'default'}`)
+const storageKey = computed(() => (props.tableName ? `select_grid_widths_${props.tableName}` : ''))
 
 function loadSavedWidths() {
+  if (!storageKey.value) return
   try {
     const raw = localStorage.getItem(storageKey.value)
     if (raw) {
@@ -647,6 +888,7 @@ function loadSavedWidths() {
 }
 
 function saveWidths() {
+  if (!storageKey.value) return
   try {
     localStorage.setItem(storageKey.value, JSON.stringify(columnWidths))
   } catch {}
@@ -682,19 +924,20 @@ function stopResizeColumn() {
   saveWidths()
 }
 
-function autoFitColumn(colName: string) {
-  let maxLen = colName.length
+function autoFitColumn(colKey: string) {
+  const col = getColByKey(colKey)
+  let maxLen = (col?.name || colKey).length
   for (let i = 0; i < Math.min(props.rows.length, 100); i++) {
-    const s = String(props.rows[i]?.[colName] ?? '')
+    const s = String(props.rows[i]?.[colKey] ?? '')
     if (s.length > maxLen) maxLen = s.length
   }
-  columnWidths[colName] = Math.max(80, Math.min(450, maxLen * 8 + 32))
+  columnWidths[colKey] = Math.max(80, Math.min(450, maxLen * 8 + 32))
   saveWidths()
 }
 
 const tableTotalWidth = computed(() => {
   const base = 36 + 40 // Checkbox + #
-  const cols = props.columns.reduce((sum, c) => sum + getColumnWidth(c.name), 0)
+  const cols = props.columns.reduce((sum, c) => sum + getColumnWidth(c.key || c.name), 0)
   return Math.max(base + cols, 600)
 })
 
@@ -702,6 +945,7 @@ const tableTotalWidth = computed(() => {
 const columnMetaMap = computed(() => {
   const map: Record<string, { isNumeric: boolean; isBoolean: boolean; foreignKey: any }> = {}
   for (const col of props.columns) {
+    const key = col.key || col.name
     const t = (col.type || '').toLowerCase()
     const isNumeric = ['int', 'bigint', 'decimal', 'float', 'double', 'numeric', 'number'].some(k => t.includes(k))
     const isBoolean = t === 'boolean' || t === 'bool' || t === 'tinyint(1)'
@@ -712,7 +956,7 @@ const columnMetaMap = computed(() => {
         foreignKey = fks.find(fk => (fk.column_name || fk.columnName || '').toLowerCase() === (col.orgName || col.name).toLowerCase()) || null
       }
     }
-    map[col.name] = { isNumeric, isBoolean, foreignKey }
+    map[key] = { isNumeric, isBoolean, foreignKey }
   }
   return map
 })
@@ -786,21 +1030,181 @@ function getStatusDotClass(colName: string, val: string): string {
 }
 
 // Filtering and Sorting
-const activeFilterCount = computed(() => {
-  return Object.values(columnFilters).filter(v => Boolean(v && v.trim())).length
+const activeFilters = computed(() =>
+  columnFilters.value.filter(f => !opNeedsValue(f.op) || f.value.trim() !== '')
+)
+
+function filterForColumn(colKey: string): ColumnFilter | undefined {
+  return columnFilters.value.find(f => f.column === colKey)
+}
+
+const draftOps = computed(() => {
+  const col = getColByKey(draftFilter.column)
+  return operatorsForKind(inferFilterKind(col?.type))
 })
+
+const popoverDistinct = computed(() => {
+  if (!filterPopover.visible || !filterPopover.column) return []
+  return distinctValues(props.rows, filterPopover.column)
+})
+
+function clampPopover(x: number, y: number, width = 256, height = 320) {
+  const maxX = Math.max(8, window.innerWidth - width - 8)
+  const maxY = Math.max(8, window.innerHeight - height - 8)
+  return { x: Math.min(Math.max(8, x), maxX), y: Math.min(Math.max(8, y), maxY) }
+}
+
+function upsertFilter(next: ColumnFilter) {
+  const idx = columnFilters.value.findIndex(f => f.column === next.column)
+  if (!opNeedsValue(next.op) || next.value.trim() !== '') {
+    const copy = { ...next, id: next.id || `f-${next.column}` }
+    if (idx >= 0) columnFilters.value[idx] = copy
+    else columnFilters.value.push(copy)
+  } else if (idx >= 0) {
+    columnFilters.value.splice(idx, 1)
+  }
+  onSearchInput()
+}
+
+function applyDraftFilter() {
+  if (!draftFilter.column) return
+  upsertFilter({ ...draftFilter, id: `f-${draftFilter.column}` })
+}
+
+function onDraftOpChange(e: Event) {
+  draftFilter.op = (e.target as HTMLSelectElement).value as FilterOp
+  if (!opNeedsValue(draftFilter.op)) draftFilter.value = ''
+  applyDraftFilter()
+}
+
+function loadDraftFromColumn(colKey: string) {
+  const existing = filterForColumn(colKey)
+  const col = getColByKey(colKey)
+  const kind = inferFilterKind(col?.type)
+  draftFilter.id = existing?.id || `f-${colKey}`
+  draftFilter.column = colKey
+  draftFilter.op = existing?.op || defaultOpForKind(kind)
+  draftFilter.value = existing?.value || ''
+}
+
+function openFilterAt(x: number, y: number, mode: 'pick-column' | 'column', column = '') {
+  const pos = clampPopover(x, y)
+  filterPopover.mode = mode
+  filterPopover.column = column
+  filterPopover.x = pos.x
+  filterPopover.y = pos.y
+  if (mode === 'column' && column) {
+    loadDraftFromColumn(column)
+  }
+  nextTick(() => {
+    filterPopover.visible = true
+    if (mode === 'column' && column) {
+      nextTick(() => filterValueInputRef.value?.focus())
+    }
+  })
+}
+
+function openAddFilter(e: MouseEvent) {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  openFilterAt(rect.left, rect.bottom + 4, 'pick-column')
+}
+
+function openFilterForColumn(e: MouseEvent, colKey: string) {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  openFilterAt(rect.left, rect.bottom + 4, 'column', colKey)
+}
+
+function selectFilterColumn(colKey: string) {
+  filterPopover.mode = 'column'
+  filterPopover.column = colKey
+  loadDraftFromColumn(colKey)
+  nextTick(() => filterValueInputRef.value?.focus())
+}
+
+function removeFilter(colKey: string) {
+  columnFilters.value = columnFilters.value.filter(f => f.column !== colKey)
+  onSearchInput()
+}
+
+function clearColumnFilters() {
+  columnFilters.value = []
+  onSearchInput()
+}
+
+function clearPopoverColumn() {
+  if (filterPopover.column) removeFilter(filterPopover.column)
+  draftFilter.value = ''
+  filterPopover.visible = false
+}
+
+function isDistinctSelected(item: DistinctValue): boolean {
+  if (item.raw === null || item.raw === undefined) return draftFilter.op === 'is_null'
+  return draftFilter.op === 'eq' && draftFilter.value === String(item.raw)
+}
+
+function applyDistinctValue(item: DistinctValue) {
+  if (item.raw === null || item.raw === undefined) {
+    draftFilter.op = 'is_null'
+    draftFilter.value = ''
+  } else {
+    draftFilter.op = 'eq'
+    draftFilter.value = String(item.raw)
+  }
+  applyDraftFilter()
+}
+
+function filterByCurrentCell() {
+  const colKey = cellContextMenu.colKey
+  const val = getCellValue(cellContextMenu.rowIndex, colKey)
+  const col = getColByKey(colKey)
+  const kind = inferFilterKind(col?.type)
+  let op: FilterOp = 'eq'
+  let value = val === null || val === undefined ? '' : String(val)
+  if (val === null || val === undefined) op = 'is_null'
+  else if (kind === 'boolean') op = isTruthyLike(val) ? 'is_true' : 'is_false'
+  upsertFilter({ id: `f-${colKey}`, column: colKey, op, value })
+  cellContextMenu.visible = false
+}
+
+function isTruthyLike(value: unknown): boolean {
+  return value === true || value === 1 || String(value).toLowerCase() === 'true'
+}
+
+function filterFromHeaderMenu() {
+  const colKey = headerContextMenu.colKey
+  headerContextMenu.visible = false
+  openFilterAt(headerContextMenu.x, headerContextMenu.y, 'column', colKey)
+}
+
+function promoteFiltersToWhere() {
+  const sqlFilters = activeFilters.value.map(f => {
+    const col = getColByKey(f.column)
+    const sqlColName = col?.orgTable ? `${col.orgTable}.${col.orgName || col.name}` : (col?.orgName || col?.name || f.column)
+    return {
+      ...f,
+      column: sqlColName,
+    }
+  })
+  const sql = filtersToSql(sqlFilters)
+  if (!sql) return
+  emit('promote-where', sql)
+}
+
+function onPageSizeSelect(e: Event) {
+  emit('page-size-change', parseInt((e.target as HTMLSelectElement).value, 10))
+}
 
 const filteredRows = computed(() => {
   const rows = props.rows
   if (!rows || rows.length === 0) return []
 
   const search = quickSearch.value.trim().toLowerCase()
-  const activeFilters = Object.entries(columnFilters).filter(([_, v]) => Boolean(v && v.trim()))
+  const filters = activeFilters.value
   const activeSortCol = sortCol.value
   const activeSortDir = sortDir.value
 
   const hasSearch = Boolean(search)
-  const hasFilters = activeFilters.length > 0
+  const hasFilters = filters.length > 0
   const hasSort = Boolean(activeSortCol && activeSortDir)
 
   if (!hasSearch && !hasFilters && !hasSort) {
@@ -816,7 +1220,7 @@ const filteredRows = computed(() => {
     if (hasSearch) {
       let matched = false
       for (const col of props.columns) {
-        const val = row[col.name]
+        const val = getCellValue(i, col.key || col.name)
         if (val !== null && val !== undefined && String(val).toLowerCase().includes(search)) {
           matched = true
           break
@@ -827,9 +1231,8 @@ const filteredRows = computed(() => {
 
     if (hasFilters) {
       let matched = true
-      for (const [colName, val] of activeFilters) {
-        const rowVal = row[colName]
-        if (rowVal === null || rowVal === undefined || !String(rowVal).toLowerCase().includes(val.toLowerCase())) {
+      for (const filter of filters) {
+        if (!rowMatchesFilter(getCellValue(i, filter.column), filter)) {
           matched = false
           break
         }
@@ -844,8 +1247,8 @@ const filteredRows = computed(() => {
     const col = activeSortCol
     const dir = activeSortDir
     result.sort((a, b) => {
-      const av = a.row[col]
-      const bv = b.row[col]
+      const av = getCellValue(a.index, col)
+      const bv = getCellValue(b.index, col)
       if (av === null || av === undefined) return 1
       if (bv === null || bv === undefined) return -1
       const cmp = typeof av === 'number' && typeof bv === 'number'
@@ -874,6 +1277,9 @@ function onScroll(e: Event) {
   const el = e.target as HTMLElement
   scrollTop.value = el.scrollTop
   viewportHeight.value = el.clientHeight
+  if (props.hasMore && !props.loadingMore && el.scrollTop + el.clientHeight > el.scrollHeight - 240) {
+    emit('fetch-next')
+  }
 }
 
 // Dirty State & Editing
@@ -886,33 +1292,127 @@ const dirtyCount = computed(() => {
   return count
 })
 
-function isCellDirty(rowIndex: number, colName: string): boolean {
-  return dirtyEdits[rowIndex] !== undefined && dirtyEdits[rowIndex][colName] !== undefined
+function getOriginalCellValue(rowIndex: number, colKey: string): any {
+  return props.rows[rowIndex]?.[colKey]
 }
 
-function startEditCell(rowIndex: number, colName: string, _e?: MouseEvent) {
-  editingCell.value = { rowIndex, colName }
-  const val = props.rows[rowIndex]?.[colName]
+function getCellValue(rowIndex: number, colKey: string): any {
+  const dirty = dirtyEdits[rowIndex]
+  if (dirty && colKey in dirty) {
+    return dirty[colKey]
+  }
+  return getOriginalCellValue(rowIndex, colKey)
+}
+
+function getRowWithEdits(rowIndex: number): GridRow {
+  const row = props.rows[rowIndex]
+  if (!row) return {}
+  const dirty = dirtyEdits[rowIndex]
+  if (!dirty) return row
+  return { ...row, ...dirty }
+}
+
+function isCellDirty(rowIndex: number, colKey: string): boolean {
+  return dirtyEdits[rowIndex] !== undefined && colKey in dirtyEdits[rowIndex]
+}
+
+const selectionBounds = computed(() => {
+  if (!anchorCell.value || !focusedCell.value) return null
+  return {
+    minR: Math.min(anchorCell.value.rowIndex, focusedCell.value.rowIndex),
+    maxR: Math.max(anchorCell.value.rowIndex, focusedCell.value.rowIndex),
+    minC: Math.min(anchorCell.value.colIndex, focusedCell.value.colIndex),
+    maxC: Math.max(anchorCell.value.colIndex, focusedCell.value.colIndex),
+  }
+})
+
+const hasCellRangeSelection = computed(() => {
+  const b = selectionBounds.value
+  if (!b) return false
+  return b.minR !== b.maxR || b.minC !== b.maxC
+})
+
+function isCellInSelection(rowIndex: number, colIndex: number): boolean {
+  const b = selectionBounds.value
+  if (!b) return false
+  return rowIndex >= b.minR && rowIndex <= b.maxR && colIndex >= b.minC && colIndex <= b.maxC
+}
+
+function isRowInSelection(rowIndex: number): boolean {
+  const b = selectionBounds.value
+  if (!b) return false
+  return rowIndex >= b.minR && rowIndex <= b.maxR
+}
+
+function getCellSelectionStyle(rowIndex: number, colIndex: number): Record<string, string> {
+  if (!isCellInSelection(rowIndex, colIndex)) return {}
+
+  const b = selectionBounds.value!
+  const isActive = isCellFocused(rowIndex, colIndex)
+  const borderW = isActive ? '2px' : '1.5px'
+  const color = 'hsl(var(--primary))'
+  const shadows: string[] = []
+
+  if (rowIndex === b.minR) shadows.push(`inset 0 ${borderW} 0 0 ${color}`)
+  if (rowIndex === b.maxR) shadows.push(`inset 0 -${borderW} 0 0 ${color}`)
+  if (colIndex === b.minC) shadows.push(`inset ${borderW} 0 0 0 ${color}`)
+  if (colIndex === b.maxC) shadows.push(`inset -${borderW} 0 0 0 ${color}`)
+
+  return { boxShadow: shadows.join(', ') }
+}
+
+function getCellClass(rowIndex: number, colIndex: number, colName: string): string {
+  const classes: string[] = []
+  if (isCellInSelection(rowIndex, colIndex)) {
+    classes.push('bg-primary/[0.10] z-[1]')
+    if (isCellFocused(rowIndex, colIndex)) {
+      classes.push('selection-active-cell')
+    }
+  }
+  if (isCellDirty(rowIndex, colName)) {
+    classes.push('bg-amber-500/10')
+  }
+  return classes.join(' ')
+}
+
+function resolveInlineEditInput(): HTMLInputElement | null {
+  const ref = inlineEditInputRef.value
+  if (!ref) return null
+  return Array.isArray(ref) ? ref[0] ?? null : ref
+}
+
+function startEditCell(rowIndex: number, colKey: string, _e?: MouseEvent) {
+  if (!props.canEdit) {
+    toast.error('This result is not safely editable. Define a primary or virtual key first.')
+    if (props.tableName) uiStore.openVirtualKeyDialog(props.tableName)
+    return
+  }
+  editingCell.value = { rowIndex, colKey }
+  const val = getCellValue(rowIndex, colKey)
   editInputValue.value = val === null || val === undefined ? '' : String(val)
   nextTick(() => {
-    if (inlineEditInputRef.value) {
-      inlineEditInputRef.value.focus()
-      const len = editInputValue.value.length
-      inlineEditInputRef.value.setSelectionRange(len, len)
+    const input = resolveInlineEditInput()
+    if (input) {
+      input.focus()
+      input.select()
     }
   })
 }
 
 function commitInlineEdit() {
   if (!editingCell.value) return
-  const { rowIndex, colName } = editingCell.value
-  const origVal = props.rows[rowIndex]?.[colName]
+  const { rowIndex, colKey } = editingCell.value
+  const originalVal = getOriginalCellValue(rowIndex, colKey)
   const newVal = editInputValue.value
 
-  if (String(origVal ?? '') !== newVal) {
+  if (String(originalVal ?? '') !== newVal) {
     if (!dirtyEdits[rowIndex]) dirtyEdits[rowIndex] = {}
-    dirtyEdits[rowIndex][colName] = newVal
-    props.rows[rowIndex][colName] = newVal
+    dirtyEdits[rowIndex][colKey] = newVal
+  } else if (dirtyEdits[rowIndex]) {
+    delete dirtyEdits[rowIndex][colKey]
+    if (Object.keys(dirtyEdits[rowIndex]).length === 0) {
+      delete dirtyEdits[rowIndex]
+    }
   }
   editingCell.value = null
   gridContainerRef.value?.focus()
@@ -925,14 +1425,12 @@ function cancelInlineEdit() {
 
 function discardAllEdits() {
   clearDirtyState()
-  emit('refresh')
 }
 
 function clearDirtyState() {
   for (const key of Object.keys(dirtyEdits)) {
     delete dirtyEdits[Number(key)]
   }
-  isSaving.value = false
 }
 
 function applyDirtyEdits() {
@@ -940,22 +1438,22 @@ function applyDirtyEdits() {
   for (const [rIdx, changes] of Object.entries(dirtyEdits)) {
     payload.push({ rowIndex: parseInt(rIdx), changes })
   }
-  isSaving.value = true
   emit('save-edits', payload, () => {
     clearDirtyState()
   })
 }
 
 // Selection & Navigation
-const hasSelection = computed(() => selectedRowIndices.value.size > 0 || (anchorCell.value !== null && focusedCell.value !== null))
+const hasSelection = computed(() => selectedRowIndices.value.size > 0 || hasCellRangeSelection.value)
 
 const selectionSummaryText = computed(() => {
   if (selectedRowIndices.value.size > 0) {
     return `${selectedRowIndices.value.size} row${selectedRowIndices.value.size > 1 ? 's' : ''}`
   }
-  if (anchorCell.value && focusedCell.value) {
-    const rows = Math.abs(anchorCell.value.rowIndex - focusedCell.value.rowIndex) + 1
-    const cols = Math.abs(anchorCell.value.colIndex - focusedCell.value.colIndex) + 1
+  if (hasCellRangeSelection.value && selectionBounds.value) {
+    const b = selectionBounds.value
+    const rows = b.maxR - b.minR + 1
+    const cols = b.maxC - b.minC + 1
     return `${rows}×${cols} cells`
   }
   return ''
@@ -985,15 +1483,6 @@ function isCellFocused(rowIndex: number, colIndex: number): boolean {
   return focusedCell.value?.rowIndex === rowIndex && focusedCell.value?.colIndex === colIndex
 }
 
-function isCellInRange(rowIndex: number, colIndex: number): boolean {
-  if (!anchorCell.value || !focusedCell.value) return false
-  const minR = Math.min(anchorCell.value.rowIndex, focusedCell.value.rowIndex)
-  const maxR = Math.max(anchorCell.value.rowIndex, focusedCell.value.rowIndex)
-  const minC = Math.min(anchorCell.value.colIndex, focusedCell.value.colIndex)
-  const maxC = Math.max(anchorCell.value.colIndex, focusedCell.value.colIndex)
-  return rowIndex >= minR && rowIndex <= maxR && colIndex >= minC && colIndex <= maxC
-}
-
 function onCellMouseDown(rowIndex: number, colIndex: number, e: MouseEvent) {
   if (e.button !== 0) return
   isMouseDown.value = true
@@ -1019,7 +1508,26 @@ function clearAllSelection() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  const target = e.target as HTMLElement | null
+  const typingInField = target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')
+
+  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+  const meta = isMac ? e.metaKey : e.ctrlKey
+
+  if (meta && e.key.toLowerCase() === 'f') {
+    e.preventDefault()
+    findInputRef.value?.focus()
+    findInputRef.value?.select()
+    return
+  }
+
+  if (typingInField) return
+
   if (e.key === 'Escape') {
+    if (filterPopover.visible) {
+      filterPopover.visible = false
+      return
+    }
     if (editingCell.value) {
       cancelInlineEdit()
     } else {
@@ -1029,9 +1537,6 @@ function handleKeydown(e: KeyboardEvent) {
   }
 
   if (editingCell.value) return
-
-  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
-  const meta = isMac ? e.metaKey : e.ctrlKey
 
   if (meta && e.key.toLowerCase() === 'c') {
     e.preventDefault()
@@ -1047,14 +1552,18 @@ function handleKeydown(e: KeyboardEvent) {
 
   if (!focusedCell.value) return
 
-  let { rowIndex, colIndex } = focusedCell.value
+  const curPos = filteredRows.value.findIndex(r => r.index === focusedCell.value!.rowIndex)
+  if (curPos < 0) return
 
-  if (e.key === 'ArrowUp' && rowIndex > 0) {
+  let newPos = curPos
+  let { colIndex } = focusedCell.value
+
+  if (e.key === 'ArrowUp' && curPos > 0) {
     e.preventDefault()
-    rowIndex--
-  } else if (e.key === 'ArrowDown' && rowIndex < filteredRows.value.length - 1) {
+    newPos = curPos - 1
+  } else if (e.key === 'ArrowDown' && curPos < filteredRows.value.length - 1) {
     e.preventDefault()
-    rowIndex++
+    newPos = curPos + 1
   } else if (e.key === 'ArrowLeft' && colIndex > 0) {
     e.preventDefault()
     colIndex--
@@ -1063,16 +1572,67 @@ function handleKeydown(e: KeyboardEvent) {
     colIndex++
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    const colName = props.columns[colIndex].name
-    startEditCell(rowIndex, colName, e as any)
+    const col = props.columns[colIndex]
+    if (col) {
+      startEditCell(focusedCell.value.rowIndex, col.key || col.name, e as any)
+    }
     return
+  } else if (e.key === 'Tab') {
+    e.preventDefault()
+    if (e.shiftKey) {
+      if (colIndex > 0) colIndex--
+      else if (curPos > 0) {
+        newPos = curPos - 1
+        colIndex = props.columns.length - 1
+      }
+    } else {
+      if (colIndex < props.columns.length - 1) colIndex++
+      else if (curPos < filteredRows.value.length - 1) {
+        newPos = curPos + 1
+        colIndex = 0
+      }
+    }
   } else {
     return
   }
 
-  focusedCell.value = { rowIndex, colIndex }
+  const newRowIndex = filteredRows.value[newPos]?.index
+  if (newRowIndex === undefined) return
+
+  focusedCell.value = { rowIndex: newRowIndex, colIndex }
   if (!e.shiftKey) {
-    anchorCell.value = { rowIndex, colIndex }
+    anchorCell.value = { rowIndex: newRowIndex, colIndex }
+  }
+
+  scrollCellIntoView(newPos, colIndex)
+}
+
+function scrollCellIntoView(filteredPos: number, colIndex: number) {
+  const viewport = scrollViewportRef.value
+  if (!viewport) return
+
+  const rowTop = filteredPos * ROW_HEIGHT
+  const rowBottom = rowTop + ROW_HEIGHT
+  const { scrollTop, clientHeight } = viewport
+
+  if (rowTop < scrollTop) {
+    viewport.scrollTop = rowTop
+  } else if (rowBottom > scrollTop + clientHeight) {
+    viewport.scrollTop = rowBottom - clientHeight
+  }
+
+  let colLeft = 36 + 40
+  for (let i = 0; i < colIndex; i++) {
+    colLeft += getColumnWidth(props.columns[i].key || props.columns[i].name)
+  }
+  const col = props.columns[colIndex]
+  const colRight = colLeft + (col ? getColumnWidth(col.key || col.name) : 150)
+  const { scrollLeft, clientWidth } = viewport
+
+  if (colLeft < scrollLeft) {
+    viewport.scrollLeft = colLeft
+  } else if (colRight > scrollLeft + clientWidth) {
+    viewport.scrollLeft = colRight - clientWidth
   }
 }
 
@@ -1081,64 +1641,80 @@ function copySelectedTsv() {
     const indices = Array.from(selectedRowIndices.value).sort((a, b) => a - b)
     const header = props.columns.map(c => c.name).join('\t')
     const lines = indices.map(idx => {
-      const r = props.rows[idx]
-      return props.columns.map(c => r?.[c.name] ?? '').join('\t')
+      return props.columns.map(c => getCellValue(idx, c.key || c.name) ?? '').join('\t')
     })
     navigator.clipboard.writeText([header, ...lines].join('\n'))
     toast.success(`Copied ${indices.length} rows as TSV`)
     return
   }
 
-  if (anchorCell.value && focusedCell.value) {
-    const minR = Math.min(anchorCell.value.rowIndex, focusedCell.value.rowIndex)
-    const maxR = Math.max(anchorCell.value.rowIndex, focusedCell.value.rowIndex)
-    const minC = Math.min(anchorCell.value.colIndex, focusedCell.value.colIndex)
-    const maxC = Math.max(anchorCell.value.colIndex, focusedCell.value.colIndex)
-
+  if (hasCellRangeSelection.value && selectionBounds.value) {
+    const b = selectionBounds.value
     const lines: string[] = []
-    for (let r = minR; r <= maxR; r++) {
-      const row = props.rows[r]
+    for (let r = b.minR; r <= b.maxR; r++) {
       const rowVals: string[] = []
-      for (let c = minC; c <= maxC; c++) {
+      for (let c = b.minC; c <= b.maxC; c++) {
         const col = props.columns[c]
-        rowVals.push(row?.[col.name] ?? '')
+        rowVals.push(getCellValue(r, col.key || col.name) ?? '')
       }
       lines.push(rowVals.join('\t'))
     }
     navigator.clipboard.writeText(lines.join('\n'))
-    toast.success(`Copied selection to clipboard (TSV)`)
+    toast.success(`Copied ${lines.length} row(s) to clipboard (TSV)`)
   }
 }
 
 function copySelectedJson() {
   if (selectedRowIndices.value.size > 0) {
-    const selected = Array.from(selectedRowIndices.value).map(idx => props.rows[idx])
+    const selected = Array.from(selectedRowIndices.value).map(idx => getRowWithEdits(idx))
     navigator.clipboard.writeText(JSON.stringify(selected, null, 2))
     toast.success(`Copied ${selected.length} rows as JSON`)
+    return
+  }
+
+  if (hasCellRangeSelection.value && selectionBounds.value) {
+    const b = selectionBounds.value
+    const result: Record<string, any>[] = []
+    for (let r = b.minR; r <= b.maxR; r++) {
+      const row: Record<string, any> = {}
+      for (let c = b.minC; c <= b.maxC; c++) {
+        const col = props.columns[c]
+        row[col.name] = getCellValue(r, col.key || col.name)
+      }
+      result.push(row)
+    }
+    navigator.clipboard.writeText(JSON.stringify(result.length === 1 ? result[0] : result, null, 2))
+    toast.success(`Copied ${result.length} row(s) as JSON`)
   }
 }
 
+function getExportRows(): GridRow[] {
+  return props.rows.map((_, idx) => getRowWithEdits(idx))
+}
+
 async function copyAllTsv() {
+  const exportRows = getExportRows()
   try {
-    const text = await invoke<string>('format_query_data', { format: 'tsv', columns: props.columns.map(c => c.name), rows: props.rows })
+    const text = await invoke<string>('format_query_data', { format: 'tsv', columns: props.columns.map(c => c.name), rows: exportRows })
     navigator.clipboard.writeText(text)
     toast.success('Copied all data as TSV')
   } catch {
     const header = props.columns.map(c => c.name).join('\t')
-    const lines = props.rows.map(r => props.columns.map(c => r[c.name] ?? '').join('\t'))
+    const lines = exportRows.map(r => props.columns.map(c => r[c.key || c.name] ?? '').join('\t'))
     navigator.clipboard.writeText([header, ...lines].join('\n'))
     toast.success('Copied all data as TSV')
   }
 }
 
 async function exportCsv() {
+  const exportRows = getExportRows()
   let text = ''
   try {
-    text = await invoke<string>('format_query_data', { format: 'csv', columns: props.columns.map(c => c.name), rows: props.rows })
+    text = await invoke<string>('format_query_data', { format: 'csv', columns: props.columns.map(c => c.name), rows: exportRows })
   } catch {
     const escape = (val: string) => /[",\n\r]/.test(val) ? `"${val.replace(/"/g, '""')}"` : val
     const header = props.columns.map(c => escape(c.name)).join(',')
-    const body = props.rows.map(row => props.columns.map(c => escape(String(row[c.name] ?? ''))).join(','))
+    const body = exportRows.map(row => props.columns.map(c => escape(String(row[c.key || c.name] ?? ''))).join(','))
     text = [header, ...body].join('\n')
   }
   const blob = new Blob([text], { type: 'text/csv' })
@@ -1151,11 +1727,12 @@ async function exportCsv() {
 }
 
 async function exportJson() {
+  const exportRows = getExportRows()
   let text = ''
   try {
-    text = await invoke<string>('format_query_data', { format: 'json', columns: props.columns.map(c => c.name), rows: props.rows })
+    text = await invoke<string>('format_query_data', { format: 'json', columns: props.columns.map(c => c.name), rows: exportRows })
   } catch {
-    text = JSON.stringify(props.rows, null, 2)
+    text = JSON.stringify(exportRows, null, 2)
   }
   const blob = new Blob([text], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
@@ -1167,7 +1744,7 @@ async function exportJson() {
 }
 
 function isNumericCol(col: ColumnDef): boolean {
-  return columnMetaMap.value[col.name]?.isNumeric ?? false
+  return columnMetaMap.value[col.key || col.name]?.isNumeric ?? false
 }
 
 function isLargeValue(val: any): boolean {
@@ -1182,25 +1759,34 @@ function formatCellText(val: any): string {
   return s.length > 60 ? s.slice(0, 57) + '…' : s
 }
 
-function openValueInspector(val: any, colName: string, rowIndex: number) {
+function openValueInspector(val: any, colKey: string, rowIndex: number) {
+  const col = getColByKey(colKey)
   valueInspectorState.value = val
-  valueInspectorState.columnName = colName
+  valueInspectorState.colKey = colKey
+  valueInspectorState.columnName = col?.name || colKey
   valueInspectorState.rowIndex = rowIndex
   valueInspectorState.open = true
 }
 
 function onInspectorSaveValue(newVal: any) {
-  const { rowIndex, columnName } = valueInspectorState
-  if (rowIndex !== undefined && columnName && props.rows[rowIndex]) {
-    if (!dirtyEdits[rowIndex]) dirtyEdits[rowIndex] = {}
-    dirtyEdits[rowIndex][columnName] = newVal
-    props.rows[rowIndex][columnName] = newVal
+  const { rowIndex, colKey, columnName } = valueInspectorState
+  if (rowIndex !== undefined && colKey && props.rows[rowIndex]) {
+    const originalVal = getOriginalCellValue(rowIndex, colKey)
+    if (String(originalVal ?? '') !== String(newVal ?? '')) {
+      if (!dirtyEdits[rowIndex]) dirtyEdits[rowIndex] = {}
+      dirtyEdits[rowIndex][colKey] = newVal
+    } else if (dirtyEdits[rowIndex]) {
+      delete dirtyEdits[rowIndex][colKey]
+      if (Object.keys(dirtyEdits[rowIndex]).length === 0) {
+        delete dirtyEdits[rowIndex]
+      }
+    }
     toast.success(`Updated [${columnName}] at Row #${rowIndex + 1}`)
   }
 }
 
 function getForeignKeyInfo(col: ColumnDef) {
-  return columnMetaMap.value[col.name]?.foreignKey ?? null
+  return columnMetaMap.value[col.key || col.name]?.foreignKey ?? null
 }
 
 const fkPeekState = reactive({
@@ -1264,12 +1850,12 @@ function copyFkRowAsJson() {
     .catch(() => toast.error('Failed to copy'))
 }
 
-function sortBy(colName: string) {
-  if (sortCol.value === colName) {
+function sortBy(colKey: string) {
+  if (sortCol.value === colKey) {
     sortDir.value = sortDir.value === 'asc' ? 'desc' : sortDir.value === 'desc' ? '' : 'asc'
     if (!sortDir.value) sortCol.value = ''
   } else {
-    sortCol.value = colName
+    sortCol.value = colKey
     sortDir.value = 'asc'
   }
 }
@@ -1284,10 +1870,9 @@ function clearSearch() {
 }
 
 function clearAllFilters() {
-  for (const k of Object.keys(columnFilters)) {
-    delete columnFilters[k]
-  }
+  columnFilters.value = []
   quickSearch.value = ''
+  onSearchInput()
 }
 
 function onSearchInput() {
@@ -1295,77 +1880,78 @@ function onSearchInput() {
 }
 
 // Context menus
-function openCellContextMenu(e: MouseEvent, row: GridRow, rowIndex: number, colName: string) {
+function openCellContextMenu(e: MouseEvent, rowIndex: number, colKey: string) {
   cellContextMenu.visible = true
   cellContextMenu.x = e.clientX
   cellContextMenu.y = e.clientY
-  cellContextMenu.row = row
   cellContextMenu.rowIndex = rowIndex
-  cellContextMenu.colName = colName
+  cellContextMenu.colKey = colKey
 }
 
-function openHeaderMenu(e: MouseEvent, colName: string) {
+function openHeaderMenu(e: MouseEvent, colKey: string) {
   headerContextMenu.visible = true
   headerContextMenu.x = e.clientX
   headerContextMenu.y = e.clientY
-  headerContextMenu.colName = colName
+  headerContextMenu.colKey = colKey
 }
 
 function copyTargetCell() {
-  if (cellContextMenu.row) {
-    navigator.clipboard.writeText(String(cellContextMenu.row[cellContextMenu.colName] ?? ''))
-    toast.success('Copied cell value')
-  }
+  navigator.clipboard.writeText(String(getCellValue(cellContextMenu.rowIndex, cellContextMenu.colKey) ?? ''))
+  toast.success('Copied cell value')
   cellContextMenu.visible = false
 }
 
 function copyTargetRowJson() {
-  if (cellContextMenu.row) {
-    navigator.clipboard.writeText(JSON.stringify(cellContextMenu.row, null, 2))
-    toast.success('Copied row as JSON')
-  }
+  navigator.clipboard.writeText(JSON.stringify(getRowWithEdits(cellContextMenu.rowIndex), null, 2))
+  toast.success('Copied row as JSON')
   cellContextMenu.visible = false
 }
 
 function copyTargetRowInsert() {
-  if (cellContextMenu.row) {
-    const table = props.tableName || 'table'
-    const cols = props.columns.map(c => `\`${c.name}\``).join(', ')
-    const vals = props.columns.map(c => {
-      const v = cellContextMenu.row![c.name]
-      if (v === null || v === undefined) return 'NULL'
-      if (typeof v === 'number') return String(v)
-      return `'${String(v).replace(/'/g, "\\'")}'`
-    }).join(', ')
-    navigator.clipboard.writeText(`INSERT INTO \`${table}\` (${cols}) VALUES (${vals});`)
-    toast.success('Copied INSERT SQL')
-  }
+  const row = getRowWithEdits(cellContextMenu.rowIndex)
+  const table = props.tableName || 'table'
+  const cols = props.columns.map(c => `\`${c.orgName || c.name}\``).join(', ')
+  const vals = props.columns.map(c => {
+    const v = row[c.key || c.name]
+    if (v === null || v === undefined) return 'NULL'
+    if (typeof v === 'number') return String(v)
+    return `'${String(v).replace(/'/g, "\\'")}'`
+  }).join(', ')
+  navigator.clipboard.writeText(`INSERT INTO \`${table}\` (${cols}) VALUES (${vals});`)
+  toast.success('Copied INSERT SQL')
   cellContextMenu.visible = false
 }
 
 function inspectCurrentCell() {
-  if (cellContextMenu.row) {
-    openValueInspector(cellContextMenu.row[cellContextMenu.colName], cellContextMenu.colName, cellContextMenu.rowIndex)
-  }
+  openValueInspector(
+    getCellValue(cellContextMenu.rowIndex, cellContextMenu.colKey),
+    cellContextMenu.colKey,
+    cellContextMenu.rowIndex
+  )
   cellContextMenu.visible = false
 }
 
 function sortFromHeader(dir: 'asc' | 'desc') {
-  sortCol.value = headerContextMenu.colName
+  sortCol.value = headerContextMenu.colKey
   sortDir.value = dir
   headerContextMenu.visible = false
 }
 
 function copyColumnName() {
-  navigator.clipboard.writeText(headerContextMenu.colName)
-  toast.success(`Copied column "${headerContextMenu.colName}"`)
+  const col = getColByKey(headerContextMenu.colKey)
+  const name = col?.name || headerContextMenu.colKey
+  navigator.clipboard.writeText(name)
+  toast.success(`Copied column "${name}"`)
   headerContextMenu.visible = false
 }
 
-function closeAllContextMenus() {
+function closeAllContextMenus(e?: Event) {
+  const target = e?.target as Node | null
+  if (target && filterPopoverRef.value?.contains(target)) return
   cellContextMenu.visible = false
   headerContextMenu.visible = false
   fkPeekState.visible = false
+  filterPopover.visible = false
   isMouseDown.value = false
 }
 
@@ -1409,6 +1995,23 @@ onUnmounted(() => {
   document.removeEventListener('click', closeAllContextMenus)
 })
 
+watch(() => props.columns.map(c => c.key || c.name).join('\0'), (next, prev) => {
+  const validKeys = new Set(props.columns.map(c => c.key || c.name))
+  if (prev && next !== prev) {
+    columnFilters.value = columnFilters.value.filter(f => validKeys.has(f.column))
+  }
+  if (sortCol.value && !validKeys.has(sortCol.value)) {
+    sortCol.value = ''
+    sortDir.value = ''
+  }
+})
+
+watch(() => props.rows, () => {
+  editingCell.value = null
+  clearAllSelection()
+  clearDirtyState()
+}, { flush: 'post' })
+
 defineExpose({
   copySelectedTsv,
   exportCsv,
@@ -1420,5 +2023,28 @@ defineExpose({
 <style scoped>
 .unified-grid-container {
   outline: none;
+}
+
+.grid-header-cell,
+.grid-corner-cell,
+.grid-data-cell {
+  height: v-bind('ROW_HEIGHT + "px"');
+}
+
+.grid-corner-cell {
+  background: hsl(var(--muted) / 0.45);
+}
+
+.spreadsheet-viewport {
+  scrollbar-gutter: stable;
+}
+
+.selection-active-cell {
+  font-weight: 500;
+}
+
+/* Suppress default cell borders inside selection so the inset box-shadow outline reads cleanly */
+.grid-data-cell.bg-primary\/\[0\.10\] {
+  border-color: hsl(var(--primary) / 0.15);
 }
 </style>

@@ -35,14 +35,16 @@ describe("result store", () => {
     expect(store.status).toBe("idle");
   });
 
-  it("setPageSize clamps between 50 and 500", () => {
+  it("setPageSize clamps between 50 and 1000", () => {
     const store = useResultStore();
     store.setPageSize(100);
     expect(store.pageSize).toBe(100);
     store.setPageSize(10);
     expect(store.pageSize).toBe(50);
     store.setPageSize(1000);
-    expect(store.pageSize).toBe(500);
+    expect(store.pageSize).toBe(1000);
+    store.setPageSize(5000);
+    expect(store.pageSize).toBe(1000);
   });
 
   it("toggleRowSelection toggles selected rows", () => {

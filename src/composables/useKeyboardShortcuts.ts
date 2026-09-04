@@ -7,7 +7,7 @@ import { useConnectionStore } from '../stores/connection'
 import { toast } from 'vue-sonner'
 import { activeTheme, themeState, randomTheme, nextTheme, prevTheme, toggleFavorite } from '../theme'
 
-export function useKeyboardShortcuts(onRun?: () => void) {
+export function useKeyboardShortcuts(handlers: { onRun?: () => void; onExplain?: () => void } = {}) {
   const editor = useEditorStore()
   const ui = useUiStore()
   const result = useResultStore()
@@ -134,14 +134,14 @@ export function useKeyboardShortcuts(onRun?: () => void) {
     // ⌘↵ — Run query
     if (meta && !shift && (key === 'Enter' || key === 'Return')) {
       e.preventDefault()
-      onRun?.()
+      handlers.onRun?.()
       return
     }
 
     // ⌘⇧↵ — Run query outside the editor. CodeMirror handles selected text.
     if (meta && shift && (key === 'Enter' || key === 'Return')) {
       e.preventDefault()
-      onRun?.()
+      handlers.onRun?.()
       return
     }
 
@@ -197,10 +197,10 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       return
     }
 
-    // ⌘R — Run query
-    if (meta && !shift && key === 'r') {
+    // ⌘R — Run query (alias of ⌘↵)
+    if (meta && !shift && !alt && key === 'r') {
       e.preventDefault()
-      onRun?.()
+      handlers.onRun?.()
       return
     }
 
@@ -211,10 +211,10 @@ export function useKeyboardShortcuts(onRun?: () => void) {
       return
     }
 
-    // ⌘E — Export CSV
-    if (meta && !shift && key === 'e') {
+    // ⌘E — Explain plan
+    if (meta && !shift && !alt && key === 'e') {
       e.preventDefault()
-      result.exportCsv()
+      handlers.onExplain?.()
       return
     }
 
@@ -258,6 +258,7 @@ export function useKeyboardShortcuts(onRun?: () => void) {
     // Esc — Close the topmost open overlay
     if (key === 'Escape') {
       if (ui.themeGalleryOpen) { ui.closeThemeGallery(); return }
+      if (ui.historyOpen) { ui.closeHistory(); return }
       if (editor.saveDialogOpen) { editor.saveDialogOpen = false; return }
       if (ui.shortcutsOpen) { ui.closeShortcuts(); return }
       if (ui.connectionManagerOpen) { ui.closeConnectionManager(); return }

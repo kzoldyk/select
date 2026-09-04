@@ -31,7 +31,10 @@ const shortcutGroups = [
   {
     label: 'Query Execution',
     items: [
-      { keys: '⌘ R', label: 'Run current query / selected SQL' },
+      { keys: '⌘ ↵', label: 'Run current query / selected SQL' },
+      { keys: '⌘ R', label: 'Run query (alias)' },
+      { keys: '⌘ E', label: 'Explain query plan' },
+      { keys: '⌘ ⇧ E', label: 'Export results' },
       { keys: '⌘ ⇧ F', label: 'Format SQL' },
     ],
   },
@@ -55,6 +58,7 @@ const shortcutGroups = [
       { keys: '⌘ 1', label: 'Focus Schema Browser' },
       { keys: '⌘ 2', label: 'Focus SQL Editor' },
       { keys: '⌘ 3', label: 'Focus Results Grid' },
+      { keys: '⌘ F', label: 'Find in results (when grid focused)' },
     ],
   },
   {

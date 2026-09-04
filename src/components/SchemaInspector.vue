@@ -35,8 +35,28 @@
               <TableRow v-else-if="!columns.length">
                 <TableCell colspan="5" class="text-xs text-muted-foreground text-center py-6">No columns found</TableCell>
               </TableRow>
-              <TableRow v-for="col in columns" v-else :key="col.name" :class="{ 'border-l-2 border-l-purple-500': col.pk }" @contextmenu.prevent="copyColumnName(col.name)">
-                <TableCell class="font-medium text-xs">{{ col.name }}</TableCell>
+              <TableRow
+                v-for="col in columns"
+                v-else
+                :key="col.name"
+                :class="{ 'border-l-2 border-l-purple-500': col.pk }"
+                class="cursor-grab group"
+                draggable="true"
+                @dragstart="(e) => onDragColumn(e, col.name)"
+                @contextmenu.prevent="openColumnMenu($event, col.name)"
+              >
+                <TableCell class="font-medium text-xs">
+                  <div class="flex items-center gap-1.5">
+                    <span class="truncate">{{ col.name }}</span>
+                    <button
+                      class="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent transition-opacity cursor-pointer border-none bg-transparent"
+                      title="Copy column name"
+                      @click.stop="copyColumnName(col.name)"
+                    >
+                      <PhCopy class="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  </div>
+                </TableCell>
                 <TableCell class="text-xs text-purple-500">{{ col.columnType }}</TableCell>
                 <TableCell class="text-xs">
                   <span :class="col.nullable ? 'text-muted-foreground' : 'text-red-500'">{{ col.nullable ? 'YES' : 'NO' }}</span>
@@ -112,10 +132,34 @@
       </Tabs>
     </SheetContent>
   </Sheet>
+
+  <Teleport to="body">
+    <div
+      v-if="colMenu.visible"
+      class="fixed z-[9999] bg-popover border border-border/80 rounded-md shadow-xl py-1 min-w-[200px] text-xs font-mono select-none"
+      :style="{ top: colMenu.y + 'px', left: colMenu.x + 'px' }"
+      @pointerdown.stop
+      @click.stop
+    >
+      <button class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left" @click="addColumn('select')">
+        Add to SELECT
+      </button>
+      <button class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left" @click="addColumn('where')">
+        Add to WHERE
+      </button>
+      <button class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left" @click="addColumn('order')">
+        Add to ORDER BY
+      </button>
+      <div class="h-px bg-border/60 my-1"></div>
+      <button class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left" @click="copyColumnName(colMenu.name)">
+        Copy name
+      </button>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, reactive, onMounted, onUnmounted } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -127,11 +171,16 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
+import { PhCopy } from '@phosphor-icons/vue'
 import { useUiStore } from '../stores/ui'
 import { useSchemaStore } from '../stores/schema'
+import { useEditorStore } from '../stores/editor'
+import { addColumnToSelect, addColumnToWhere, addColumnToOrderBy } from '@/lib/sqlEdit'
+import { toast } from 'vue-sonner'
 
 const uiStore = useUiStore()
 const schemaStore = useSchemaStore()
+const editorStore = useEditorStore()
 
 const INSPECTOR_TABS = [
   { id: 'columns',     label: 'Columns' },
@@ -175,7 +224,54 @@ function copyDdl() {
   navigator.clipboard.writeText(ddl.value)
 }
 
+const colMenu = reactive({ visible: false, x: 0, y: 0, name: '' })
+
+function openColumnMenu(e: MouseEvent, name: string) {
+  colMenu.visible = true
+  colMenu.x = e.clientX
+  colMenu.y = e.clientY
+  colMenu.name = name
+}
+
+function closeColumnMenu() {
+  colMenu.visible = false
+}
+
+function addColumn(kind: 'select' | 'where' | 'order') {
+  const tab = editorStore.activeTab
+  if (!tab || tab.type === 'schema_diagram') {
+    toast.error('Open a SQL tab first')
+    closeColumnMenu()
+    return
+  }
+  const table = uiStore.activeInspectorTable ?? undefined
+  const next = kind === 'select'
+    ? addColumnToSelect(tab.sql, colMenu.name, table)
+    : kind === 'where'
+      ? addColumnToWhere(tab.sql, colMenu.name, table)
+      : addColumnToOrderBy(tab.sql, colMenu.name, table)
+  editorStore.updateSql(tab.id, next)
+  toast.success(`Added ${colMenu.name} to ${kind === 'select' ? 'SELECT' : kind === 'where' ? 'WHERE' : 'ORDER BY'}`)
+  closeColumnMenu()
+}
+
 function copyColumnName(name: string) {
   navigator.clipboard.writeText(name)
+  toast.success(`Copied ${name}`)
+  closeColumnMenu()
 }
+
+function onDragColumn(e: DragEvent, name: string) {
+  if (e.dataTransfer) {
+    e.dataTransfer.setData('text/plain', name)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+}
+
+function handleDocPointer() {
+  if (colMenu.visible) closeColumnMenu()
+}
+
+onMounted(() => document.addEventListener('pointerdown', handleDocPointer))
+onUnmounted(() => document.removeEventListener('pointerdown', handleDocPointer))
 </script>

@@ -58,7 +58,7 @@
 
     <!-- Main View Switcher & Actions Toolbar -->
     <div class="flex items-center justify-between h-8.5 chrome-bar border-b border-border/80 px-2 flex-shrink-0 gap-2">
-      <!-- Left: View Mode Pills (Table, JSON, Plan, Messages, History) -->
+      <!-- Left: View Mode Pills (Table, Plan, Messages) -->
       <div class="flex items-center gap-1 bg-muted/40 p-0.5 rounded-md">
         <button
           v-for="v in VIEWS"
@@ -70,24 +70,12 @@
           {{ v.label }}
         </button>
       </div>
+      <Button variant="ghost" size="sm" class="h-6.5 px-2 text-[11px] text-muted-foreground" @click="uiStore.openHistory()">
+        History
+      </Button>
 
-      <!-- Right: Paged limits, Pinning & Quick actions -->
+      <!-- Right: Pinning & Quick actions -->
       <div class="flex items-center gap-1.5 flex-shrink-0">
-        <!-- Page size selector -->
-        <div v-if="resultStore.activeView === 'table' && currentColumns.length > 0" class="flex items-center border border-border/60 rounded bg-background h-6.5 text-[10.5px]">
-          <select
-            class="bg-transparent px-1.5 text-foreground outline-none font-mono cursor-pointer border-none"
-            :value="resultStore.pageSize"
-            @change="onPageSizeChange"
-          >
-            <option :value="50">50</option>
-            <option :value="100">100</option>
-            <option :value="250">250</option>
-            <option :value="500">500</option>
-            <option :value="1000">1000</option>
-          </select>
-        </div>
-
         <!-- Pin Result Button -->
         <ActionTooltip :text="isCurrentPinned ? 'Unpin Result Tab' : 'Pin Result Tab'">
           <Button
@@ -160,8 +148,17 @@
           :table-name="editableTableName"
           :duration-ms="currentDuration"
           :loading="currentStatus === 'running'"
+          :page-size="resultStore.pageSize"
+          :has-more="resultStore.hasMore && !isPinnedActive"
+          :loading-more="resultStore.loadingMore"
+          :can-edit="canEditRows"
+          :saving="resultStore.savingEdits"
           @save-edits="handleBatchSaveEdits"
           @refresh="refreshActive"
+          @page-size-change="onPageSizeChange"
+          @promote-where="promoteFiltersToWhere"
+          @fetch-next="resultStore.fetchNextPage()"
+          @fetch-all="confirmFetchAll = true"
         />
       </template>
 
@@ -202,67 +199,74 @@
           </div>
         </div>
       </template>
-
-      <!-- HISTORY VIEW -->
-      <template v-else-if="resultStore.activeView === 'history'">
-        <div class="flex-1 overflow-auto p-2 font-mono text-xs select-none">
-          <div
-            v-for="item in resultStore.history"
-            :key="item.id"
-            class="group p-2.5 mb-1.5 rounded-lg border border-border/60 bg-muted/10 hover:bg-muted/30 transition-colors flex items-start justify-between gap-3 cursor-pointer"
-            @click="runHistoryItem(item.sql)"
-          >
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2 mb-1">
-                <span
-                  class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  :class="item.error ? 'bg-red-500' : 'bg-emerald-500'"
-                ></span>
-                <span class="text-[10px] text-muted-foreground">{{ formatHistoryTime(item.executed_at) }}</span>
-                <span class="text-[10px] text-muted-foreground/70 font-mono">· {{ item.duration_ms }}ms · {{ item.row_count }} rows</span>
-              </div>
-              <pre class="text-[11.5px] text-foreground font-mono truncate select-text">{{ item.sql }}</pre>
-            </div>
-
-            <Button variant="ghost" size="sm" class="h-6 px-2 text-[10px] gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80" @click.stop="copyText(item.sql)">
-              <PhCopy class="w-3 h-3" />
-              <span>Copy</span>
-            </Button>
-          </div>
-
-          <div v-if="!resultStore.history.length" class="text-muted-foreground/50 text-center py-8">
-            No queries recorded in history yet
-          </div>
-        </div>
-      </template>
     </div>
+
+    <EditReviewDialog
+      :open="!!pendingReview"
+      :sql="pendingReview?.sql || ''"
+      :count="pendingReview?.count || 0"
+      :saving="resultStore.savingEdits"
+      @confirm="confirmPendingReview"
+      @cancel="pendingReview = null"
+      @copy="copyPendingSql"
+    />
+
+    <Dialog :open="confirmFetchAll" @update:open="(v) => confirmFetchAll = v">
+      <DialogContent class="sm:max-w-md font-mono">
+        <DialogHeader>
+          <DialogTitle class="text-sm">Fetch remaining rows</DialogTitle>
+          <DialogDescription class="text-xs">
+            This loads more pages from the server, up to 10,000 rows. Local filters only apply to loaded rows.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" size="sm" class="h-8 text-xs" @click="confirmFetchAll = false">Cancel</Button>
+          <Button size="sm" class="h-8 text-xs" @click="runFetchAll">Fetch all</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useResultStore, type Column, type ResultRow } from '@/stores/result'
 import { useConnectionStore } from '@/stores/connection'
 import { useSchemaStore } from '@/stores/schema'
+import { useEditorStore } from '@/stores/editor'
+import { useUiStore } from '@/stores/ui'
 import UnifiedDataGrid from './UnifiedDataGrid.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import EditReviewDialog from './EditReviewDialog.vue'
 import { Button } from '@/components/ui/button'
 import { ActionTooltip } from '@/components/ui/tooltip'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   PhPushPin, PhX, PhTreeStructure, PhCopy, PhTrash, PhWarningCircle, PhLightbulb
 } from '@phosphor-icons/vue'
 import { toast } from 'vue-sonner'
+import { injectWhereClause } from '@/lib/gridFilters'
+import { buildUpdateSql } from '@/lib/rowUpdates'
 
 const resultStore = useResultStore()
 const schemaStore = useSchemaStore()
+const editorStore = useEditorStore()
+const uiStore = useUiStore()
 
 const VIEWS = [
   { id: 'table', label: 'Table' },
-  { id: 'plan', label: 'Execution Plan' },
+  { id: 'plan', label: 'Plan' },
   { id: 'messages', label: 'Messages' },
-  { id: 'history', label: 'History' },
 ]
+
+const confirmFetchAll = ref(false)
+const pendingReview = ref<{
+  sql: string
+  count: number
+  batch: { updates: { column: string; value: any }[]; pks: { column: string; value: any }[] }[]
+  onSuccess?: () => void
+} | null>(null)
 
 // Determine active result data (Current vs Pinned vs Multi)
 const isPinnedActive = computed(() => resultStore.activeResultTabId !== 'current')
@@ -340,12 +344,20 @@ const editableTableName = computed(() => {
   }
 
   // Fallback: extract table from active SQL statement
-  const sql = currentSql.value || resultStore.lastSql || ''
+  const sql = (isPinnedActive.value && activePinnedResult.value?.sql) || resultStore.lastSql || ''
   const match = sql.match(/FROM\s+([`"'\w]+(?:\.[`"'\w]+)?)/i)
   if (match) {
     return match[1].replace(/[`"']/g, '')
   }
-  return schemaStore.activeTable || undefined
+  return undefined
+})
+
+const canEditRows = computed(() => {
+  const connStore = useConnectionStore()
+  if (connStore.activeConnection?.readOnly) return false
+  if (!editableTableName.value) return false
+  const keyInfo = schemaStore.getKeyColumnsForTable(editableTableName.value)
+  return keyInfo.keyType !== 'all_columns' && keyInfo.columns.length > 0
 })
 
 function getStatementLabel(sql: string): string {
@@ -356,7 +368,7 @@ function getStatementLabel(sql: string): string {
 }
 
 function selectMultiResult(index: number) {
-  resultStore.activeResultIndex = index
+  resultStore.selectResultTab(index)
 }
 
 function togglePin() {
@@ -370,12 +382,24 @@ function togglePin() {
   }
 }
 
-function onPageSizeChange(e: Event) {
-  const val = parseInt((e.target as HTMLSelectElement).value)
+function onPageSizeChange(val: number) {
+  if (!Number.isFinite(val) || val === resultStore.pageSize) return
   resultStore.pageSize = val
   if (resultStore.lastSql) {
     resultStore.runQuery(resultStore.lastSql)
   }
+}
+
+function promoteFiltersToWhere(predicate: string) {
+  const tab = editorStore.activeTab
+  if (!tab) {
+    navigator.clipboard.writeText(predicate)
+    toast.message('Copied WHERE predicate', { description: predicate })
+    return
+  }
+  const next = injectWhereClause(tab.sql || resultStore.lastSql || '', predicate)
+  editorStore.updateSql(tab.id, next)
+  toast.success('Inserted filter into WHERE')
 }
 
 async function handleBatchSaveEdits(
@@ -394,7 +418,6 @@ async function handleBatchSaveEdits(
     return
   }
 
-  // Ensure we have table details/PK metadata (fetching dynamically for cross-schema tables if not cached)
   let keyInfo = schemaStore.getKeyColumnsForTable(targetTable)
   if (keyInfo.columns.length === 0) {
     try {
@@ -405,62 +428,66 @@ async function handleBatchSaveEdits(
     }
   }
 
-  try {
-    resultStore.savingEdits = true
-    const connId = connStore.activeId
+  if (keyInfo.keyType === 'all_columns' || keyInfo.columns.length === 0) {
+    toast.error('Edits require a primary, unique, or virtual key.')
+    uiStore.openVirtualKeyDialog(targetTable)
+    return
+  }
 
-    // Build all row updates and dispatch a single batch transaction to Rust
-    const batch: { updates: { column: string; value: any }[]; pks: { column: string; value: any }[] }[] = []
+  const batch: { updates: { column: string; value: any }[]; pks: { column: string; value: any }[] }[] = []
 
-    for (const update of updates) {
-      const row = currentRows.value[update.rowIndex]
-      if (!row) continue
+  for (const update of updates) {
+    const row = currentRows.value[update.rowIndex]
+    if (!row) continue
 
-      const effectiveKeys = (keyInfo.columns && keyInfo.columns.length > 0)
-        ? keyInfo.columns
-        : currentColumns.value.map(c => c.name)
-
-      const pks: { column: string; value: any }[] = []
-      for (const keyCol of effectiveKeys) {
-        const colDef = currentColumns.value.find(c => 
-          (c.orgName || c.name).toLowerCase() === keyCol.toLowerCase() ||
-          c.name.toLowerCase() === keyCol.toLowerCase()
-        )
-        const val = colDef ? row[colDef.name] : row[keyCol]
-        if (val !== undefined) {
-          pks.push({ column: keyCol, value: val })
-        }
+    const pks: { column: string; value: any }[] = []
+    for (const keyCol of keyInfo.columns) {
+      const colDef = currentColumns.value.find(c =>
+        (c.orgName || c.name).toLowerCase() === keyCol.toLowerCase() ||
+        c.name.toLowerCase() === keyCol.toLowerCase() ||
+        (c.key || c.name).toLowerCase() === keyCol.toLowerCase()
+      )
+      const rowKey = colDef ? (colDef.key || colDef.name) : keyCol
+      const val = row[rowKey]
+      if (val !== undefined) {
+        pks.push({ column: keyCol, value: val })
       }
-
-      if (pks.length === 0) {
-        // Fallback: match all non-null columns
-        for (const col of currentColumns.value) {
-          const val = row[col.name]
-          if (val !== undefined && val !== null) {
-            pks.push({ column: col.orgName || col.name, value: val })
-          }
-        }
-      }
-
-      const changesList: { column: string; value: any }[] = []
-      for (const [colName, val] of Object.entries(update.changes)) {
-        const colDef = currentColumns.value.find(c => c.name === colName)
-        const actualCol = colDef?.orgName || colName
-        changesList.push({ column: actualCol, value: val })
-      }
-
-      batch.push({ updates: changesList, pks })
     }
 
-    const res = await invoke<{ affected_rows: number; duration_ms: number; warning: string | null }>('batch_update_rows', {
-      table: targetTable,
-      batch,
-      id: connId,
-    })
+    const changesList: { column: string; value: any }[] = []
+    for (const [colKey, val] of Object.entries(update.changes)) {
+      const colDef = currentColumns.value.find(c => (c.key || c.name) === colKey || c.name === colKey)
+      const actualCol = colDef?.orgName || colDef?.name || colKey
+      changesList.push({ column: actualCol, value: val })
+    }
 
-    onSuccess?.()
+    batch.push({ updates: changesList, pks })
+  }
+
+  const count = batch.reduce((n, row) => n + row.updates.length, 0)
+  pendingReview.value = {
+    sql: buildUpdateSql(targetTable, batch),
+    count,
+    batch,
+    onSuccess,
+  }
+}
+
+async function confirmPendingReview() {
+  const pending = pendingReview.value
+  if (!pending || !editableTableName.value) return
+  const connStore = useConnectionStore()
+  try {
+    resultStore.savingEdits = true
+    const res = await invoke<{ affected_rows: number; duration_ms: number; warning: string | null }>('batch_update_rows', {
+      table: editableTableName.value,
+      batch: pending.batch,
+      id: connStore.activeId,
+    })
+    pending.onSuccess?.()
+    pendingReview.value = null
     resultStore.dirtyCells = {}
-    toast.success(`Successfully saved ${res.affected_rows} modified row(s) in ${res.duration_ms}ms`)
+    toast.success(`Saved ${res.affected_rows} modified row(s) in ${res.duration_ms}ms`)
     refreshActive()
   } catch (err) {
     toast.error('Failed to apply edits', { description: String(err) })
@@ -469,34 +496,27 @@ async function handleBatchSaveEdits(
   }
 }
 
+function copyPendingSql() {
+  if (!pendingReview.value) return
+  navigator.clipboard.writeText(pendingReview.value.sql)
+  toast.success('Copied UPDATE SQL')
+}
+
+async function runFetchAll() {
+  confirmFetchAll.value = false
+  await resultStore.fetchAllPages()
+}
+
 function refreshActive() {
   if (resultStore.lastSql) {
     resultStore.runQuery(resultStore.lastSql)
   }
 }
 
-function runHistoryItem(sql: string) {
-  resultStore.runQuery(sql)
-}
-
 function copyError() {
   if (currentError.value) {
     navigator.clipboard.writeText(`[${currentError.value.code}] ${currentError.value.message}`)
     toast.success('Copied error to clipboard')
-  }
-}
-
-function copyText(txt: string) {
-  navigator.clipboard.writeText(txt)
-  toast.success('Copied to clipboard')
-}
-
-function formatHistoryTime(isoStr: string): string {
-  try {
-    const d = new Date(isoStr)
-    return d.toLocaleTimeString()
-  } catch {
-    return isoStr
   }
 }
 </script>

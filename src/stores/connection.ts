@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { saveConnections, loadConnections, saveActiveConnectionId, loadActiveConnectionId, saveRecentConnectionIds, loadRecentConnectionIds } from './storage'
 import { useResultStore } from './result'
 import { useSchemaStore } from './schema'
+import { resolveEnvironment, type ConnectionEnvironment } from '../lib/connectionEnv'
 import { playSound } from '../lib/cuelume'
 
 export type SslMode = 'disabled' | 'preferred' | 'required' | 'verify_ca' | 'verify_identity'
@@ -27,10 +28,18 @@ export interface Connection {
   sshPort?: number
   sshKeyFile?: string
   color: string
+  environment?: ConnectionEnvironment
   createdAt: string
 }
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error'
+
+function withEnvironment(conn: Connection): Connection {
+  return {
+    ...conn,
+    environment: resolveEnvironment(conn),
+  }
+}
 
 export const useConnectionStore = defineStore('connection', {
   state: () => ({
@@ -46,6 +55,8 @@ export const useConnectionStore = defineStore('connection', {
   getters: {
     activeConnection: (state): Connection | null =>
       state.connections.find(c => c.id === state.activeId) ?? null,
+    activeEnvironment: (state): ConnectionEnvironment =>
+      resolveEnvironment(state.connections.find(c => c.id === state.activeId) ?? null),
     recentConnections: (state): Connection[] => {
       return state.recentIds
         .map(id => state.connections.find(c => c.id === id))
@@ -60,11 +71,15 @@ export const useConnectionStore = defineStore('connection', {
       const saved = await loadConnections()
       if (saved && saved.length > 0) {
         try {
-          this.connections = await decryptConnections(saved as Connection[])
+          const result = await decryptConnections(saved as Connection[])
+          this.connections = result.connections.map(withEnvironment)
+          if (result.degraded.length > 0) {
+            this.lastError = `Could not decrypt saved password for: ${result.degraded.join(', ')}. Re-enter it in Manage Connections.`
+          }
         } catch (e) {
           console.warn('Failed to decrypt saved connections, using stored values:', e)
           this.lastError = `Could not decrypt saved passwords. Re-enter them in Manage Connections.`
-          this.connections = saved as Connection[]
+          this.connections = (saved as Connection[]).map(withEnvironment)
         }
       } else {
         this.connections = [{
@@ -83,6 +98,7 @@ export const useConnectionStore = defineStore('connection', {
           readOnly: false,
           sshTunnel: false,
           color: '#22C55E',
+          environment: 'local',
           createdAt: new Date().toISOString(),
         }]
       }
@@ -110,6 +126,7 @@ export const useConnectionStore = defineStore('connection', {
     async addConnection(conn: Omit<Connection, 'id' | 'createdAt'>) {
       const newConn: Connection = {
         ...conn,
+        environment: resolveEnvironment(conn),
         id: `conn-${Date.now()}`,
         createdAt: new Date().toISOString(),
       }
@@ -241,7 +258,13 @@ async function encryptConnections(connections: Connection[]): Promise<Connection
   return await invoke<Connection[]>('seal_connections_for_storage', { connections })
 }
 
-async function decryptConnections(connections: Connection[]): Promise<Connection[]> {
-  if (!connections.length) return connections
-  return await invoke<Connection[]>('unseal_connections_from_storage', { connections })
+async function decryptConnections(connections: Connection[]): Promise<{
+  connections: Connection[]
+  degraded: string[]
+}> {
+  if (!connections.length) return { connections, degraded: [] }
+  return await invoke<{ connections: Connection[]; degraded: string[] }>(
+    'unseal_connections_from_storage',
+    { connections },
+  )
 }

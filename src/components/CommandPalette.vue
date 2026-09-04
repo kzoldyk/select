@@ -675,8 +675,7 @@ const allGroups = computed<Group[]>(() => {
       iconComponent: PhClockCounterClockwise,
       category: 'tools',
       action: () => {
-        resultStore.setActiveView('history')
-        resultStore.loadHistory()
+        uiStore.openHistory()
         uiStore.closePalette()
       },
     },

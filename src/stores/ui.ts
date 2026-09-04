@@ -23,6 +23,7 @@ export const useUiStore = defineStore('ui', {
     shortcutsOpen: false,
     exportOpen: false,
     themeGalleryOpen: false,
+    historyOpen: false,
     virtualKeyDialogOpen: false,
     virtualKeyTable: null as string | null,
     theme: ((typeof window !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'system',
@@ -102,6 +103,12 @@ export const useUiStore = defineStore('ui', {
     toggleThemeGallery() {
       this.themeGalleryOpen = !this.themeGalleryOpen
     },
+    openHistory() {
+      this.historyOpen = true
+    },
+    closeHistory() {
+      this.historyOpen = false
+    },
     openVirtualKeyDialog(tableName: string) {
       this.virtualKeyTable = tableName
       this.virtualKeyDialogOpen = true
@@ -120,6 +127,7 @@ export const useUiStore = defineStore('ui', {
       this.shortcutsOpen = false
       this.exportOpen = false
       this.themeGalleryOpen = false
+      this.historyOpen = false
       this.virtualKeyDialogOpen = false
       this.activeInspectorTable = null
       this.virtualKeyTable = null

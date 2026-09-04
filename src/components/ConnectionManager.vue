@@ -321,7 +321,23 @@
                 </div>
 
                 <div class="grid gap-1.5">
-                  <Label class="text-xs font-medium">Environment color</Label>
+                  <Label class="text-xs font-medium">Environment</Label>
+                  <div class="grid grid-cols-3 gap-2">
+                    <button
+                      v-for="opt in envOptions"
+                      :key="opt.id"
+                      type="button"
+                      class="flex items-center justify-center px-2.5 py-1.5 rounded-md border text-[10px] font-semibold cursor-pointer bg-transparent"
+                      :class="form.environment === opt.id ? 'border-primary bg-primary/5 text-foreground' : 'border-border text-muted-foreground hover:bg-accent/50'"
+                      @click="form.environment = opt.id"
+                    >
+                      {{ opt.label }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="grid gap-1.5">
+                  <Label class="text-xs font-medium">Color</Label>
                   <div class="grid grid-cols-3 gap-2">
                     <button
                       v-for="color in colorOptions"
@@ -361,7 +377,12 @@
                         :type="showPw ? 'text' : 'password'"
                         v-model="form.password"
                         placeholder="••••••••"
+                        autocomplete="new-password"
+                        autocapitalize="none"
+                        autocorrect="off"
+                        spellcheck="false"
                         class="h-8 text-xs font-mono flex-1"
+                        @input="passwordTouched = true"
                       />
                       <Button variant="outline" size="sm" class="h-8 text-xs px-2.5 shrink-0" type="button" @click="showPw = !showPw">
                         {{ showPw ? 'Hide' : 'Show' }}
@@ -515,6 +536,8 @@ import {
 } from '@lucide/vue'
 import { useUiStore } from '../stores/ui'
 import { useConnectionStore, type Connection } from '../stores/connection'
+import { ENVIRONMENT_OPTIONS, resolveEnvironment } from '@/lib/connectionEnv'
+import { safeStoredPassword } from '@/lib/utils'
 import { toast } from 'vue-sonner'
 
 const uiStore = useUiStore()
@@ -532,6 +555,11 @@ const formTabs: { id: 'general' | 'ssl' | 'advanced'; label: string; icon: Compo
 const selectedId = ref<string | null>(connStore.activeId)
 const isNew = ref(false)
 const showPw = ref(false)
+// The stored (possibly encrypted) password is never prefilled into the form.
+// If the user doesn't type a new one, the original must be sent back on save,
+// otherwise editing any other field would wipe the stored password.
+const storedPassword = ref('')
+const passwordTouched = ref(false)
 const testing = ref(false)
 const searchQuery = ref('')
 const editSearchQuery = ref('')
@@ -543,13 +571,15 @@ const connectingId = ref<string | null>(null)
 const currentView = ref<'dashboard' | 'edit'>('dashboard')
 
 const colorOptions = [
-  { value: '#EF4444', label: 'Prod' },
-  { value: '#F59E0B', label: 'Staging' },
-  { value: '#22C55E', label: 'Dev' },
-  { value: '#3B82F6', label: 'Local' },
-  { value: '#A78BFA', label: 'Test' },
-  { value: '#67E8F9', label: 'Other' },
+  { value: '#EF4444', label: 'Red' },
+  { value: '#F59E0B', label: 'Amber' },
+  { value: '#22C55E', label: 'Green' },
+  { value: '#3B82F6', label: 'Blue' },
+  { value: '#A78BFA', label: 'Purple' },
+  { value: '#67E8F9', label: 'Cyan' },
 ]
+
+const envOptions = ENVIRONMENT_OPTIONS
 
 type FormData = Omit<Connection, 'id' | 'createdAt'>
 const form = ref<FormData | null>(null)
@@ -601,15 +631,18 @@ function selectConn(id: string) {
   testResult.value = null
   activeTab.value = 'general'
   uriInput.value = ''
+  passwordTouched.value = false
+  form.value.password = ''
   const conn = connStore.connections.find(c => c.id === id)
   if (conn) {
+    storedPassword.value = conn.password
     form.value = {
       name: conn.name,
       host: conn.host,
       port: conn.port,
       database: conn.database,
       username: conn.username,
-      password: conn.password,
+      password: safeStoredPassword(conn.password),
       dbType: conn.dbType,
       readOnly: conn.readOnly,
       ssl: conn.sslMode ? conn.sslMode !== 'disabled' : conn.ssl,
@@ -622,6 +655,7 @@ function selectConn(id: string) {
       sshPort: conn.sshPort,
       sshKeyFile: conn.sshKeyFile,
       color: conn.color,
+      environment: resolveEnvironment(conn),
     }
   }
 }
@@ -632,6 +666,8 @@ function newConnection() {
   testResult.value = null
   activeTab.value = 'general'
   uriInput.value = ''
+  passwordTouched.value = false
+  storedPassword.value = ''
   form.value = {
     name: 'New Connection',
     host: 'localhost',
@@ -648,6 +684,7 @@ function newConnection() {
     socketPath: '',
     sshTunnel: false,
     color: '#3B82F6',
+    environment: 'local',
   }
 }
 
@@ -731,6 +768,7 @@ async function testConn() {
   testResult.value = null
   const payload = {
     ...form.value,
+    password: passwordTouched.value ? form.value.password : storedPassword.value,
     ssl: form.value.sslMode ? form.value.sslMode !== 'disabled' : form.value.ssl,
   }
   testResult.value = await connStore.testConnection(payload)
@@ -742,6 +780,9 @@ async function save() {
   let targetId = selectedId.value
   const payload = {
     ...form.value,
+    // Blank field + untouched means "keep whatever was stored" (it may be
+    // encrypted and is intentionally not prefilled).
+    password: passwordTouched.value ? form.value.password : storedPassword.value,
     ssl: form.value.sslMode ? form.value.sslMode !== 'disabled' : form.value.ssl,
   }
 
@@ -833,6 +874,7 @@ function triggerImport() {
                 readOnly: conn.readOnly ?? false,
                 sshTunnel: conn.sshTunnel ?? false,
                 color: conn.color || '#3B82F6',
+                environment: resolveEnvironment(conn),
               })
               count++
             }

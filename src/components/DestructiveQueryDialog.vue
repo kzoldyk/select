@@ -59,26 +59,20 @@ import { Label } from '@/components/ui/label'
 import { PhShieldWarning, PhWarning } from '@phosphor-icons/vue'
 import { useResultStore } from '@/stores/result'
 import { useConnectionStore } from '@/stores/connection'
+import { environmentLabel, requiresWriteConfirmation, resolveEnvironment } from '@/lib/connectionEnv'
 
 const resultStore = useResultStore()
 const connStore = useConnectionStore()
 const confirmationText = ref('')
 
-const isProd = computed(() => connStore.activeConnection?.color?.toUpperCase() === '#EF4444')
-const isStaging = computed(() => connStore.activeConnection?.color?.toUpperCase() === '#F59E0B')
-
-const requiresConfirmationText = computed(() => isProd.value || isStaging.value)
-
-const environmentName = computed(() => {
-  if (isProd.value) return 'PRODUCTION'
-  if (isStaging.value) return 'STAGING'
-  return 'DATABASE'
-})
+const env = computed(() => resolveEnvironment(connStore.activeConnection))
+const requiresConfirmationText = computed(() => requiresWriteConfirmation(env.value))
+const environmentName = computed(() => environmentLabel(env.value).toUpperCase())
 
 const environmentTitle = computed(() => {
-  if (isProd.value) return '🔴 PRODUCTION SAFEGUARD: Confirm Write Query'
-  if (isStaging.value) return '🟠 STAGING SAFEGUARD: Confirm Write Query'
-  return 'Confirm Mutating Query'
+  if (env.value === 'production') return 'PRODUCTION SAFEGUARD: Confirm write query'
+  if (env.value === 'staging') return 'STAGING SAFEGUARD: Confirm write query'
+  return 'Confirm mutating query'
 })
 
 const isConfirmed = computed(() => {

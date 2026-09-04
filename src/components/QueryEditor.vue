@@ -1,11 +1,55 @@
 <template>
-  <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1">
+  <div class="flex flex-col overflow-hidden bg-background min-h-0 flex-1 relative">
     <div
       class="flex-1 overflow-hidden"
       ref="editorContainer"
       :style="{ '--editor-font-size': `${editorStore.fontSize}px` }"
       @wheel="onWheel"
+      @dragover.prevent
+      @drop.prevent="onDrop"
     ></div>
+    <div
+      v-if="showEmptyHint"
+      class="absolute inset-0 pointer-events-none flex items-start justify-center pt-10 px-6"
+    >
+      <div class="pointer-events-auto w-full max-w-[440px] rounded-lg border border-border/70 bg-background/95 shadow-lg p-4 space-y-4">
+        <div>
+          <p class="text-[13px] font-semibold text-foreground">Start a query</p>
+          <p class="text-[11px] text-muted-foreground mt-0.5">Type SQL, or pick a recent statement or table.</p>
+        </div>
+        <div v-if="recentHistory.length">
+          <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Recent</p>
+          <div class="flex flex-col gap-0.5">
+            <button
+              v-for="item in recentHistory"
+              :key="item.id"
+              type="button"
+              class="w-full text-left px-2 py-1.5 rounded-md hover:bg-accent text-[11px] font-mono truncate border-none bg-transparent cursor-pointer"
+              @click="insertSql(item.sql)"
+            >
+              {{ item.sql }}
+            </button>
+          </div>
+        </div>
+        <div v-if="topTables.length">
+          <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Tables</p>
+          <div class="flex flex-wrap gap-1">
+            <button
+              v-for="table in topTables"
+              :key="table.name"
+              type="button"
+              class="px-2 py-1 rounded-md border border-border/70 bg-muted/30 hover:bg-accent text-[11px] font-mono cursor-pointer"
+              @click="insertTableSelect(table.name)"
+            >
+              {{ table.name }}
+            </button>
+          </div>
+        </div>
+        <p v-if="!recentHistory.length && !topTables.length" class="text-[11px] text-muted-foreground">
+          ⌘↵ runs the statement. ⌘E explains it.
+        </p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -28,6 +72,7 @@ import { useEditorStore } from '../stores/editor'
 import { useConnectionStore } from '../stores/connection'
 import { useSchemaStore } from '../stores/schema'
 import { useUiStore } from '../stores/ui'
+import { useResultStore } from '../stores/result'
 import { getSqlCompletionOptions, getBacktickContext } from '../lib/sqlAutocomplete'
 import { extractTableIdentifierAt, getStatementAtPosition } from '../lib/sqlScope'
 
@@ -38,11 +83,40 @@ const editorStore = useEditorStore()
 const connStore = useConnectionStore()
 const schemaStore = useSchemaStore()
 const uiStore = useUiStore()
+const resultStore = useResultStore()
 const editorContainer = ref<HTMLDivElement | null>(null)
 const view = shallowRef<EditorView | null>(null)
 
 const tabStates = new Map<string, EditorState>()
 const currentActiveTabId = ref<string | null>(null)
+
+const showEmptyHint = computed(() => {
+  const tab = editorStore.activeTab
+  if (!tab || tab.type === 'schema_diagram') return false
+  return !tab.sql.trim()
+})
+
+const recentHistory = computed(() => resultStore.history?.slice(0, 6) ?? [])
+
+const topTables = computed(() => {
+  return [...(schemaStore.tables ?? [])]
+    .sort((a, b) => (b.rowCount ?? 0) - (a.rowCount ?? 0))
+    .slice(0, 8)
+})
+
+function insertSql(sql: string) {
+  if (!editorStore.activeTabId) return
+  editorStore.updateSql(editorStore.activeTabId, sql)
+}
+
+function insertTableSelect(name: string) {
+  const quoted = `\`${name.replace(/`/g, '``')}\``
+  insertSql(`SELECT *\nFROM ${quoted}\nLIMIT 100;`)
+}
+
+watch(showEmptyHint, (empty) => {
+  if (empty && !(resultStore.history?.length)) resultStore.loadHistory()
+}, { immediate: true })
 
 function onWheel(e: WheelEvent) {
   if (e.ctrlKey || e.metaKey) {
@@ -53,6 +127,18 @@ function onWheel(e: WheelEvent) {
       editorStore.zoomOut()
     }
   }
+}
+
+function onDrop(e: DragEvent) {
+  const text = e.dataTransfer?.getData('text/plain')
+  if (!text || !view.value) return
+  const pos = view.value.posAtCoords({ x: e.clientX, y: e.clientY })
+  const insertPos = pos ?? view.value.state.selection.main.head
+  view.value.dispatch({
+    changes: { from: insertPos, to: insertPos, insert: text },
+    selection: { anchor: insertPos + text.length },
+  })
+  view.value.focus()
 }
 
 function getSqlAutocomplete() {
@@ -346,18 +432,32 @@ function syncEditorState() {
 }
 
 function formatSql() {
-  const current = view.value?.state.doc.toString() ?? ''
-  if (!current.trim()) return
+  if (!view.value) return
+  const doc = view.value.state.doc.toString()
+  if (!doc.trim()) return
   try {
-    const formatted = format(current, {
+    const cursor = view.value.state.selection.main.head
+    const stmt = getStatementAtPosition(doc, cursor)
+    if (!stmt) return
+
+    const formatted = format(stmt, {
       language: 'mysql',
       tabWidth: 2,
       keywordCase: 'upper',
-      linesBetweenQueries: 2,
+      linesBetweenQueries: 0,
+    }).trimEnd()
+
+    if (stmt === formatted) return
+
+    // Find the start/end of the statement in the full doc
+    const stmtStart = doc.indexOf(stmt)
+    if (stmtStart === -1) return
+    const stmtEnd = stmtStart + stmt.length
+
+    view.value.dispatch({
+      changes: { from: stmtStart, to: stmtEnd, insert: formatted },
+      selection: { anchor: cursor },
     })
-    if (view.value) {
-      view.value.dispatch({ changes: { from: 0, to: view.value.state.doc.length, insert: formatted } })
-    }
   } catch {
     // fallback: no formatting
   }
@@ -372,6 +472,16 @@ function getCurrentSql(): string {
 
 watch(() => editorStore.activeTabId, () => {
   nextTick(syncEditorState)
+})
+
+watch(() => editorStore.activeTab?.sql, (sql) => {
+  if (!view.value || sql === undefined) return
+  if (currentActiveTabId.value !== editorStore.activeTabId) return
+  const current = view.value.state.doc.toString()
+  if (current === sql) return
+  view.value.dispatch({
+    changes: { from: 0, to: current.length, insert: sql },
+  })
 })
 
 watch(() => editorStore.tabs.map(t => t.id), (validIds) => {

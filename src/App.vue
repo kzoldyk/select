@@ -81,6 +81,7 @@
         <ThemeGalleryDialog />
         <QueriesDirDialog />
         <VirtualKeyDialog />
+        <QueryHistoryDialog />
         <Toaster position="top-right" />
       </div>
     </div>
@@ -110,6 +111,7 @@ import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import ExportDialog from './components/ExportDialog.vue'
 import QueriesDirDialog from './components/QueriesDirDialog.vue'
 import VirtualKeyDialog from './components/VirtualKeyDialog.vue'
+import QueryHistoryDialog from './components/QueryHistoryDialog.vue'
 import { initThemeSystem } from './theme'
 
 import { useConnectionStore } from './stores/connection'
@@ -166,7 +168,7 @@ onUnmounted(() => {
   }
 })
 
-useKeyboardShortcuts(runQuery)
+useKeyboardShortcuts({ onRun: runQuery, onExplain: explainQuery })
 
 const appGridStyle = computed(() => ({
   gridTemplateColumns: uiStore.sidebarOpen ? '260px 1fr' : '0 1fr',

@@ -288,6 +288,9 @@ async fn append_history(
     state: &AppState,
     item: QueryHistoryItem,
 ) -> Result<(), String> {
+    // Never persist credentials that were embedded in the SQL text.
+    let mut item = item;
+    item.sql = redact_sensitive_sql(&item.sql);
     let mut cache = state.history_cache.lock().await;
     if !cache.loaded {
         cache.items = load_history_from_disk(app);
@@ -296,6 +299,75 @@ async fn append_history(
     cache.items.insert(0, item);
     cache.items.truncate(100);
     save_history_to_disk(app, &cache.items)
+}
+
+/// Statements carrying credentials (password changes, user creation, token
+/// grants) get their string literals masked before they are written to disk.
+fn redact_sensitive_sql(sql: &str) -> String {
+    const SENSITIVE: [&str; 5] = ["PASSWORD", "IDENTIFIED", "SECRET", "TOKEN", "CREDENTIAL"];
+    let sensitive = sql_tokens_outside_literals(sql)
+        .iter()
+        .any(|t| SENSITIVE.contains(&t.as_str()));
+    if !sensitive {
+        return sql.to_string();
+    }
+    mask_string_literals(sql)
+}
+
+/// Replaces the inner characters of `'...'` and `"..."` literals with `•`,
+/// preserving quotes, escapes and everything outside literals.
+fn mask_string_literals(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while let Some(ch) = chars.next() {
+        if in_single {
+            match ch {
+                '\\' => {
+                    out.push(ch);
+                    if let Some(escaped) = chars.next() {
+                        out.push(escaped);
+                    }
+                }
+                '\'' => {
+                    in_single = false;
+                    out.push(ch);
+                }
+                _ => out.push('•'),
+            }
+            continue;
+        }
+        if in_double {
+            match ch {
+                '\\' => {
+                    out.push(ch);
+                    if let Some(escaped) = chars.next() {
+                        out.push(escaped);
+                    }
+                }
+                '"' => {
+                    in_double = false;
+                    out.push(ch);
+                }
+                _ => out.push('•'),
+            }
+            continue;
+        }
+        match ch {
+            '\'' => {
+                in_single = true;
+                out.push(ch);
+            }
+            '"' => {
+                in_double = true;
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -324,6 +396,7 @@ pub struct Column {
     pub org_name: Option<String>,
     pub org_table: Option<String>,
     pub schema: Option<String>,
+    pub key: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -772,7 +845,7 @@ fn validate_read_only_query(sql: &str) -> Result<(), String> {
         "PURGE", "REPAIR", "RESET", "START", "STOP",
     ];
     // Keywords whose following token must be an identifier.
-    let ident_context = ["FROM", "JOIN", "TABLE", "DATABASE", "SCHEMA"];
+    let ident_context = ["FROM", "JOIN", "TABLE", "DATABASE", "SCHEMA", "DESCRIBE", "DESC"];
 
     let mut prev_text: Option<&str> = None;
     for token in tokens.iter() {
@@ -1007,6 +1080,27 @@ pub(crate) fn convert_mysql_value_to_json(
     }
 }
 
+fn disambiguate_column_keys(column_names: &[String]) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut keys = Vec::with_capacity(column_names.len());
+    for name in column_names {
+        if seen.insert(name.clone()) {
+            keys.push(name.clone());
+        } else {
+            let mut counter = 2;
+            loop {
+                let candidate = format!("{}_{}", name, counter);
+                if seen.insert(candidate.clone()) {
+                    keys.push(candidate);
+                    break;
+                }
+                counter += 1;
+            }
+        }
+    }
+    keys
+}
+
 // ── Tauri Commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1046,23 +1140,32 @@ pub async fn run_query(
 
         let mut result = conn.query_iter(&sql_clone).await.map_err(|e| safe_error(&e))?;
         let mut columns = Vec::new();
+        let mut raw_names = Vec::new();
         for col in result.columns_ref() {
+            let name = col.name_str().into_owned();
+            raw_names.push(name.clone());
             let type_str = format!("{:?}", col.column_type());
             let org_name_str = col.org_name_str().into_owned();
             let org_table_str = col.org_table_str().into_owned();
             let schema_str = col.schema_str().into_owned();
             columns.push(Column {
-                name: col.name_str().into_owned(),
+                name,
                 r#type: map_column_type(&type_str),
                 org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
                 org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
                 schema: if schema_str.is_empty() { None } else { Some(schema_str) },
+                key: None,
             });
+        }
+
+        let keys = disambiguate_column_keys(&raw_names);
+        for (i, k) in keys.iter().enumerate() {
+            columns[i].key = Some(k.clone());
         }
 
         let column_refs: Vec<(String, String)> = columns
             .iter()
-            .map(|c| (c.name.clone(), c.r#type.clone()))
+            .map(|c| (c.key.clone().unwrap_or_else(|| c.name.clone()), c.r#type.clone()))
             .collect();
         let mut json_rows = Vec::new();
         let mut truncated = false;
@@ -1074,15 +1177,18 @@ pub async fn run_query(
             }
 
             let mut map = serde_json::Map::new();
-            for (i, (col_name, col_type)) in column_refs.iter().enumerate() {
+            for (i, (col_key, col_type)) in column_refs.iter().enumerate() {
                 let val = row.get_opt::<mysql_async::Value, _>(i);
                 let json_val = convert_mysql_value_to_json(val, col_type);
-                map.insert(col_name.clone(), json_val);
+                map.insert(col_key.clone(), json_val);
             }
             json_rows.push(Value::Object(map));
         }
 
         if truncated {
+            // Must drain the remainder or the pooled connection is left
+            // mid-result-set and the next query on it desyncs.
+            result.drop_result().await.map_err(|e| safe_error(&e))?;
             return Err(format!(
                 "Result limit exceeded. Refine the query or add LIMIT {}.",
                 MAX_RESULT_ROWS
@@ -1149,8 +1255,43 @@ fn split_statements(sql: &str) -> Vec<String> {
     let mut in_single_quote = false;
     let mut in_double_quote = false;
     let mut in_backtick = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
+        if in_line_comment {
+            current.push(ch);
+            if ch == '\n' {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        if in_block_comment {
+            current.push(ch);
+            if ch == '*' && chars.peek() == Some(&'/') {
+                current.push(chars.next().unwrap());
+                in_block_comment = false;
+            }
+            continue;
+        }
+        if ch == '-' && chars.peek() == Some(&'-') && !in_single_quote && !in_double_quote && !in_backtick {
+            current.push(ch);
+            current.push(chars.next().unwrap());
+            in_line_comment = true;
+            continue;
+        }
+        if ch == '#' && !in_single_quote && !in_double_quote && !in_backtick {
+            current.push(ch);
+            in_line_comment = true;
+            continue;
+        }
+        if ch == '/' && chars.peek() == Some(&'*') && !in_single_quote && !in_double_quote && !in_backtick {
+            current.push(ch);
+            current.push(chars.next().unwrap());
+            in_block_comment = true;
+            continue;
+        }
+
         match ch {
             '\'' if !in_double_quote && !in_backtick => in_single_quote = !in_single_quote,
             '"' if !in_single_quote && !in_backtick => in_double_quote = !in_double_quote,
@@ -1227,23 +1368,32 @@ pub async fn run_multi_query(
             } else {
                 let mut result = conn.query_iter(stmt).await.map_err(|e| safe_error(&e))?;
                 let mut columns = Vec::new();
+                let mut raw_names = Vec::new();
                 for col in result.columns_ref() {
+                    let name = col.name_str().into_owned();
+                    raw_names.push(name.clone());
                     let type_str = format!("{:?}", col.column_type());
                     let org_name_str = col.org_name_str().into_owned();
                     let org_table_str = col.org_table_str().into_owned();
                     let schema_str = col.schema_str().into_owned();
                     columns.push(Column {
-                        name: col.name_str().into_owned(),
+                        name,
                         r#type: map_column_type(&type_str),
                         org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
                         org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
                         schema: if schema_str.is_empty() { None } else { Some(schema_str) },
+                        key: None,
                     });
+                }
+
+                let keys = disambiguate_column_keys(&raw_names);
+                for (i, k) in keys.iter().enumerate() {
+                    columns[i].key = Some(k.clone());
                 }
 
                 let column_refs: Vec<(String, String)> = columns
                     .iter()
-                    .map(|c| (c.name.clone(), c.r#type.clone()))
+                    .map(|c| (c.key.clone().unwrap_or_else(|| c.name.clone()), c.r#type.clone()))
                     .collect();
                 let mut json_rows = Vec::new();
 
@@ -1252,17 +1402,17 @@ pub async fn run_multi_query(
                         break;
                     }
                     let mut map = serde_json::Map::new();
-                    for (i, (col_name, col_type)) in column_refs.iter().enumerate() {
+                    for (i, (col_key, col_type)) in column_refs.iter().enumerate() {
                         let val = row.get_opt::<mysql_async::Value, _>(i);
                         let json_val = convert_mysql_value_to_json(val, col_type);
-                        map.insert(col_name.clone(), json_val);
+                        map.insert(col_key.clone(), json_val);
                     }
                     json_rows.push(Value::Object(map));
                 }
 
-                if json_rows.len() < MAX_RESULT_ROWS {
-                    result.drop_result().await.map_err(|e| safe_error(&e))?;
-                }
+                // Always drain — hitting the row cap exactly leaves rows
+                // unconsumed, which would poison the shared connection.
+                result.drop_result().await.map_err(|e| safe_error(&e))?;
 
                 let row_count = json_rows.len() as u64;
                 Ok(SingleQueryResult {
@@ -1427,23 +1577,32 @@ pub async fn run_query_paged(
             }
         };
         let mut columns = Vec::new();
+        let mut raw_names = Vec::new();
         for col in result.columns_ref() {
+            let name = col.name_str().into_owned();
+            raw_names.push(name.clone());
             let type_str = format!("{:?}", col.column_type());
             let org_name_str = col.org_name_str().into_owned();
             let org_table_str = col.org_table_str().into_owned();
             let schema_str = col.schema_str().into_owned();
             columns.push(Column {
-                name: col.name_str().into_owned(),
+                name,
                 r#type: map_column_type(&type_str),
                 org_name: if org_name_str.is_empty() { None } else { Some(org_name_str) },
                 org_table: if org_table_str.is_empty() { None } else { Some(org_table_str) },
                 schema: if schema_str.is_empty() { None } else { Some(schema_str) },
+                key: None,
             });
+        }
+
+        let keys = disambiguate_column_keys(&raw_names);
+        for (i, k) in keys.iter().enumerate() {
+            columns[i].key = Some(k.clone());
         }
 
         let column_refs: Vec<(String, String)> = columns
             .iter()
-            .map(|c| (c.name.clone(), c.r#type.clone()))
+            .map(|c| (c.key.clone().unwrap_or_else(|| c.name.clone()), c.r#type.clone()))
             .collect();
         let mut json_rows = Vec::new();
         let mut skipped = 0;
@@ -1457,17 +1616,17 @@ pub async fn run_query_paged(
                 break;
             }
             let mut map = serde_json::Map::new();
-            for (i, (col_name, col_type)) in column_refs.iter().enumerate() {
+            for (i, (col_key, col_type)) in column_refs.iter().enumerate() {
                 let val = row.get_opt::<mysql_async::Value, _>(i);
                 let json_val = convert_mysql_value_to_json(val, col_type);
-                map.insert(col_name.clone(), json_val);
+                map.insert(col_key.clone(), json_val);
             }
             json_rows.push(Value::Object(map));
         }
 
-        if json_rows.len() < fetch_limit {
-            result.drop_result().await.map_err(|e| safe_error(&e))?;
-        }
+        // Always drain any unconsumed rows — a no-op when the result is already
+        // exhausted, but essential when we broke early at the page cap.
+        result.drop_result().await.map_err(|e| safe_error(&e))?;
 
         Ok::<(Vec<Column>, Vec<Value>), String>((columns, json_rows))
     };
@@ -1800,34 +1959,7 @@ pub async fn batch_update_rows(
         if row_update.updates.is_empty() || row_update.pks.is_empty() {
             continue;
         }
-        let mut params_vec: Vec<mysql_async::Value> = Vec::new();
-        let set_clause: Vec<String> = row_update.updates
-            .iter()
-            .map(|u| {
-                params_vec.push(json_to_mysql_val(&u.value));
-                format!("{} = ?", escape_identifier(&u.column))
-            })
-            .collect();
-
-        let where_clause: Vec<String> = row_update.pks
-            .iter()
-            .map(|pk| {
-                if pk.value.is_null() {
-                    format!("{} IS NULL", escape_identifier(&pk.column))
-                } else {
-                    params_vec.push(json_to_mysql_val(&pk.value));
-                    format!("{} = ?", escape_identifier(&pk.column))
-                }
-            })
-            .collect();
-
-        let sql = format!(
-            "UPDATE {} SET {} WHERE {} LIMIT 1",
-            escape_identifier(&table),
-            set_clause.join(", "),
-            where_clause.join(" AND ")
-        );
-
+        let (sql, params_vec) = build_update_sql(&table, &row_update.updates, &row_update.pks);
         let res = conn.exec_iter(sql, params_vec).await.map_err(|e| safe_error(&e))?;
         total_affected += res.affected_rows();
     }
@@ -1838,6 +1970,52 @@ pub async fn batch_update_rows(
         duration_ms: duration,
         warning: None,
     })
+}
+
+/// Builds a parameterized, NULL-safe single-row UPDATE. Rows are ordered by the
+/// key columns before `LIMIT 1` so the matched row is deterministic even when
+/// the WHERE clause (e.g. the all-columns fallback) could match several.
+fn build_update_sql(
+    table: &str,
+    updates: &[UpdateCell],
+    pks: &[PkValue],
+) -> (String, Vec<mysql_async::Value>) {
+    let mut params_vec: Vec<mysql_async::Value> = Vec::new();
+
+    let set_clause: Vec<String> = updates
+        .iter()
+        .map(|u| {
+            params_vec.push(json_to_mysql_val(&u.value));
+            format!("{} = ?", escape_identifier(&u.column))
+        })
+        .collect();
+
+    let where_clause: Vec<String> = pks
+        .iter()
+        .map(|pk| {
+            if pk.value.is_null() {
+                format!("{} IS NULL", escape_identifier(&pk.column))
+            } else {
+                params_vec.push(json_to_mysql_val(&pk.value));
+                format!("{} = ?", escape_identifier(&pk.column))
+            }
+        })
+        .collect();
+
+    let order_by = pks
+        .iter()
+        .map(|pk| format!("{} ASC", escape_identifier(&pk.column)))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let sql = format!(
+        "UPDATE {} SET {} WHERE {} ORDER BY {} LIMIT 1",
+        escape_identifier(table),
+        set_clause.join(", "),
+        where_clause.join(" AND "),
+        order_by
+    );
+    (sql, params_vec)
 }
 
 #[tauri::command]
@@ -1865,34 +2043,7 @@ pub async fn update_rows(
         state.thread_ids.lock().await.insert(conn_id, t);
     }
 
-    let mut params_vec: Vec<mysql_async::Value> = Vec::new();
-
-    let set_clause: Vec<String> = updates
-        .iter()
-        .map(|u| {
-            params_vec.push(json_to_mysql_val(&u.value));
-            format!("{} = ?", escape_identifier(&u.column))
-        })
-        .collect();
-
-    let where_clause: Vec<String> = pks
-        .iter()
-        .map(|pk| {
-            if pk.value.is_null() {
-                format!("{} IS NULL", escape_identifier(&pk.column))
-            } else {
-                params_vec.push(json_to_mysql_val(&pk.value));
-                format!("{} = ?", escape_identifier(&pk.column))
-            }
-        })
-        .collect();
-
-    let sql = format!(
-        "UPDATE {} SET {} WHERE {} LIMIT 1",
-        escape_identifier(&table),
-        set_clause.join(", "),
-        where_clause.join(" AND ")
-    );
+    let (sql, params_vec) = build_update_sql(&table, &updates, &pks);
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
 
@@ -2835,8 +2986,11 @@ pub async fn set_custom_queries_dir(
 
 #[tauri::command]
 pub async fn select_folder() -> Result<Option<String>, String> {
-    let res = rfd::FileDialog::new()
-        .pick_folder()
+    // The native dialog blocks until the user picks — keep it off the
+    // async worker threads so other commands stay responsive.
+    let res = tokio::task::spawn_blocking(|| rfd::FileDialog::new().pick_folder())
+        .await
+        .map_err(|e| format!("Folder dialog task failed: {e}"))?
         .map(|p| p.to_string_lossy().to_string());
     Ok(res)
 }
@@ -3074,6 +3228,63 @@ mod tests {
     }
 
     #[test]
+    fn history_redaction_masks_credentials() {
+        let sql = "ALTER USER 'app'@'%' IDENTIFIED BY 's3cret!' COMMENT 'note'";
+        let redacted = redact_sensitive_sql(sql);
+        assert!(redacted.contains("IDENTIFIED BY"), "keywords must survive: {}", redacted);
+        assert!(!redacted.contains("s3cret!"), "password must be masked: {}", redacted);
+        // Every literal is masked in credential-bearing statements so nothing leaks.
+        assert_eq!(redacted, "ALTER USER '•••'@'•' IDENTIFIED BY '•••••••' COMMENT '••••'");
+    }
+
+    #[test]
+    fn history_redaction_passthrough_normal_queries() {
+        let sql = "SELECT * FROM users WHERE name = 'bob' AND token_count > 5";
+        assert_eq!(redact_sensitive_sql(sql), sql);
+    }
+
+    #[test]
+    fn history_redaction_handles_escapes() {
+        let sql = "SET PASSWORD FOR 'u' = 'it\\'s a secret'";
+        let redacted = redact_sensitive_sql(sql);
+        assert!(!redacted.contains("secret"), "escaped secret leaked: {}", redacted);
+        assert!(redacted.starts_with("SET PASSWORD FOR "), "shape kept: {}", redacted);
+        assert!(redacted.contains('\\'), "escape sequence preserved: {}", redacted);
+    }
+
+    #[test]
+    fn update_sql_is_parameterized_and_deterministic() {
+        let updates = vec![UpdateCell {
+            column: "name".into(),
+            value: serde_json::Value::String("New Name".into()),
+        }];
+        let pks = vec![
+            PkValue { column: "tenant_id".into(), value: serde_json::Value::Number(7.into()) },
+            PkValue { column: "id".into(), value: serde_json::Value::Number(42.into()) },
+        ];
+        let (sql, params) = build_update_sql("users", &updates, &pks);
+        assert_eq!(
+            sql,
+            "UPDATE `users` SET `name` = ? WHERE `tenant_id` = ? AND `id` = ? ORDER BY `tenant_id` ASC, `id` ASC LIMIT 1"
+        );
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn update_sql_handles_null_keys() {
+        let updates = vec![UpdateCell {
+            column: "flag".into(),
+            value: serde_json::Value::Bool(true),
+        }];
+        let pks = vec![PkValue { column: "id".into(), value: serde_json::Value::Null }];
+        let (sql, params) = build_update_sql("t", &updates, &pks);
+        assert!(sql.contains("`id` IS NULL"));
+        assert!(sql.contains("ORDER BY `id` ASC LIMIT 1"));
+        // Only the SET value is a bound param; NULL keys are inlined as IS NULL
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
     fn connection_url_encodes_credentials() {
         let config = ConnectionConfig {
             name: "test".into(),
@@ -3180,5 +3391,29 @@ mod tests {
 
         let (opts, _url) = get_connection_opts(&config).unwrap();
         assert_eq!(opts.socket(), Some("/tmp/mysql.sock"));
+    }
+
+    #[test]
+    fn disambiguate_column_keys_deduplicates_duplicate_names() {
+        let names = vec!["id".into(), "name".into(), "id".into(), "name".into(), "id".into()];
+        let keys = disambiguate_column_keys(&names);
+        assert_eq!(keys, vec!["id", "name", "id_2", "name_2", "id_3"]);
+    }
+
+    #[test]
+    fn disambiguate_column_keys_avoids_existing_numbered_names() {
+        let names = vec!["id".into(), "id_2".into(), "id".into()];
+        let keys = disambiguate_column_keys(&names);
+        assert_eq!(keys, vec!["id", "id_2", "id_3"]);
+    }
+
+    #[test]
+    fn split_statements_handles_comments_with_semicolons() {
+        let sql = "SELECT 1; -- comment; with semicolon\nSELECT 2; /* block; comment; */ SELECT 3;";
+        let stmts = split_statements(sql);
+        assert_eq!(stmts.len(), 3);
+        assert!(stmts[0].contains("SELECT 1"));
+        assert!(stmts[1].contains("SELECT 2"));
+        assert!(stmts[2].contains("SELECT 3"));
     }
 }

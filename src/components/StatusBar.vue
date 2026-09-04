@@ -18,6 +18,20 @@
               {{ connStore.activeConnection?.name || 'No Connection' }}
             </span>
 
+            <span
+              v-if="connStore.activeConnection"
+              class="px-1 py-px rounded border text-[9px] font-semibold uppercase tracking-wide"
+              :class="envBadgeClass"
+            >
+              {{ envLabel }}
+            </span>
+            <span
+              v-if="connStore.activeConnection?.readOnly"
+              class="px-1 py-px rounded border border-border/70 text-[9px] font-semibold uppercase tracking-wide"
+            >
+              RO
+            </span>
+
             <span v-if="connStore.activeConnection?.database" class="text-muted-foreground/70 text-[10px] truncate max-w-[100px]">
               ({{ connStore.activeConnection.database }})
             </span>
@@ -88,26 +102,22 @@
 
       <span class="w-px h-3 bg-border/60"></span>
 
-      <!-- Ping Health Latency -->
-      <div class="flex items-center gap-1 text-[10px] text-muted-foreground/80">
-        <PhActivity class="w-3 h-3 text-emerald-500" />
-        <span>{{ pingLatency !== null ? `${pingLatency}ms` : 'Connected' }}</span>
+      <!-- Ping Health Latency (only when connected) -->
+      <div
+        v-if="connStore.status === 'connected'"
+        class="flex items-center gap-1 text-[10px]"
+        :class="pingColorClass"
+      >
+        <PhActivity class="w-3 h-3" />
+        <span>{{ pingLatency !== null ? `${pingLatency}ms` : '…' }}</span>
       </div>
     </div>
 
-    <!-- Center: Running Feedback & Cancel Action -->
     <div v-if="resultStore.status === 'running'" class="flex items-center gap-2 text-primary font-medium">
       <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
       </svg>
       <span>Executing query…</span>
-      <button
-        class="ml-1 px-1.5 py-0.5 rounded bg-destructive/15 hover:bg-destructive/25 text-destructive text-[10px] font-semibold transition-colors cursor-pointer border border-destructive/30"
-        :disabled="resultStore.cancelling"
-        @click="resultStore.cancelQuery()"
-      >
-        {{ resultStore.cancelling ? 'Cancelling…' : 'Cancel' }}
-      </button>
     </div>
 
     <!-- Right Side: Editor Info & Tools (Settings, Sound, Theme) -->
@@ -117,9 +127,7 @@
       </span>
 
       <span class="w-px h-3 bg-border/60"></span>
-      <span>UTF-8</span>
-      <span class="w-px h-3 bg-border/60"></span>
-      <span>MySQL</span>
+      <span>{{ (connStore.activeConnection?.dbType || 'mysql').toUpperCase() }}</span>
 
       <span class="w-px h-3 bg-border/60"></span>
 
@@ -162,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import {
   PhActivity, PhSun, PhMoon, PhSpeakerHigh, PhSpeakerSlash,
@@ -172,6 +180,7 @@ import { useConnectionStore } from '../stores/connection'
 import { useResultStore } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
+import { environmentBadgeClass, environmentLabel, resolveEnvironment } from '@/lib/connectionEnv'
 import { toast } from 'vue-sonner'
 
 const connStore = useConnectionStore()
@@ -183,6 +192,17 @@ const showConnMenu = ref(false)
 const connMenuRef = ref<HTMLDivElement | null>(null)
 const pingLatency = ref<number | null>(null)
 let pingInterval: ReturnType<typeof setInterval> | null = null
+
+const env = computed(() => resolveEnvironment(connStore.activeConnection))
+const envLabel = computed(() => environmentLabel(env.value))
+const envBadgeClass = computed(() => environmentBadgeClass(env.value))
+
+const pingColorClass = computed(() => {
+  if (pingLatency.value === null) return 'text-muted-foreground/60'
+  if (pingLatency.value < 100) return 'text-emerald-500'
+  if (pingLatency.value < 300) return 'text-yellow-500'
+  return 'text-red-500'
+})
 
 async function switchConnection(id: string) {
   showConnMenu.value = false

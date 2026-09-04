@@ -16,6 +16,7 @@ function cloneSnapshot<T>(value: T): T {
 export interface Column {
   name: string
   type: string
+  key?: string
   orgName?: string
   orgTable?: string
   schema?: string
@@ -94,7 +95,7 @@ export type CellValue = string | number | boolean | null
 export type ResultRow = Record<string, CellValue>
 
 export type ResultStatus = 'idle' | 'running' | 'success' | 'error'
-export type ResultView = 'table' | 'plan' | 'messages' | 'history'
+export type ResultView = 'table' | 'plan' | 'messages'
 
 export interface PagedQueryResult {
   columns: Column[]
@@ -166,25 +167,41 @@ function hasMultipleStatements(sql: string): boolean {
 
 function stripSqlLiterals(sql: string): string {
   return sql
-    .replace(/'[^']*'/g, '')
-    .replace(/"[^"]*"/g, '')
-    .replace(/`[^`]*`/g, '')
-    .replace(/--.*$/gm, '')
+    .replace(/'(?:[^'\\]|\\.|'')*'/g, "''")
+    .replace(/"(?:[^"\\]|\\.|"")*"/g, '""')
+    .replace(/`[^`]*`/g, '``')
+    .replace(/--[^\n]*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/#[^\n]*$/gm, '')
 }
 
 function isDestructiveQuery(sql: string): boolean {
-  const cleaned = stripSqlLiterals(sql).trim()
-  if (!cleaned) return false
-  const firstWord = cleaned.split(/\s+/)[0].toUpperCase().replace(/[();,]/g, '')
-  return MUTATING_KEYWORDS.has(firstWord)
+  // Literals/comments are stripped first, so splitting on ';' is safe.
+  const cleaned = stripSqlLiterals(sql)
+  const statements = cleaned.split(';').map(s => s.trim()).filter(Boolean)
+  return statements.some(stmt => isDestructiveStatement(stmt))
+}
+
+const CTE_MUTATING_RE = /\b(DELETE|UPDATE|INSERT|REPLACE|MERGE)\b/
+
+function isDestructiveStatement(stmt: string): boolean {
+  const words = stmt.split(/\s+/)
+  if (!words.length) return false
+  const firstWord = (words[0] ?? '').toUpperCase().replace(/[();,]/g, '')
+  if (MUTATING_KEYWORDS.has(firstWord)) return true
+  // MySQL 8: WITH cte AS (...) DELETE/UPDATE/INSERT ...
+  if (firstWord === 'WITH') return CTE_MUTATING_RE.test(stmt.toUpperCase())
+  return false
 }
 
 function fixBacktickedIdentifiers(sql: string): string {
   return sql.replace(/`([^`]+)`/g, (match, content) => {
-    if (content.includes('.')) {
-      return content.split('.')
-        .map((part: string) => `\`${part}\``)
+    // Only rewrite when every dot-separated part is a plain identifier
+    // (`db.users` -> `db`.`users`). Names containing spaces or special
+    // characters may be legitimately dotted single identifiers — leave them.
+    const parts = content.split('.')
+    if (parts.length > 1 && parts.every(p => /^[\w$]+$/.test(p))) {
+      return parts.map((p: string) => `\`${p}\``)
         .join('.')
     }
     return match
@@ -276,6 +293,9 @@ export const useResultStore = defineStore('result', {
           code: 'QUERY_CANCELLED',
           message: 'Query execution was cancelled by user.',
         }
+        this.rows = []
+        this.originalRows = []
+        this.columns = []
         playSound('error')
         this.messages.push('[QUERY_CANCELLED] Execution stopped.')
         this.activeView = 'messages'
@@ -294,6 +314,9 @@ export const useResultStore = defineStore('result', {
         if (connStore.activeConnection?.readOnly) {
           this.error = { code: 'READ_ONLY_CONNECTION', message: 'Connection is in read-only mode. Write queries are blocked.' }
           this.status = 'error'
+          this.rows = []
+          this.columns = []
+          this.originalRows = []
           playSound('error')
           this.messages = ['Error: Connection is in read-only mode. Write queries are blocked.']
           this.activeView = 'messages'
@@ -342,7 +365,7 @@ export const useResultStore = defineStore('result', {
         this.pageOffset = result.row_count
         this.status = 'success'
         playSound('success')
-        const more = result.has_more ? ` (scrolled for more)` : ''
+        const more = result.has_more ? ' More rows available on the server.' : ''
         const msgs = [`Query completed successfully. ${result.row_count} rows returned in ${this.duration}ms.${more}`]
 
         this.messages = msgs
@@ -352,6 +375,9 @@ export const useResultStore = defineStore('result', {
         const parsedErr = parseDatabaseError(err, _sql)
         this.error = parsedErr
         this.status = parsedErr.code === 'QUERY_CANCELLED' ? 'idle' : 'error'
+        this.rows = []
+        this.columns = []
+        this.originalRows = []
         playSound('error')
         this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
         this.activeView = 'messages'
@@ -369,6 +395,9 @@ export const useResultStore = defineStore('result', {
       if (connStore.activeConnection?.readOnly && isDestructiveQuery(_sql)) {
         this.error = { code: 'READ_ONLY_CONNECTION', message: 'Connection is in read-only mode. Write queries are blocked.' }
         this.status = 'error'
+        this.rows = []
+        this.columns = []
+        this.originalRows = []
         playSound('error')
         this.messages = ['Error: Connection is in read-only mode. Write queries are blocked.']
         this.activeView = 'messages'
@@ -399,6 +428,9 @@ export const useResultStore = defineStore('result', {
           const parsedErr = parseDatabaseError(first.error, _sql)
           this.error = parsedErr
           this.status = 'error'
+          this.rows = []
+          this.columns = []
+          this.originalRows = []
           playSound('error')
           this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
           this.activeView = 'messages'
@@ -430,6 +462,10 @@ export const useResultStore = defineStore('result', {
         const parsedErr = parseDatabaseError(err, _sql)
         this.error = parsedErr
         this.status = parsedErr.code === 'QUERY_CANCELLED' ? 'idle' : 'error'
+        this.rows = []
+        this.columns = []
+        this.originalRows = []
+        this.multiResults = []
         playSound('error')
         this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
         this.activeView = 'messages'
@@ -444,16 +480,26 @@ export const useResultStore = defineStore('result', {
       if (result.error) {
         this.error = { code: 'QUERY_ERROR', message: result.error }
         this.status = 'error'
+        this.rows = []
+        this.columns = []
+        this.originalRows = []
         this.activeView = 'messages'
       } else if (result.columns) {
-        this.rows = markRaw(result.rows as ResultRow[])
+        const rows = (result.rows || []) as ResultRow[]
+        this.rows = markRaw(rows)
+        this.originalRows = markRaw(rows.map(r => ({ ...r })))
         this.columns = result.columns
         this.duration = (result as any).durationMs ?? result.duration_ms
+        this.error = null
         this.status = 'success'
         this.activeView = 'table'
       } else if (result.affected_rows !== null) {
         this.lastAffectedRows = result.affected_rows
         this.status = 'success'
+        this.error = null
+        this.rows = []
+        this.columns = []
+        this.originalRows = []
         this.activeView = 'messages'
       }
     },
@@ -483,7 +529,7 @@ export const useResultStore = defineStore('result', {
         this.pageOffset += newRows.length
         this.duration += (result as any).durationMs ?? result.duration_ms
         this.messages = [
-          `Query completed successfully. ${this.rows.length} rows returned.${this.hasMore ? ' (scrolled for more)' : ''}`
+          `Query completed successfully. ${this.rows.length} rows returned.${this.hasMore ? ' More rows available on the server.' : ''}`
         ]
       } catch (err) {
         this.messages.push(`Error fetching more: ${String(err)}`)
@@ -492,7 +538,16 @@ export const useResultStore = defineStore('result', {
     },
 
     setPageSize(size: number) {
-      this.pageSize = Math.min(Math.max(size, 50), 500)
+      this.pageSize = Math.min(Math.max(size, 50), 1000)
+    },
+
+    async fetchAllPages() {
+      const cap = 10_000
+      while (this.hasMore && this.rows.length < cap) {
+        const before = this.rows.length
+        await this.fetchNextPage()
+        if (this.rows.length === before) break
+      }
     },
 
     startEditing(rowIndex: number, colName: string) {

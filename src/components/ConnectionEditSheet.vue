@@ -21,9 +21,9 @@
         <div class="flex items-center gap-2">
           <Badge
             class="text-[9.5px] font-semibold uppercase tracking-wider"
-            :class="environmentBadgeClass"
+            :class="envBadgeClass"
           >
-            {{ environmentLabel }}
+            {{ envLabel }}
           </Badge>
           <button
             class="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer border-none bg-transparent"
@@ -64,7 +64,21 @@
           </div>
         </div>
 
-        <!-- Host & Port -->
+        <div class="space-y-1.5">
+          <label class="text-[11px] font-semibold text-foreground">Environment</label>
+          <div class="flex items-center gap-1">
+            <button
+              v-for="opt in ENVIRONMENT_OPTIONS"
+              :key="opt.id"
+              type="button"
+              class="flex-1 h-7 rounded-md border text-[10px] font-semibold cursor-pointer"
+              :class="form.environment === opt.id ? envClass(opt.id) + ' border-current' : 'border-border/60 bg-transparent text-muted-foreground'"
+              @click="form.environment = opt.id"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
         <div class="grid grid-cols-3 gap-2">
           <div class="col-span-2 space-y-1.5">
             <label class="text-[11px] font-semibold text-foreground">Host</label>
@@ -111,6 +125,11 @@
               v-model="form.password"
               type="password"
               placeholder="••••••••"
+              autocomplete="new-password"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              @input="passwordTouched = true"
               class="h-8 w-full rounded-md border border-border/70 bg-background/80 px-2.5 text-xs font-mono outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
             />
           </div>
@@ -218,7 +237,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PhShieldWarning, PhPlug, PhCheckCircle, PhXCircle, PhX } from '@phosphor-icons/vue'
 import { useConnectionStore, type Connection } from '@/stores/connection'
+import { safeStoredPassword } from '@/lib/utils'
 import { toast } from 'vue-sonner'
+import { ENVIRONMENT_OPTIONS, environmentBadgeClass as envClass, environmentLabel as envName, resolveEnvironment, type ConnectionEnvironment } from '@/lib/connectionEnv'
 
 const props = defineProps<{
   open: boolean
@@ -235,11 +256,11 @@ const connStore = useConnectionStore()
 const isEditing = computed(() => Boolean(props.connectionId))
 
 const COLOR_PRESETS = [
-  { hex: '#EF4444', label: 'Production (Red)' },
-  { hex: '#F59E0B', label: 'Staging (Amber)' },
-  { hex: '#10B981', label: 'Local Dev (Emerald)' },
-  { hex: '#3B82F6', label: 'Testing (Blue)' },
-  { hex: '#8B5CF6', label: 'Analytics (Purple)' },
+  { hex: '#EF4444', label: 'Red' },
+  { hex: '#F59E0B', label: 'Amber' },
+  { hex: '#10B981', label: 'Emerald' },
+  { hex: '#3B82F6', label: 'Blue' },
+  { hex: '#8B5CF6', label: 'Purple' },
 ]
 
 const form = reactive({
@@ -255,45 +276,44 @@ const form = reactive({
   socketPath: '',
   readOnly: false,
   color: '#10B981',
+  environment: 'local' as ConnectionEnvironment,
 })
 
 const isTesting = ref(false)
 const testResult = ref<{ ok: boolean; latency?: number; error?: string } | null>(null)
 
-const environmentLabel = computed(() => {
-  const c = form.color?.toUpperCase()
-  if (c === '#EF4444') return 'PRODUCTION'
-  if (c === '#F59E0B') return 'STAGING'
-  if (c === '#10B981') return 'LOCAL DEV'
-  return 'ENVIRONMENT'
-})
+// The stored (possibly encrypted) password is never prefilled. If the user
+// doesn't type a new one, send the original back on save so editing any
+// other field doesn't wipe the stored password.
+const storedPassword = ref('')
+const passwordTouched = ref(false)
 
-const environmentBadgeClass = computed(() => {
-  const c = form.color?.toUpperCase()
-  if (c === '#EF4444') return 'bg-red-500/15 text-red-500 border-red-500/30'
-  if (c === '#F59E0B') return 'bg-amber-500/15 text-amber-500 border-amber-500/30'
-  if (c === '#10B981') return 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
-  return 'bg-blue-500/15 text-blue-500 border-blue-500/30'
-})
+const envLabel = computed(() => envName(form.environment).toUpperCase())
+const envBadgeClass = computed(() => envClass(form.environment))
 
 function loadInitial() {
   testResult.value = null
+  passwordTouched.value = false
+  storedPassword.value = ''
+  form.password = ''
   if (props.connectionId) {
     const existing = connStore.connections.find(c => c.id === props.connectionId)
     if (existing) {
+      storedPassword.value = existing.password
       Object.assign(form, {
         name: existing.name,
         host: existing.host,
         port: existing.port,
         database: existing.database || '',
         username: existing.username,
-        password: existing.password || '',
+        password: safeStoredPassword(existing.password),
         dbType: existing.dbType || 'mysql',
         ssl: existing.ssl || false,
         sslMode: existing.sslMode || 'preferred',
         socketPath: existing.socketPath || '',
         readOnly: existing.readOnly || false,
         color: existing.color || '#10B981',
+        environment: resolveEnvironment(existing),
       })
       return
     }
@@ -313,6 +333,7 @@ function loadInitial() {
     socketPath: '',
     readOnly: false,
     color: '#10B981',
+    environment: 'local',
   })
 }
 
@@ -326,6 +347,7 @@ async function runTestConnection() {
   try {
     const res = await connStore.testConnection({
       ...form,
+      password: passwordTouched.value ? form.password : storedPassword.value,
       ssl: form.sslMode !== 'disabled',
     })
     testResult.value = res
@@ -347,16 +369,19 @@ async function saveConnection() {
   }
 
   try {
+    const effectivePassword = passwordTouched.value ? form.password : storedPassword.value
     let targetId = props.connectionId
     if (isEditing.value && targetId) {
       await connStore.updateConnection(targetId, {
         ...form,
+        password: effectivePassword,
         ssl: form.sslMode !== 'disabled',
       })
       toast.success('Connection updated')
     } else {
       targetId = await connStore.addConnection({
         ...form,
+        password: effectivePassword,
         ssl: form.sslMode !== 'disabled',
         sshTunnel: false,
       })

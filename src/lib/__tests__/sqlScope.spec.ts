@@ -5,8 +5,31 @@ import {
   sanitizeSql,
   extractTableIdentifierAt,
   splitSqlStatements,
-  getStatementAtPosition
+  getStatementAtPosition,
+  isInCommentOrString
 } from '../sqlScope'
+
+describe('isInCommentOrString', () => {
+  it('ignores quotes inside backtick identifiers', () => {
+    const sql = "SELECT `it's fine`, name FROM users"
+    const pos = sql.indexOf('name')
+    expect(isInCommentOrString(sql, pos)).toBe(false)
+  })
+
+  it('still flags real string contents', () => {
+    const sql = "SELECT 'a string', name FROM users"
+    const pos = sql.indexOf('name')
+    expect(isInCommentOrString(sql, pos)).toBe(false)
+    const insideStr = sql.indexOf('string')
+    expect(isInCommentOrString(sql, insideStr)).toBe(true)
+  })
+
+  it('flags content after an unterminated quote', () => {
+    const sql = "SELECT 'unterminated AND name FROM users"
+    const pos = sql.indexOf('name')
+    expect(isInCommentOrString(sql, pos)).toBe(true)
+  })
+})
 
 describe('sqlScope analyzer', () => {
   it('extracts simple FROM table', () => {
@@ -233,6 +256,22 @@ select * from courier.clickpost_delayed_delivery_orders;`
     const posTarget = unSemicolonedSql.indexOf('clickpost_delayed_delivery_orders')
     const extracted = getStatementAtPosition(unSemicolonedSql, posTarget)
     expect(extracted).toBe('select * from courier.clickpost_delayed_delivery_orders')
+  })
+
+  it('selects exact query when cursor is at column 0 of any query in multi-query script', () => {
+    const script = `select * from courier.wms_courier_partner_daily_cutoff order by id desc limit 100;
+
+select * from courier.wms_courier_partner_daily_cutoff_pincode order by id desc limit 100;
+
+select * from orders.order_time_log limit 100;`
+
+    const q1Start = 0
+    const q2Start = script.indexOf('select * from courier.wms_courier_partner_daily_cutoff_pincode')
+    const q3Start = script.indexOf('select * from orders.order_time_log')
+
+    expect(getStatementAtPosition(script, q1Start)).toBe('select * from courier.wms_courier_partner_daily_cutoff order by id desc limit 100')
+    expect(getStatementAtPosition(script, q2Start)).toBe('select * from courier.wms_courier_partner_daily_cutoff_pincode order by id desc limit 100')
+    expect(getStatementAtPosition(script, q3Start)).toBe('select * from orders.order_time_log limit 100')
   })
 })
 

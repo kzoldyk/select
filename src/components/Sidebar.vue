@@ -97,17 +97,6 @@
             <span>Workspace</span>
           </div>
 
-          <!-- New Query Tab Trigger -->
-          <button
-            class="w-full flex items-center gap-2 px-2 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors border-none cursor-pointer text-left bg-transparent"
-            @click="editorStore.addTab()"
-          >
-            <PhPlus class="w-3.5 h-3.5 text-primary flex-shrink-0" />
-            <span class="flex-1 font-medium">New Query</span>
-            <kbd class="text-[9px] text-muted-foreground/60">⌘T</kbd>
-          </button>
-
-          <!-- Schema Diagram Trigger -->
           <button
             class="w-full flex items-center gap-2 px-2 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors border-none cursor-pointer text-left bg-transparent"
             @click="editorStore.addSchemaDiagramTab()"
@@ -115,22 +104,6 @@
             <PhGitBranch class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
             <span class="flex-1 font-medium">Schema Diagram</span>
           </button>
-
-          <!-- Pinned Query Tabs (if any) -->
-          <template v-if="resultStore.pinnedResults.length > 0">
-            <div class="px-2 pt-2 pb-0.5 text-[9px] font-semibold uppercase text-muted-foreground/60">
-              Pinned Results
-            </div>
-            <button
-              v-for="pin in resultStore.pinnedResults"
-              :key="pin.id"
-              class="w-full flex items-center gap-2 px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors border-none cursor-pointer text-left bg-transparent truncate"
-              @click="resultStore.activeResultTabId = pin.id"
-            >
-              <PhPushPin class="w-3 h-3 text-primary flex-shrink-0" weight="fill" />
-              <span class="truncate flex-1">{{ formatPinnedLabel(pin.sql) }}</span>
-            </button>
-          </template>
         </div>
 
         <div class="h-px bg-border/40 my-1"></div>
@@ -163,8 +136,8 @@
                 :key="table.name"
                 class="w-full flex items-center gap-2 px-2.5 py-1 text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-sidebar-accent rounded-md transition-colors duration-fast bg-transparent border-none cursor-pointer text-left relative"
                 :class="{ 'text-primary bg-primary/10 font-semibold': schemaStore.activeTable === table.name }"
-                :title="table.name"
-                @click="openTableAsQuery(table.name)"
+                :title="table.name + ' — Alt+click to inspect'"
+                @click="(e: MouseEvent) => e.altKey ? inspectTable(table.name) : openTableAsQuery(table.name)"
                 @contextmenu.prevent="(e) => openCtxMenu(e, table.name, 'table')"
               >
                 <div v-if="schemaStore.activeTable === table.name" class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3.5 bg-primary rounded-r"></div>
@@ -325,8 +298,15 @@
           class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
           @click="ctxAction('open')"
         >
-          <PhArrowSquareOut class="w-3.5 h-3.5" /> Run SELECT *
+          <PhArrowSquareOut class="w-3.5 h-3.5" /> Open Data
         </button>
+        <button
+          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
+          @click="ctxAction('inspect')"
+        >
+          <PhEye class="w-3.5 h-3.5" /> Inspect (⌘I)
+        </button>
+        <div class="h-px bg-border/60 my-1"></div>
         <button
           class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
           @click="ctxAction('copy')"
@@ -337,7 +317,7 @@
           class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
           @click="ctxAction('ddl')"
         >
-          <PhFileCode class="w-3.5 h-3.5" /> View DDL (⌘I)
+          <PhFileCode class="w-3.5 h-3.5" /> View DDL
         </button>
         <button
           class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left"
@@ -374,7 +354,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'vue-sonner'
 import {
   PhMagnifyingGlass, PhCaretRight, PhTable, PhEye, PhLightning, PhHash,
-  PhPlay, PhFileCode, PhPlus, PhGitBranch, PhPushPin, PhPlug, PhDatabase,
+  PhPlay, PhFileCode, PhGitBranch, PhPlug, PhDatabase,
   PhCopy, PhArrowSquareOut, PhPencil, PhTrash
 } from '@phosphor-icons/vue'
 import { useSchemaStore } from '../stores/schema'
@@ -423,12 +403,6 @@ function formatCount(n: number): string {
 
 function quoteSqlIdentifier(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``
-}
-
-function formatPinnedLabel(sql: string): string {
-  const match = sql.match(/FROM\s+([a-zA-Z0-9_`"'\.]+)/i)
-  if (match) return match[1].replace(/[`"']/g, '')
-  return sql.slice(0, 18) + '…'
 }
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -536,11 +510,17 @@ function openSQCtxMenu(e: MouseEvent, sq: SavedQuery) {
 
 function closeCtxMenu() { ctxMenu.visible = false }
 
+function inspectTable(name: string) {
+  schemaStore.setActiveTable(name)
+  uiStore.openInspector(name)
+}
+
 function ctxAction(action: string) {
   const name = ctxMenu.target
   closeCtxMenu()
   switch (action) {
     case 'open': openTableAsQuery(name); break
+    case 'inspect': inspectTable(name); break
     case 'copy': copyText(name); break
     case 'ddl': schemaStore.setActiveTable(name); uiStore.openInspector(name); break
     case 'visualize': editorStore.addSchemaDiagramTab(name); break

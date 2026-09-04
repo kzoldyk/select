@@ -493,9 +493,27 @@ export function splitSqlStatements(sql: string): SqlStatementRange[] {
     else if (ch === '"' && !inSingle && !inBacktick) inDouble = !inDouble
     else if (ch === '`') inBacktick = !inBacktick
     else if (ch === ';' && !inSingle && !inDouble && !inBacktick) {
-      const text = sql.substring(stmtStart, i + 1)
-      initialRawStatements.push({ start: stmtStart, end: i + 1, text })
-      stmtStart = i + 1
+      let endIdx = i + 1
+      // Consume any trailing inline comment or spaces on the same line
+      let j = i + 1
+      while (j < sql.length && (sql[j] === ' ' || sql[j] === '\t')) {
+        j++
+      }
+      if (j + 1 < sql.length && sql[j] === '-' && sql[j + 1] === '-') {
+        while (j < sql.length && sql[j] !== '\n') {
+          j++
+        }
+        endIdx = j
+      } else if (j < sql.length && sql[j] === '#') {
+        while (j < sql.length && sql[j] !== '\n') {
+          j++
+        }
+        endIdx = j
+      }
+      const text = sql.substring(stmtStart, endIdx)
+      initialRawStatements.push({ start: stmtStart, end: endIdx, text })
+      stmtStart = endIdx
+      i = endIdx - 1
     }
   }
 
@@ -515,41 +533,30 @@ export function splitSqlStatements(sql: string): SqlStatementRange[] {
 
   const results: SqlStatementRange[] = []
   for (const s of rawStatements) {
-    let currentStart = s.start
-    let currentEnd = s.end
-    let currentText = s.text
-
-    const firstSqlIdx = findFirstSqlTokenIndex(currentText)
+    const rawText = s.text
+    const firstSqlIdx = findFirstSqlTokenIndex(rawText)
     if (firstSqlIdx === -1) {
-      // Chunk contains only comments/whitespace
-      if (results.length > 0) {
-        results[results.length - 1].end = currentEnd
-        results[results.length - 1].text += currentText
-      }
       continue
     }
 
-    if (firstSqlIdx > 0 && results.length > 0) {
-      // Leading comments/whitespace before this statement belong to the preceding statement
-      const leading = currentText.substring(0, firstSqlIdx)
-      results[results.length - 1].end += firstSqlIdx
-      results[results.length - 1].text += leading
+    const actualStart = s.start + firstSqlIdx
+    const textWithoutLeading = rawText.substring(firstSqlIdx)
+    const trimmedRight = textWithoutLeading.trimEnd()
+    const actualEnd = actualStart + trimmedRight.length
 
-      currentStart += firstSqlIdx
-      currentText = currentText.substring(firstSqlIdx)
-    }
-
-    let execSql = currentText.trim()
+    let execSql = trimmedRight
     if (execSql.endsWith(';')) {
       execSql = execSql.slice(0, -1).trim()
     }
 
-    results.push({
-      start: currentStart,
-      end: currentEnd,
-      text: currentText,
-      executableSql: execSql
-    })
+    if (execSql.length > 0) {
+      results.push({
+        start: actualStart,
+        end: actualEnd,
+        text: textWithoutLeading,
+        executableSql: execSql
+      })
+    }
   }
 
   return results
@@ -562,27 +569,48 @@ export function getStatementAtPosition(sql: string, cursorPos: number): string {
   const statements = splitSqlStatements(sql)
   if (statements.length === 0) return sql.trim()
 
+  // 1. Direct hit inside statement bounds
   for (let i = 0; i < statements.length; i++) {
     const s = statements[i]
     if (cursorPos >= s.start && cursorPos <= s.end) {
       return s.executableSql || s.text
     }
-    if (i < statements.length - 1) {
-      const nextS = statements[i + 1]
-      if (cursorPos > s.end && cursorPos < nextS.start) {
+  }
+
+  // 2. Cursor in whitespace/comment gap between statements
+  for (let i = 0; i < statements.length - 1; i++) {
+    const s = statements[i]
+    const nextS = statements[i + 1]
+    if (cursorPos > s.end && cursorPos < nextS.start) {
+      const gapText = sql.substring(s.end, nextS.start)
+      const relativePos = cursorPos - s.end
+      const blankLineMatch = gapText.match(/\n\s*\n/)
+      if (blankLineMatch && blankLineMatch.index !== undefined) {
+        const splitPoint = blankLineMatch.index + blankLineMatch[0].length
+        if (relativePos < blankLineMatch.index) {
+          return s.executableSql || s.text
+        }
         return nextS.executableSql || nextS.text
       }
+      const firstNewline = gapText.indexOf('\n')
+      if (firstNewline !== -1 && relativePos <= firstNewline) {
+        return s.executableSql || s.text
+      }
+      return nextS.executableSql || nextS.text
     }
   }
 
+  // 3. Past the end of all statements
   if (cursorPos >= statements[statements.length - 1].end) {
     return statements[statements.length - 1].executableSql || statements[statements.length - 1].text
   }
+
+  // 4. Before the first statement
   if (cursorPos <= statements[0].start) {
     return statements[0].executableSql || statements[0].text
   }
 
-  return statements[0]?.executableSql || sql
+  return statements[0]?.executableSql || sql.trim()
 }
 
 export interface TableIdentifierMatch {
@@ -608,6 +636,7 @@ export function isInCommentOrString(sql: string, pos: number): boolean {
   if (pos <= 0) return false
   let inSingle = false
   let inDouble = false
+  let inBacktick = false
   let inLineComment = false
   let inBlockComment = false
 
@@ -626,22 +655,32 @@ export function isInCommentOrString(sql: string, pos: number): boolean {
       }
       continue
     }
-    if (ch === '-' && nextCh === '-' && !inSingle && !inDouble) {
+    if (ch === '-' && nextCh === '-' && !inSingle && !inDouble && !inBacktick) {
       inLineComment = true
       i++
       continue
     }
-    if (ch === '/' && nextCh === '*' && !inSingle && !inDouble) {
+    if (ch === '/' && nextCh === '*' && !inSingle && !inDouble && !inBacktick) {
       inBlockComment = true
       i++
       continue
     }
-    if (ch === '\'' && !inLineComment && !inBlockComment) {
+    // Backtick identifiers are not strings, but quotes inside them
+    // (`it's`) must not flip string state.
+    if (ch === '`' && !inSingle && !inDouble) {
+      inBacktick = !inBacktick
+      continue
+    }
+    if (ch === '\'' && !inDouble && !inBacktick) {
       if (inSingle && nextCh === '\'') {
         i++
         continue
       }
       inSingle = !inSingle
+      continue
+    }
+    if (ch === '"' && !inSingle && !inBacktick) {
+      inDouble = !inDouble
       continue
     }
   }
