@@ -33,6 +33,7 @@ scratch/
 # Screenshots and images (not app icons)
 *.png
 !src-tauri/icons/**/*.png
+!screenshot.png
 
 # Todo / notes files
 todo.md

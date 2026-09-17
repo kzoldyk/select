@@ -2,6 +2,8 @@
 
 A fast, local-first MySQL and MariaDB desktop client built with Tauri v2, Vue 3, TypeScript, and Rust.
 
+![Select](screenshot.png)
+
 ---
 
 ## Install Pre-built Binaries
