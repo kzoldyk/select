@@ -22,5 +22,18 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-.baton/
+
+# AI tools
 .aider*
+.baton/
+
+# Scratch / temp files
+scratch/
+
+# Screenshots and images (not app icons)
+*.png
+!src-tauri/icons/**/*.png
+
+# Todo / notes files
+todo.md
+todos.md

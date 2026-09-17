@@ -1,31 +1,135 @@
-# Select ⚡
+# Select
 
-**Select** is a fast, lightweight, local-first MySQL and MariaDB desktop client built with **Tauri v2**, **Vue 3**, **TypeScript**, and **Rust**.
-
----
-
-## Prerequisites
-
-Before installing or building Select, ensure you have:
-
-- **Node.js**: `v18+` (or `v20+` recommended)
-- **Rust**: `v1.75+` (Install via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+A fast, local-first MySQL and MariaDB desktop client built with Tauri v2, Vue 3, TypeScript, and Rust.
 
 ---
 
-## OS-Specific System Dependencies
+## Install Pre-built Binaries
+
+Download the latest release for your platform from the [Releases](https://github.com/kzoldyk/select/releases) page.
+
+### macOS (.dmg)
+
+1. Download the `.dmg` file for your architecture (Apple Silicon or Intel).
+2. Open the `.dmg` and drag `Select.app` to your `Applications` folder.
+3. On first launch, macOS will block the app because it is unsigned (no Apple Developer ID certificate). Follow the steps below based on your macOS version.
+
+#### macOS 15 Sequoia and later
+
+In macOS Sequoia, Apple removed the right-click/Control-click shortcut for unsigned apps. You must use System Settings:
+
+1. Double-click `Select.app` to try opening it. A dialog will say the app cannot be opened.
+2. Click **OK** to dismiss the dialog.
+3. Open **System Settings** > **Privacy & Security**.
+4. Scroll all the way down to the **Security** section.
+5. You will see a message: `Select was blocked from use because it is not from an identified developer`.
+6. Click **Open Anyway** next to that message.
+7. Enter your password or use Touch ID when prompted.
+
+The app will now launch. This only needs to be done once.
+
+If the **Open Anyway** button does not appear, try this terminal command first:
+
+```bash
+xattr -cr /Applications/Select.app
+```
+
+Then attempt to open the app again and check System Settings for the button.
+
+#### macOS 14 Sonoma and earlier
+
+On older macOS versions, you can use the right-click method:
+
+1. In Finder, right-click (or Control-click) `Select.app` and choose **Open**.
+2. A dialog will appear. Click **Open**.
+
+#### Alternative: Remove quarantine flag (all versions)
+
+This bypasses Gatekeeper without going through System Settings:
+
+```bash
+xattr -cr /Applications/Select.app
+```
+
+After running this, double-click `Select.app` normally.
+
+#### Alternative: Disable Gatekeeper temporarily (all versions)
+
+This turns off Gatekeeper globally. Only do this if the other methods do not work:
+
+```bash
+sudo spctl --master-disable
+```
+
+Re-enable it after launching the app:
+
+```bash
+sudo spctl --master-enable
+```
+
+### Windows (.msi / .exe)
+
+1. Download either the `.msi` or the `-setup.exe` file.
+2. Double-click to run the installer.
+3. Windows SmartScreen may show a warning because the app is unsigned. Click **More info** and then **Run anyway**.
+4. Follow the installer prompts. The app will be added to your Start Menu.
+
+If SmartScreen blocks the installer entirely, right-click the file, choose **Properties**, check **Unblock** at the bottom of the General tab, and click **OK** before running it.
+
+### Linux (.deb / .AppImage)
+
+**Debian / Ubuntu (.deb)**
+
+```bash
+sudo dpkg -i select_0.1.0_amd64.deb
+sudo apt-get install -f
+```
+
+Then launch from your application menu or run:
+
+```bash
+select
+```
+
+**AppImage (any distro)**
+
+```bash
+chmod +x select_0.1.0_amd64.AppImage
+./select_0.1.0_amd64.AppImage
+```
+
+If the AppImage does not launch, install FUSE:
+
+```bash
+# Debian / Ubuntu
+sudo apt-get install -y libfuse2
+
+# Fedora
+sudo dnf install fuse2
+```
+
+---
+
+## Build From Source
+
+### Prerequisites
+
+- Node.js v18 or later
+- Rust 1.75 or later (install from https://rustup.rs)
+- Platform-specific dependencies listed below
 
 ### macOS
-Install Xcode Command Line Tools:
+
 ```bash
 xcode-select --install
 ```
 
-### Linux (Ubuntu / Debian)
-Install required Tauri v2 system packages:
+### Ubuntu / Debian
+
 ```bash
 sudo apt update
-sudo apt install -y libwebkit2gtk-4.1-dev \
+sudo apt install -y \
+  libwebkit2gtk-4.1-dev \
   build-essential \
   curl \
   wget \
@@ -36,108 +140,61 @@ sudo apt install -y libwebkit2gtk-4.1-dev \
   librsvg2-dev
 ```
 
-### Linux (Fedora)
+### Fedora
+
 ```bash
-sudo dnf check-update
 sudo dnf groupinstall -y "C Development Tools and Libraries"
-sudo dnf install -y webkit2gtk4.1-devel openssl-devel libayatana-appindicator-gtk3-devel librsvg2-devel
+sudo dnf install -y \
+  webkit2gtk4.1-devel \
+  openssl-devel \
+  libayatana-appindicator-gtk3-devel \
+  librsvg2-devel
 ```
 
 ### Windows
-- Install [Microsoft Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
-- Ensure **WebView2** runtime is installed (included by default on Windows 10/11).
 
----
+1. Install [Microsoft Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
+2. Ensure WebView2 is installed (included by default on Windows 10 and 11).
 
-## Installation & Local Development
+### Build
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/hitesh103/select.git
-   cd select
-   ```
-
-2. **Install frontend dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Run in development mode**:
-   ```bash
-   npm run tauri dev
-   ```
-
----
-
-## Building the Desktop App
-
-### 1. Build for macOS (.dmg / .app)
 ```bash
+git clone https://github.com/kzoldyk/select.git
+cd select
+npm install
 npm run tauri build
 ```
-Output bundles:
-- `src-tauri/target/release/bundle/dmg/Select_x.x.x_x64.dmg` (or `_aarch64.dmg`)
-- `src-tauri/target/release/bundle/macos/Select.app`
 
-> **Note for macOS (Unsigned App / No Developer License):**
-> Because this build is unsigned (no paid Apple Developer Certificate), macOS Gatekeeper will block it on first launch with a warning *"Select cannot be opened because the developer cannot be verified"*.
->
-> **How to open on macOS:**
-> - **Option 1 (Quickest)**: Right-click (or `Control` + Click) `Select.app` in Finder → Select **Open** → Click **Open** in the dialog.
-> - **Option 2 (Terminal)**: Remove the quarantine flag:
->   ```bash
->   xattr -cr /Applications/Select.app
->   ```
-> - **Option 3**: Open **System Settings** → **Privacy & Security** → Scroll down to Security and click **Open Anyway**.
+Output files are in `src-tauri/target/release/bundle/`.
 
----
+### Run in Development Mode
 
-### 2. Build for Linux (.deb / .AppImage)
 ```bash
-npm run tauri build
+npm run tauri dev
 ```
-Output bundles:
-- `src-tauri/target/release/bundle/deb/`
-- `src-tauri/target/release/bundle/appimage/`
-
-Run the AppImage:
-```bash
-chmod +x Select_x.x.x_amd64.AppImage
-./Select_x.x.x_amd64.AppImage
-```
-
----
-
-### 3. Build for Windows (.msi / .exe installer)
-```powershell
-npm run tauri build
-```
-Output bundles:
-- `src-tauri/target/release/bundle/msi/Select_x.x.x_x64_en-US.msi`
-- `src-tauri/target/release/bundle/nsis/Select_x.x.x_x64-setup.exe`
 
 ---
 
 ## Testing
 
 ```bash
-# Run frontend unit tests (Vitest)
+# Frontend tests
 npm test
 
-# Run Rust backend test suite
+# Rust backend tests
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 ---
 
-## Key Features
+## Features
 
-- **⚡ Blazing Fast Architecture**: Native Rust backend with `tokio` and `mysql_async` connection pooling.
-- **🗃️ Unified Data Grid**: Row virtualization, in-place cell editing, dirty-state batching, cross-schema resolution, and TSV/CSV copy.
-- **🔍 Large Value Inspector**: Contextual drawer for formatting, editing, and copying large JSON & TEXT fields.
-- **🛡️ Production Safety**: Connection-level read-only mode, environment badges (`PROD`, `STAGING`, `LOCAL`), and mutation safeguards.
-- **📊 Schema Visualizer**: Interactive ER diagram canvas showing foreign keys, indices, and constraints.
-- **📝 CodeMirror 6 Editor**: SQL auto-completion, multi-statement execution tabs, and `EXPLAIN` plan tree viewer.
+- Native Rust backend with tokio and mysql_async connection pooling
+- Row virtualization, in-place cell editing, dirty-state batching
+- Large value inspector for formatting and editing JSON and TEXT fields
+- Connection-level read-only mode with environment badges (PROD, STAGING, LOCAL)
+- Interactive ER diagram with foreign keys, indices, and constraints
+- SQL auto-completion and multi-statement execution tabs
 
 ---
 
