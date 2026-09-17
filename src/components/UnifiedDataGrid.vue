@@ -266,26 +266,116 @@
           <div
             v-for="(col, colIndex) in columns"
             :key="(col.key || col.name) + '_' + colIndex"
-            class="group/head relative flex items-center justify-between px-2.5 border-r border-border/70 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer grid-header-cell"
+            class="group/head relative flex items-center justify-between px-2.5 border-r border-border/70 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer grid-header-cell flex-shrink-0"
             :class="sortCol === (col.key || col.name) ? 'bg-primary/8 text-foreground' : ''"
             :style="{ width: getColumnWidth(col.key || col.name) + 'px', minWidth: getColumnWidth(col.key || col.name) + 'px' }"
-            @click="sortBy(col.key || col.name)"
+            @click="onHeaderClick($event, col.key || col.name)"
             @contextmenu.prevent="openHeaderMenu($event, col.key || col.name)"
           >
-            <div class="flex items-center gap-1.5 truncate min-w-0">
-              <span class="truncate" :title="getHeaderTitle(col)">{{ col.name }}</span>
-              <span v-if="col.orgTable" class="text-[9.5px] text-muted-foreground/60 font-normal truncate hidden sm:inline" :title="col.orgTable">
-                ({{ col.orgTable }})
-              </span>
-              <span v-else-if="isDuplicateColName(col.name) && getColDuplicateIndex(col, colIndex) > 1" class="text-[9px] text-primary/70 font-mono">
-                #{{ getColDuplicateIndex(col, colIndex) }}
-              </span>
-              <span v-if="sortCol === (col.key || col.name)" class="text-primary font-bold text-[10px]">
-                {{ sortDir === 'asc' ? '↑' : '↓' }}
-              </span>
-            </div>
+            <TooltipProvider :delay-duration="250" :skip-delay-duration="150">
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <div class="flex items-center gap-1.5 truncate min-w-0 flex-1">
+                    <!-- Key Indicator Icon -->
+                    <PhKey
+                      v-if="isColPk(col)"
+                      class="w-3 h-3 text-emerald-500 flex-shrink-0"
+                      title="Primary Key"
+                    />
+                    <PhArrowSquareOut
+                      v-else-if="columnMetaMap[col.key || col.name]?.foreignKey"
+                      class="w-3 h-3 text-primary/70 flex-shrink-0"
+                      title="Foreign Key"
+                    />
 
-            <div class="flex items-center gap-1 flex-shrink-0">
+                    <!-- Clean, prominent column name -->
+                    <span class="truncate font-semibold text-foreground/90 group-hover/head:text-foreground">
+                      {{ col.name }}
+                    </span>
+
+                    <!-- Disambiguation index ONLY if duplicate column names exist in results -->
+                    <span
+                      v-if="isDuplicateColName(col.name) && getColDuplicateIndex(col, colIndex) > 1"
+                      class="text-[9px] px-1 py-0.2 rounded bg-primary/15 text-primary font-mono flex-shrink-0 font-medium"
+                    >
+                      #{{ getColDuplicateIndex(col, colIndex) }}
+                    </span>
+
+                    <!-- Sort Indicator -->
+                    <span v-if="sortCol === (col.key || col.name)" class="text-primary font-bold text-[10px] flex-shrink-0">
+                      {{ sortDir === 'asc' ? '↑' : '↓' }}
+                    </span>
+                  </div>
+                </TooltipTrigger>
+
+                <TooltipContent
+                  side="bottom"
+                  align="start"
+                  :side-offset="6"
+                  class="w-72 p-2.5 bg-popover/98 border border-border/90 shadow-xl rounded-lg text-xs font-mono select-text pointer-events-auto"
+                >
+                  <div class="flex flex-col gap-2">
+                    <!-- Top row: Name and Type -->
+                    <div class="flex items-start justify-between gap-2 border-b border-border/60 pb-1.5">
+                      <div class="min-w-0 flex-1">
+                        <div class="text-[12px] font-bold text-foreground break-all leading-tight">{{ col.name }}</div>
+                        <div v-if="col.orgName && col.orgName !== col.name" class="text-[10px] text-muted-foreground/80 mt-0.5">
+                          Original: <code class="text-foreground/90">{{ col.orgName }}</code>
+                        </div>
+                      </div>
+                      <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border/50 flex-shrink-0">
+                        {{ col.type }}
+                      </span>
+                    </div>
+
+                    <!-- Table & Schema info -->
+                    <div class="space-y-1 text-[11px]">
+                      <div v-if="col.orgTable || props.tableName" class="flex items-center justify-between text-muted-foreground">
+                        <span>Table:</span>
+                        <span class="text-foreground font-medium truncate max-w-[170px]" :title="col.orgTable || props.tableName">
+                          {{ col.orgTable || props.tableName }}
+                        </span>
+                      </div>
+                      <div v-if="col.schema" class="flex items-center justify-between text-muted-foreground">
+                        <span>Schema:</span>
+                        <span class="text-foreground font-medium truncate max-w-[170px]" :title="col.schema">{{ col.schema }}</span>
+                      </div>
+
+                      <!-- Key / Constraint Badges -->
+                      <div v-if="getColumnTooltipDetails(col).keyBadge" class="flex items-center justify-between pt-0.5">
+                        <span class="text-muted-foreground">Key:</span>
+                        <span class="inline-flex items-center gap-1 text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                          <PhKey class="w-2.5 h-2.5" />
+                          {{ getColumnTooltipDetails(col).keyBadge }}
+                        </span>
+                      </div>
+
+                      <!-- Foreign Key Target -->
+                      <div v-if="getColumnTooltipDetails(col).fkInfo" class="flex flex-col gap-0.5 pt-0.5 border-t border-border/40">
+                        <div class="flex items-center gap-1 text-[10.5px] text-primary font-medium">
+                          <PhArrowSquareOut class="w-3 h-3" />
+                          <span>References FK:</span>
+                        </div>
+                        <div class="text-[10px] text-foreground/90 bg-muted/40 px-1.5 py-0.5 rounded truncate" :title="`${getColumnTooltipDetails(col).fkInfo.refTable}.${getColumnTooltipDetails(col).fkInfo.refColumn}`">
+                          {{ getColumnTooltipDetails(col).fkInfo.refTable }}.{{ getColumnTooltipDetails(col).fkInfo.refColumn }}
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Helpful Tip Footer -->
+                    <div class="border-t border-border/50 pt-1.5 text-[9.5px] text-muted-foreground/70 flex items-center justify-between">
+                      <span>Click to sort</span>
+                      <span>·</span>
+                      <span>Drag edge to resize</span>
+                      <span>·</span>
+                      <span>Right-click menu</span>
+                    </div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <div class="flex items-center gap-1 flex-shrink-0 ml-1">
               <button
                 class="p-0.5 rounded cursor-pointer border-none"
                 :class="filterForColumn(col.key || col.name) ? 'text-primary bg-primary/15 opacity-100' : 'text-muted-foreground/50 opacity-0 group-hover/head:opacity-100 hover:text-foreground bg-transparent'"
@@ -295,18 +385,28 @@
               >
                 <PhFunnel class="w-3 h-3" weight="bold" />
               </button>
-              <span class="text-[9px] font-mono text-muted-foreground/50 font-normal hidden lg:inline group-hover/head:text-muted-foreground/80 transition-colors">
+              <span class="text-[9px] font-mono text-muted-foreground/45 font-normal hidden lg:inline group-hover/head:text-muted-foreground/75 transition-colors">
                 {{ col.type }}
               </span>
             </div>
 
             <!-- Column Resizer Drag Handle -->
             <div
-              class="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-primary/50 transition-colors z-10"
-              @mousedown.stop="startResizeColumn($event, col.key || col.name)"
+              class="column-resizer absolute -right-1.5 top-0 bottom-0 w-3 cursor-col-resize z-20 flex items-center justify-center group/resizer"
+              :class="{ 'is-resizing': isResizingColumn && resizeColName === (col.key || col.name) }"
+              @mousedown.stop.prevent="startResizeColumn($event, col.key || col.name)"
               @dblclick.stop="autoFitColumn(col.key || col.name)"
-            ></div>
+              title="Drag to resize, double-click to auto-fit"
+            >
+              <div
+                class="w-[2px] h-full transition-colors group-hover/resizer:bg-primary/70"
+                :class="isResizingColumn && resizeColName === (col.key || col.name) ? 'bg-primary' : 'bg-transparent'"
+              ></div>
+            </div>
           </div>
+
+          <!-- Trailing Header Filler to provide right margin buffer so last column resizer has room -->
+          <div class="flex-1 min-w-[64px] bg-muted/40 border-b border-border/70"></div>
         </div>
 
         <!-- Virtual Spacer Top -->
@@ -352,7 +452,7 @@
           <div
             v-for="(col, colIndex) in columns"
             :key="(col.key || col.name) + '_' + colIndex"
-            class="relative flex items-center px-2 border-r border-b border-border/70 truncate cursor-cell select-none grid-data-cell"
+            class="relative flex items-center px-2 border-r border-b border-border/70 truncate cursor-cell select-none grid-data-cell flex-shrink-0"
             :style="{
               width: getColumnWidth(col.key || col.name) + 'px',
               minWidth: getColumnWidth(col.key || col.name) + 'px',
@@ -456,6 +556,9 @@
               </template>
             </template>
           </div>
+
+          <!-- Trailing Row Filler -->
+          <div class="flex-1 min-w-[64px] border-b border-border/70"></div>
         </div>
 
         <!-- Virtual Spacer Bottom -->
@@ -696,7 +799,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Button } from '@/components/ui/button'
-import { ActionTooltip } from '@/components/ui/tooltip'
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, ActionTooltip } from '@/components/ui/tooltip'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ValueInspector from './ValueInspector.vue'
 import {
@@ -855,6 +958,61 @@ function getColDuplicateIndex(col: ColumnDef, colIndex: number): number {
   return count
 }
 
+function isColPk(col: ColumnDef): boolean {
+  const targetTable = col.orgTable || props.tableName || ''
+  if (!targetTable) return false
+  const info = schemaStore.getKeyColumnsForTable(targetTable)
+  const cName = (col.orgName || col.name).toLowerCase()
+  return info.columns.some(k => k.toLowerCase() === cName)
+}
+
+function getColumnTooltipDetails(col: ColumnDef) {
+  const colKey = col.key || col.name
+  const meta = columnMetaMap.value[colKey]
+  const targetTable = col.orgTable || props.tableName || ''
+
+  let keyBadge: string | null = null
+  let keyDescription: string | null = null
+
+  if (targetTable) {
+    const keyInfo = schemaStore.getKeyColumnsForTable(targetTable)
+    const cName = (col.orgName || col.name).toLowerCase()
+    if (keyInfo.columns.some(k => k.toLowerCase() === cName)) {
+      if (keyInfo.keyType === 'primary') {
+        keyBadge = 'PRIMARY KEY'
+        keyDescription = 'Primary key column'
+      } else if (keyInfo.keyType === 'unique') {
+        keyBadge = 'UNIQUE KEY'
+        keyDescription = 'Unique index column'
+      } else if (keyInfo.keyType === 'virtual') {
+        keyBadge = 'VIRTUAL KEY'
+        keyDescription = 'Virtual key column'
+      }
+    }
+  }
+
+  const fk = meta?.foreignKey
+  let fkInfo: { refTable: string; refColumn: string } | null = null
+  if (fk) {
+    const refTable = fk.referenced_table || fk.referencedTable || ''
+    const refColumn = fk.referenced_column || fk.referencedColumn || ''
+    if (refTable && refColumn) {
+      fkInfo = { refTable, refColumn }
+    }
+  }
+
+  return {
+    name: col.name,
+    orgName: col.orgName && col.orgName !== col.name ? col.orgName : null,
+    table: col.orgTable || (props.tableName ? props.tableName : null),
+    schema: col.schema || null,
+    type: col.type || 'unknown',
+    keyBadge,
+    keyDescription,
+    fkInfo,
+  }
+}
+
 function getHeaderTitle(col: ColumnDef): string {
   if (col.orgTable) return `${col.orgTable}.${col.name} (${col.type})`
   return `${col.name} (${col.type})`
@@ -901,12 +1059,29 @@ function getColumnWidth(name: string): number {
 let resizeColName = ''
 let resizeStartX = 0
 let resizeStartWidth = 150
+const isResizingColumn = ref(false)
+let hasMovedDuringResize = false
+let justFinishedResize = false
+
+function onHeaderClick(_e: MouseEvent, colKey: string) {
+  if (isResizingColumn.value || justFinishedResize || hasMovedDuringResize) {
+    return
+  }
+  sortBy(colKey)
+}
 
 function startResizeColumn(e: MouseEvent, colName: string) {
   e.preventDefault()
+  e.stopPropagation()
   resizeColName = colName
   resizeStartX = e.clientX
   resizeStartWidth = getColumnWidth(colName)
+  hasMovedDuringResize = false
+  isResizingColumn.value = true
+
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+
   window.addEventListener('mousemove', onColumnResizeMove)
   window.addEventListener('mouseup', stopResizeColumn)
 }
@@ -914,11 +1089,39 @@ function startResizeColumn(e: MouseEvent, colName: string) {
 function onColumnResizeMove(e: MouseEvent) {
   if (!resizeColName) return
   const delta = e.clientX - resizeStartX
-  columnWidths[resizeColName] = Math.max(70, Math.min(600, resizeStartWidth + delta))
+  if (Math.abs(delta) > 2) {
+    hasMovedDuringResize = true
+  }
+
+  // Auto-scroll horizontally if dragging near or beyond viewport edge
+  if (scrollViewportRef.value) {
+    const vp = scrollViewportRef.value
+    const rect = vp.getBoundingClientRect()
+    const edgeThreshold = 35
+    if (e.clientX > rect.right - edgeThreshold) {
+      vp.scrollLeft += 12
+    } else if (e.clientX < rect.left + edgeThreshold && vp.scrollLeft > 0) {
+      vp.scrollLeft -= 12
+    }
+  }
+
+  columnWidths[resizeColName] = Math.max(60, Math.min(1000, Math.round(resizeStartWidth + delta)))
 }
 
 function stopResizeColumn() {
+  if (hasMovedDuringResize) {
+    justFinishedResize = true
+    setTimeout(() => {
+      justFinishedResize = false
+      hasMovedDuringResize = false
+    }, 150)
+  }
+
   resizeColName = ''
+  isResizingColumn.value = false
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+
   window.removeEventListener('mousemove', onColumnResizeMove)
   window.removeEventListener('mouseup', stopResizeColumn)
   saveWidths()
@@ -938,7 +1141,7 @@ function autoFitColumn(colKey: string) {
 const tableTotalWidth = computed(() => {
   const base = 36 + 40 // Checkbox + #
   const cols = props.columns.reduce((sum, c) => sum + getColumnWidth(c.key || c.name), 0)
-  return Math.max(base + cols, 600)
+  return Math.max(base + cols + 64, 600)
 })
 
 // Pre-computed Column Metadata Map for O(1) cell evaluation
@@ -2046,5 +2249,13 @@ defineExpose({
 /* Suppress default cell borders inside selection so the inset box-shadow outline reads cleanly */
 .grid-data-cell.bg-primary\/\[0\.10\] {
   border-color: hsl(var(--primary) / 0.15);
+}
+
+.column-resizer {
+  touch-action: none;
+}
+
+.column-resizer.is-resizing {
+  background: hsl(var(--primary) / 0.12);
 }
 </style>

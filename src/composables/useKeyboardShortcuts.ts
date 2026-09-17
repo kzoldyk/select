@@ -163,9 +163,16 @@ export function useKeyboardShortcuts(handlers: { onRun?: () => void; onExplain?:
     }
 
     // ⌘T — New tab
-    if (meta && !shift && key === 't') {
+    if (meta && !shift && (key === 't' || key === 'T')) {
       e.preventDefault()
       editor.addTab()
+      return
+    }
+
+    // ⌘N — New notebook tab
+    if (meta && !shift && !alt && (key === 'n' || key === 'N')) {
+      e.preventDefault()
+      editor.addNotebookTab()
       return
     }
 

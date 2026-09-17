@@ -33,10 +33,12 @@
           @click="editorStore.selectTab(tab.id)"
           @keydown.enter.space.prevent="editorStore.selectTab(tab.id)"
           @auxclick.stop="editorStore.closeTab(tab.id)"
+          @contextmenu.prevent="openTabCtxMenu($event, tab)"
         >
           <component 
-            :is="tab.type === 'table' ? PhTable : (tab.type === 'schema_diagram' ? PhGitBranch : PhFileCode)" 
+            :is="getTabIcon(tab)" 
             class="w-3.5 h-3.5 opacity-70 flex-shrink-0"
+            :class="{ 'text-amber-400 opacity-90': isNotebookTab(tab) }"
           />
           <span class="max-w-[140px] overflow-hidden text-ellipsis">{{ tab.name }}</span>
           
@@ -55,15 +57,56 @@
           </button>
         </div>
 
-        <ActionTooltip text="New Query Tab (⌘T)">
-          <button
-            class="inline-flex items-center justify-center w-6 h-6 mb-0.5 rounded bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer flex-shrink-0 transition-colors border-none"
-            aria-label="Add new query tab (⌘T)"
-            @click="editorStore.addTab()"
-          >
-            <PhPlus class="w-3.5 h-3.5" />
-          </button>
-        </ActionTooltip>
+        <!-- New Tab Button with Format Chooser Menu -->
+        <div class="relative flex-shrink-0">
+          <ActionTooltip text="New Tab (Click to choose format)">
+            <button
+              class="inline-flex items-center justify-center w-6 h-6 mb-0.5 rounded bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer flex-shrink-0 transition-colors border-none"
+              aria-label="Add new tab"
+              @click.stop="toggleNewTabMenu"
+            >
+              <PhPlus class="w-3.5 h-3.5" />
+            </button>
+          </ActionTooltip>
+
+          <!-- Format Chooser Menu (Teleported to avoid overflow-y-hidden clipping) -->
+          <Teleport to="body">
+            <div
+              v-if="newTabMenuOpen"
+              class="fixed z-[9999] bg-popover border border-border/90 rounded-md shadow-xl py-1 min-w-[200px] text-xs font-sans select-none"
+              :style="{ top: newTabMenuPos.y + 'px', left: newTabMenuPos.x + 'px' }"
+              @click.stop
+            >
+              <button
+                type="button"
+                class="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-accent cursor-pointer border-none bg-transparent text-left text-foreground text-xs transition-colors"
+                @click="createNewTab('sql')"
+              >
+                <PhFileCode class="w-4 h-4 text-primary shrink-0" />
+                <div class="flex flex-col flex-1 min-w-0">
+                  <span class="font-medium text-[12px]">SQL Query</span>
+                  <span class="text-[10px] text-muted-foreground">Standard .sql file</span>
+                </div>
+                <span class="text-[10px] text-muted-foreground/60 font-mono">⌘T</span>
+              </button>
+
+              <div class="h-px bg-border/60 my-1"></div>
+
+              <button
+                type="button"
+                class="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-accent cursor-pointer border-none bg-transparent text-left text-foreground text-xs transition-colors"
+                @click="createNewTab('notebook')"
+              >
+                <PhNotebook class="w-4 h-4 text-amber-400 shrink-0" />
+                <div class="flex flex-col flex-1 min-w-0">
+                  <span class="font-medium text-[12px]">Markdown Note</span>
+                  <span class="text-[10px] text-muted-foreground">Notion notes & SQL snippets</span>
+                </div>
+                <span class="text-[10px] text-muted-foreground/60 font-mono">⌘N</span>
+              </button>
+            </div>
+          </Teleport>
+        </div>
       </div>
     </div>
 
@@ -140,19 +183,65 @@
         </ActionTooltip>
       </template>
     </div>
+
+    <!-- Tab Context Menu -->
+    <Teleport to="body">
+      <div
+        v-if="tabCtxMenu.visible && tabCtxMenu.tab"
+        class="fixed z-[9999] bg-popover border border-border/80 rounded-md shadow-xl py-1 min-w-[170px] text-xs font-mono select-none"
+        :style="{ top: tabCtxMenu.y + 'px', left: tabCtxMenu.x + 'px' }"
+        @click.stop
+      >
+        <template v-if="tabCtxMenu.tab.type === 'query' || !tabCtxMenu.tab.type">
+          <button
+            v-if="isNotebookTab(tabCtxMenu.tab)"
+            class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left text-muted-foreground hover:text-foreground text-[11px]"
+            @click="ctxConvertToSql"
+          >
+            <PhFileCode class="w-3.5 h-3.5 text-primary" />
+            <span>Convert to SQL</span>
+          </button>
+          <button
+            v-else
+            class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left text-muted-foreground hover:text-foreground text-[11px]"
+            @click="ctxConvertToNotebook"
+          >
+            <PhNotebook class="w-3.5 h-3.5 text-amber-500" />
+            <span>Convert to Notebook</span>
+          </button>
+          <div class="h-px bg-border/60 my-1"></div>
+        </template>
+
+        <button
+          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left text-muted-foreground hover:text-foreground text-[11px]"
+          @click="ctxCloseTab"
+        >
+          <PhX class="w-3.5 h-3.5" />
+          <span>Close Tab</span>
+        </button>
+        <button
+          class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left text-muted-foreground hover:text-foreground text-[11px]"
+          @click="ctxCloseOtherTabs"
+        >
+          <span>Close Other Tabs</span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { useEditorStore } from '../stores/editor'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { useEditorStore, type Tab } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { useResultStore } from '../stores/result'
 import { Button } from '@/components/ui/button'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import { 
   PhSidebar, PhPlus, PhMagnifyingGlass, PhMagicWand, PhTreeStructure, PhPlay, PhX,
-  PhTable, PhFileCode, PhGitBranch
+  PhTable, PhFileCode, PhGitBranch, PhNotebook
 } from '@phosphor-icons/vue'
+import { detectDocumentFormat } from '../lib/sqlExtract'
 
 defineEmits<{
   format: []
@@ -163,4 +252,107 @@ defineEmits<{
 const editorStore = useEditorStore()
 const uiStore = useUiStore()
 const resultStore = useResultStore()
+
+function isNotebookTab(tab: Tab | null): boolean {
+  if (!tab || tab.type === 'table' || tab.type === 'schema_diagram') return false
+  return tab.format === 'notebook' || detectDocumentFormat(tab.sql) === 'notebook'
+}
+
+function getTabIcon(tab: Tab) {
+  if (tab.type === 'table') return PhTable
+  if (tab.type === 'schema_diagram') return PhGitBranch
+  return isNotebookTab(tab) ? PhNotebook : PhFileCode
+}
+
+const tabCtxMenu = ref<{
+  visible: boolean
+  x: number
+  y: number
+  tab: Tab | null
+}>({
+  visible: false,
+  x: 0,
+  y: 0,
+  tab: null,
+})
+
+function openTabCtxMenu(e: MouseEvent, tab: Tab) {
+  tabCtxMenu.value = {
+    visible: true,
+    x: Math.min(e.clientX, window.innerWidth - 180),
+    y: e.clientY + 4,
+    tab,
+  }
+}
+
+function closeTabCtxMenu() {
+  tabCtxMenu.value.visible = false
+  tabCtxMenu.value.tab = null
+}
+
+function ctxConvertToSql() {
+  if (tabCtxMenu.value.tab) {
+    editorStore.convertTabToSql(tabCtxMenu.value.tab.id)
+  }
+  closeTabCtxMenu()
+}
+
+function ctxConvertToNotebook() {
+  if (tabCtxMenu.value.tab) {
+    editorStore.convertTabToNotebook(tabCtxMenu.value.tab.id)
+  }
+  closeTabCtxMenu()
+}
+
+function ctxCloseTab() {
+  if (tabCtxMenu.value.tab) {
+    editorStore.closeTab(tabCtxMenu.value.tab.id)
+  }
+  closeTabCtxMenu()
+}
+
+function ctxCloseOtherTabs() {
+  if (tabCtxMenu.value.tab) {
+    const keepId = tabCtxMenu.value.tab.id
+    const toClose = editorStore.tabs.filter(t => t.id !== keepId)
+    for (const t of toClose) {
+      editorStore.closeTab(t.id)
+    }
+  }
+  closeTabCtxMenu()
+}
+
+const newTabMenuOpen = ref(false)
+const newTabMenuPos = ref({ x: 0, y: 0 })
+
+function toggleNewTabMenu(e: MouseEvent) {
+  const btn = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  newTabMenuPos.value = {
+    x: Math.min(btn.left, window.innerWidth - 210),
+    y: btn.bottom + 4,
+  }
+  newTabMenuOpen.value = !newTabMenuOpen.value
+}
+
+function createNewTab(format: 'sql' | 'notebook') {
+  newTabMenuOpen.value = false
+  if (format === 'notebook') {
+    editorStore.addNotebookTab()
+  } else {
+    editorStore.addTab()
+  }
+}
+
+function handleGlobalClick() {
+  newTabMenuOpen.value = false
+  closeTabCtxMenu()
+}
+
+onMounted(() => {
+  window.addEventListener('click', handleGlobalClick)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('click', handleGlobalClick)
+})
 </script>

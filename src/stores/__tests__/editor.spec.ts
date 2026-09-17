@@ -205,4 +205,36 @@ describe("editor store", () => {
       expect(tab.selectedTextCount).toBe(15);
     });
   });
+
+  describe("notebook mode actions", () => {
+    it("addNotebookTab creates a tab with format 'notebook'", () => {
+      const store = useEditorStore();
+      const id = store.addNotebookTab();
+      const tab = store.tabs.find(t => t.id === id);
+      expect(tab).toBeDefined();
+      expect(tab!.format).toBe("notebook");
+      expect(tab!.name).toMatch(/^Notes /);
+      expect(tab!.sql).toContain("```sql");
+    });
+
+    it("convertTabToNotebook wraps existing SQL into notebook format", () => {
+      const store = useEditorStore();
+      const tab = store.tabs[0];
+      tab.sql = "SELECT * FROM users;";
+      store.convertTabToNotebook(tab.id);
+      expect(tab.format).toBe("notebook");
+      expect(tab.sql).toContain("# Query 1");
+      expect(tab.sql).toContain("```sql\nSELECT * FROM users;\n```");
+    });
+
+    it("convertTabToSql converts notebook prose to comments without data loss", () => {
+      const store = useEditorStore();
+      const id = store.addNotebookTab("# My Notes\n\n```sql\nSELECT 42;\n```");
+      const tab = store.tabs.find(t => t.id === id)!;
+      store.convertTabToSql(tab.id);
+      expect(tab.format).toBe("sql");
+      expect(tab.sql).toContain("/*\n# My Notes\n*/");
+      expect(tab.sql).toContain("SELECT 42;");
+    });
+  });
 });

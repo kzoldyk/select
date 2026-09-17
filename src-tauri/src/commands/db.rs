@@ -123,7 +123,16 @@ fn sanitize_query_filename(name: &str) -> String {
 }
 
 fn query_file_path(dir: &PathBuf, name: &str) -> PathBuf {
-    dir.join(format!("{}.sql", sanitize_query_filename(name)))
+    let lower = name.trim().to_lowercase();
+    if lower.ends_with(".md") {
+        let stem = &name.trim()[..name.trim().len() - 3];
+        dir.join(format!("{}.md", sanitize_query_filename(stem)))
+    } else if lower.ends_with(".sql") {
+        let stem = &name.trim()[..name.trim().len() - 4];
+        dir.join(format!("{}.sql", sanitize_query_filename(stem)))
+    } else {
+        dir.join(format!("{}.sql", sanitize_query_filename(name)))
+    }
 }
 
 fn system_time_to_iso(time: std::time::SystemTime) -> String {
@@ -133,7 +142,8 @@ fn system_time_to_iso(time: std::time::SystemTime) -> String {
 
 fn saved_query_from_file(path: &std::path::Path) -> Option<SavedQuery> {
     let file_name = path.file_name()?.to_str()?.to_string();
-    if !file_name.to_lowercase().ends_with(".sql") {
+    let lower = file_name.to_lowercase();
+    if !lower.ends_with(".sql") && !lower.ends_with(".md") {
         return None;
     }
     let name = path.file_stem()?.to_str()?.to_string();
@@ -237,14 +247,22 @@ fn load_queries_from_disk(app: &tauri::AppHandle) -> Vec<SavedQuery> {
 }
 
 fn resolve_unique_query_path(dir: &PathBuf, name: &str) -> PathBuf {
-    let sanitized = sanitize_query_filename(name);
-    let path = dir.join(format!("{}.sql", sanitized));
+    let lower = name.trim().to_lowercase();
+    let (stem, ext) = if lower.ends_with(".md") {
+        (&name.trim()[..name.trim().len() - 3], "md")
+    } else if lower.ends_with(".sql") {
+        (&name.trim()[..name.trim().len() - 4], "sql")
+    } else {
+        (name.trim(), "sql")
+    };
+    let sanitized = sanitize_query_filename(stem);
+    let path = dir.join(format!("{}.{}", sanitized, ext));
     if !path.exists() {
         return path;
     }
     let mut counter = 1;
     loop {
-        let candidate = dir.join(format!("{} ({}).sql", sanitized, counter));
+        let candidate = dir.join(format!("{} ({}).{}", sanitized, counter, ext));
         if !candidate.exists() {
             return candidate;
         }
@@ -2840,12 +2858,19 @@ pub async fn save_query(
         let path = dir.join(safe_id);
         if path.exists() && path.is_file() {
             // If the display name changed, rename the file to match.
-            let desired = query_file_path(&dir, &name);
+            let existing_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("sql");
+            let target_name = if name.to_lowercase().ends_with(".md") || name.to_lowercase().ends_with(".sql") {
+                name.clone()
+            } else {
+                format!("{}.{}", name, existing_ext)
+            };
+            let desired = query_file_path(&dir, &target_name);
             if !is_same_file(&path, &desired) {
                 if desired.exists() {
+                    let desired_filename = desired.file_name().and_then(|f| f.to_str()).unwrap_or("file");
                     return Err(format!(
-                        "A query file named \"{}.sql\" already exists",
-                        sanitize_query_filename(&name)
+                        "A query file named \"{}\" already exists",
+                        desired_filename
                     ));
                 }
                 safe_rename(&path, &desired)?;
@@ -2897,12 +2922,19 @@ pub async fn rename_query(
         return Err("Query not found".into());
     }
 
-    let new_path = query_file_path(&dir, &new_name);
+    let existing_ext = old_path.extension().and_then(|e| e.to_str()).unwrap_or("sql");
+    let target_name = if new_name.to_lowercase().ends_with(".md") || new_name.to_lowercase().ends_with(".sql") {
+        new_name.clone()
+    } else {
+        format!("{}.{}", new_name, existing_ext)
+    };
+    let new_path = query_file_path(&dir, &target_name);
     if !is_same_file(&old_path, &new_path) {
         if new_path.exists() {
+            let desired_filename = new_path.file_name().and_then(|f| f.to_str()).unwrap_or("file");
             return Err(format!(
-                "A query file named \"{}.sql\" already exists",
-                sanitize_query_filename(&new_name)
+                "A query file named \"{}\" already exists",
+                desired_filename
             ));
         }
         safe_rename(&old_path, &new_path)?;
@@ -2965,7 +2997,7 @@ pub async fn set_custom_queries_dir(
                 let p = entry.path();
                 if p.is_file() {
                     if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                        if ext.eq_ignore_ascii_case("sql") {
+                        if ext.eq_ignore_ascii_case("sql") || ext.eq_ignore_ascii_case("md") {
                             if let Some(filename) = p.file_name() {
                                 let dest = new_dir.join(filename);
                                 if !dest.exists() {
@@ -3132,6 +3164,10 @@ mod tests {
         assert_eq!(
             query_file_path(&dir, "User Stats"),
             PathBuf::from("/tmp/queries/User Stats.sql")
+        );
+        assert_eq!(
+            query_file_path(&dir, "User Stats.md"),
+            PathBuf::from("/tmp/queries/User Stats.md")
         );
     }
 

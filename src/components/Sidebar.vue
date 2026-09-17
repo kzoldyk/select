@@ -275,6 +275,11 @@
               @click="editorStore.openSavedQuery(sq)"
               @contextmenu.prevent="(e) => openSQCtxMenu(e, sq)"
             >
+              <component
+                :is="sq.id.toLowerCase().endsWith('.md') ? PhNotebook : PhFileCode"
+                class="w-3.5 h-3.5 flex-shrink-0"
+                :class="sq.id.toLowerCase().endsWith('.md') ? 'text-amber-400' : 'text-muted-foreground/70'"
+              />
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ sq.name }}</span>
             </button>
             <div v-if="!editorStore.savedQueries?.length" class="px-4 py-1.5 text-[10.5px] text-muted-foreground/50">
@@ -355,7 +360,7 @@ import { toast } from 'vue-sonner'
 import {
   PhMagnifyingGlass, PhCaretRight, PhTable, PhEye, PhLightning, PhHash,
   PhPlay, PhFileCode, PhGitBranch, PhPlug, PhDatabase,
-  PhCopy, PhArrowSquareOut, PhPencil, PhTrash
+  PhCopy, PhArrowSquareOut, PhPencil, PhTrash, PhNotebook
 } from '@phosphor-icons/vue'
 import { useSchemaStore } from '../stores/schema'
 import { useConnectionStore } from '../stores/connection'

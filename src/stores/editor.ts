@@ -1,5 +1,12 @@
 import { defineStore } from 'pinia'
 import { invoke } from '@tauri-apps/api/core'
+import {
+  NOTEBOOK_STARTER,
+  convertSqlToNotebook,
+  convertNotebookContentToSql,
+  isNotebookDocument,
+  detectDocumentFormat,
+} from '../lib/sqlExtract'
 
 export interface Tab {
   id: string
@@ -16,6 +23,8 @@ export interface Tab {
   selectedTextCount?: number
   type?: 'query' | 'table' | 'schema_diagram'
   tableName?: string
+  /** Editor rendering: SQL (default) or notebook. Never auto-inferred from content. */
+  format?: 'sql' | 'notebook'
 }
 
 export interface SavedQuery {
@@ -49,6 +58,8 @@ export const useEditorStore = defineStore('editor', {
         selectionAnchor: 0,
         selectionHead: 0,
         selectedTextCount: 0,
+        type: 'query',
+        format: 'sql',
       },
     ] as Tab[],
     activeTabId: 'tab-1',
@@ -82,6 +93,7 @@ export const useEditorStore = defineStore('editor', {
         selectionHead: t.selectionHead,
         type: t.type || 'query',
         tableName: t.tableName,
+        format: t.format || 'sql',
       }))
       localStorage.setItem('tabState', JSON.stringify(data))
       localStorage.setItem('activeTabIndex', String(activeIndex))
@@ -137,6 +149,7 @@ export const useEditorStore = defineStore('editor', {
             : 0,
           type: (d as any).type || 'query',
           tableName: (d as any).tableName,
+          format: (d as any).format === 'notebook' ? 'notebook' : 'sql',
         }))
         const activeId = localStorage.getItem('activeTabId')
         const activeIndexRaw = localStorage.getItem('activeTabIndex')
@@ -179,13 +192,14 @@ export const useEditorStore = defineStore('editor', {
         }
       }
     },
-    addTab() {
+    addTab(initialContent?: string, format?: 'sql' | 'notebook') {
       if (this.tabs.length >= MAX_TABS) return ''
       tabCounter++
+      const initialSql = initialContent ?? ''
       const tab: Tab = {
-        id: `tab-${Date.now()}`,
+        id: `tab-${Date.now()}-${tabCounter}`,
         name: `Query ${tabCounter}`,
-        sql: '',
+        sql: initialSql,
         connectionId: null,
         isUnsaved: false,
         savedQueryId: null,
@@ -195,11 +209,58 @@ export const useEditorStore = defineStore('editor', {
         selectionHead: 0,
         selectedTextCount: 0,
         type: 'query',
+        format: format ?? 'sql',
       }
       this.tabs.push(tab)
       this.activeTabId = tab.id
       this.saveTabState()
       return tab.id
+    },
+    addNotebookTab(initialContent?: string) {
+      if (this.tabs.length >= MAX_TABS) return ''
+      tabCounter++
+      const tab: Tab = {
+        id: `tab-${Date.now()}-${tabCounter}`,
+        name: `Notes ${tabCounter}`,
+        sql: initialContent ?? NOTEBOOK_STARTER,
+        connectionId: null,
+        isUnsaved: false,
+        savedQueryId: null,
+        cursorLine: 1,
+        cursorCol: 1,
+        selectionAnchor: 0,
+        selectionHead: 0,
+        selectedTextCount: 0,
+        type: 'query',
+        format: 'notebook',
+      }
+      this.tabs.push(tab)
+      this.activeTabId = tab.id
+      this.saveTabState()
+      return tab.id
+    },
+    convertTabToNotebook(id: string) {
+      const tab = this.tabs.find(t => t.id === id)
+      if (!tab || tab.format === 'notebook') return
+      tab.format = 'notebook'
+      tab.sql = convertSqlToNotebook(tab.sql, tab.name)
+      tab.isUnsaved = true
+      this.saveTabState()
+    },
+    convertTabToSql(id: string) {
+      const tab = this.tabs.find(t => t.id === id)
+      if (!tab || tab.format === 'sql') return
+      tab.format = 'sql'
+      tab.sql = convertNotebookContentToSql(tab.sql)
+      tab.isUnsaved = true
+      this.saveTabState()
+    },
+    setTabFormat(id: string, format: 'sql' | 'notebook') {
+      const tab = this.tabs.find(t => t.id === id)
+      if (tab) {
+        tab.format = format
+        this.scheduleSaveTabState()
+      }
     },
     addTableTab(tableName: string) {
       let tab = this.tabs.find(t => t.type === 'table' && t.tableName === tableName)
@@ -208,8 +269,9 @@ export const useEditorStore = defineStore('editor', {
         const escapedTable = tableName.includes('.')
           ? tableName.split('.').map(p => `\`${p.replace(/`/g, '``')}\``).join('.')
           : `\`${tableName.replace(/`/g, '``')}\``
+        tabCounter++
         tab = {
-          id: `tab-table-${Date.now()}`,
+          id: `tab-table-${Date.now()}-${tabCounter}`,
           name: tableName,
           sql: `SELECT * FROM ${escapedTable}`,
           connectionId: null,
@@ -234,8 +296,9 @@ export const useEditorStore = defineStore('editor', {
       let tab = this.tabs.find(t => t.type === 'schema_diagram' && t.tableName === focusTable)
       if (!tab) {
         if (this.tabs.length >= MAX_TABS) return ''
+        tabCounter++
         tab = {
-          id: `tab-schema-${Date.now()}`,
+          id: `tab-schema-${Date.now()}-${tabCounter}`,
           name: tabName,
           sql: '',
           connectionId: null,
@@ -289,8 +352,11 @@ export const useEditorStore = defineStore('editor', {
       if (!tab) return
       if (tab.savedQueryId) {
         try {
+          const saveName = tab.format === 'notebook' && !tab.name.toLowerCase().endsWith('.md')
+            ? `${tab.name}.md`
+            : tab.name
           const saved = await invoke<SavedQuery>('save_query', {
-            name: tab.name,
+            name: saveName,
             sql: tab.sql,
             id: tab.savedQueryId,
           })
@@ -311,8 +377,11 @@ export const useEditorStore = defineStore('editor', {
       const tab = this.tabs.find(t => t.id === tabId)
       if (!tab) return
       try {
+        const saveName = tab.format === 'notebook' && !name.toLowerCase().endsWith('.md')
+          ? `${name}.md`
+          : name
         const saved = await invoke<SavedQuery>('save_query', {
-          name,
+          name: saveName,
           sql: tab.sql,
           id: null,
         })
@@ -365,8 +434,9 @@ export const useEditorStore = defineStore('editor', {
         return
       }
       tabCounter++
+      const isNotebook = saved.id.toLowerCase().endsWith('.md') || isNotebookDocument(saved.sql)
       const tab: Tab = {
-        id: `tab-${Date.now()}`,
+        id: `tab-${Date.now()}-${tabCounter}`,
         name: saved.name,
         sql: saved.sql,
         connectionId: null,
@@ -377,6 +447,8 @@ export const useEditorStore = defineStore('editor', {
         selectionAnchor: 0,
         selectionHead: 0,
         selectedTextCount: 0,
+        type: 'query',
+        format: isNotebook ? 'notebook' : 'sql',
       }
       this.tabs.push(tab)
       this.activeTabId = tab.id

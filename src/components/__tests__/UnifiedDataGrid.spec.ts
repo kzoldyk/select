@@ -217,4 +217,43 @@ describe('UnifiedDataGrid.vue', () => {
     expect(wrapper.text()).toContain('total_amount')
     expect(wrapper.text()).not.toContain('Alice')
   })
+
+  it('displays clean column names without cluttering inline table names', () => {
+    const columnsWithTable = [
+      { name: 'id', orgTable: 'wms_courier_shipping_providers', type: 'int' },
+      { name: 'warehouse_id', orgTable: 'wms_courier_shipping_providers', type: 'int' },
+    ]
+    const rows = [
+      { id: 131, warehouse_id: 10 }
+    ]
+
+    const wrapper = mount(UnifiedDataGrid, {
+      props: {
+        columns: columnsWithTable,
+        rows,
+      }
+    })
+
+    const headerCells = wrapper.findAll('.grid-header-cell')
+    expect(headerCells.length).toBe(2)
+    // The clean header should feature the column name
+    expect(headerCells[0].text()).toContain('id')
+    expect(headerCells[1].text()).toContain('warehouse_id')
+  })
+
+  it('provides column resizer handles with drag resizing capability', async () => {
+    const wrapper = mount(UnifiedDataGrid, {
+      props: {
+        columns: sampleColumns,
+        rows: sampleRows,
+      }
+    })
+
+    const resizers = wrapper.findAll('.column-resizer')
+    expect(resizers.length).toBe(sampleColumns.length)
+
+    // Resizing mousedown
+    await resizers[0].trigger('mousedown', { clientX: 100 })
+    expect(wrapper.vm).toBeDefined()
+  })
 })

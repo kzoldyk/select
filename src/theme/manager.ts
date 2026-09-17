@@ -196,6 +196,19 @@ export function applyThemeVariables(theme: Theme) {
     }
   }
 
+  // Notebook / query editor tokens (Notion-like prose + SQL blocks)
+  root.style.setProperty('--nb-prose', theme.colors.text)
+  root.style.setProperty('--nb-heading', theme.colors.text)
+  root.style.setProperty('--nb-muted', theme.colors.textMuted)
+  root.style.setProperty('--nb-bullet', theme.colors.textMuted)
+  root.style.setProperty('--nb-code-bg', `color-mix(in srgb, ${theme.colors.surface} 85%, ${theme.colors.backgroundElevated || theme.colors.background})`)
+  root.style.setProperty('--nb-inline-code-bg', `color-mix(in srgb, ${theme.colors.surface} 90%, ${theme.colors.backgroundElevated || theme.colors.background})`)
+  root.style.setProperty('--nb-checkbox-border', theme.colors.border)
+  root.style.setProperty('--nb-checkbox-hover', theme.colors.surfaceHover)
+  root.style.setProperty('--editor-active-line', `color-mix(in srgb, ${theme.colors.primary} 10%, transparent)`)
+  root.style.setProperty('--editor-cursor', theme.colors.primary)
+  root.style.setProperty('--editor-selection', theme.colors.selection)
+
   // Backward compatibility maps for tailwind / shadcn component classes
   root.style.setProperty('--foreground', theme.colors.text)
   root.style.setProperty('--card', theme.colors.backgroundSecondary)

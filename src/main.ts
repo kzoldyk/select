@@ -19,11 +19,14 @@ const cuelumeDirective: Directive<HTMLElement, string | undefined> = {
   },
 }
 
+import { setTheme, nextTheme, allThemes } from './theme'
+
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 if (typeof window !== 'undefined') {
   ;(window as any).$pinia = pinia
+  ;(window as any).$theme = { setTheme, nextTheme, allThemes }
 }
 app.directive('cuelume', cuelumeDirective)
 

@@ -9,4 +9,17 @@
   --syn-type:    #4EC9B0;
   --syn-schema:  #9CDCFE;
   --syn-ident:   #9CDCFE;
+
+  /* Notebook editor (overridden per theme via theme manager) */
+  --nb-prose: var(--foreground);
+  --nb-heading: var(--foreground);
+  --nb-muted: var(--muted-foreground);
+  --nb-bullet: var(--muted-foreground);
+  --nb-code-bg: color-mix(in srgb, var(--card, #16161a) 90%, var(--background));
+  --nb-inline-code-bg: color-mix(in srgb, var(--card, #16161a) 85%, var(--background));
+  --nb-checkbox-border: var(--border);
+  --nb-checkbox-hover: var(--accent);
+  --editor-active-line: color-mix(in srgb, var(--primary) 10%, transparent);
+  --editor-cursor: var(--primary);
+  --editor-selection: var(--selection);
 }

@@ -180,14 +180,16 @@ const appGridStyle = computed(() => ({
 async function runQuery(sqlOverride?: string) {
   const tab = editorStore.activeTab
   if (!tab) return
-  const sql = sqlOverride ?? queryEditorRef.value?.getCurrentSql() ?? tab.sql
+  const sql = sqlOverride ?? queryEditorRef.value?.getCurrentSql()
+  if (!sql?.trim()) return
   await resultStore.runQuery(sql)
 }
 
 async function explainQuery() {
   const tab = editorStore.activeTab
   if (!tab) return
-  const sql = queryEditorRef.value?.getCurrentSql() ?? tab.sql
+  const sql = queryEditorRef.value?.getCurrentSql()
+  if (!sql?.trim()) return
   await resultStore.explainQuery(sql)
 }
 
@@ -302,15 +304,18 @@ function resetSplit() {
 }
 
 .resize-handle {
-  height: 6px;
+  height: 10px;
+  margin-top: -4px;
+  margin-bottom: -4px;
   background: transparent;
   cursor: row-resize;
   flex-shrink: 0;
   position: relative;
-  z-index: 10;
+  z-index: 25;
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: none;
 }
 .resize-handle::after {
   content: '';
@@ -320,7 +325,8 @@ function resetSplit() {
   background: var(--border);
   transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.resize-handle:hover::after {
+.resize-handle:hover::after,
+.resize-handle:active::after {
   background: var(--primary);
   box-shadow: 0 0 6px var(--primary);
 }

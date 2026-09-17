@@ -72,4 +72,21 @@ describe("StatusBar.vue", () => {
     expect(wrapper.text()).toContain("Production DB");
     expect(wrapper.text()).toContain("shop");
   });
+
+  it("shows Notebook mode badge when active tab is a notebook", async () => {
+    const { useEditorStore } = await import("../../stores/editor");
+    const editorStore = useEditorStore();
+    editorStore.addNotebookTab();
+
+    const wrapper = mount(StatusBar, {
+      global: {
+        stubs: {
+          ThemeGalleryDialog: true,
+          KeyboardShortcuts: true,
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain("Notebook");
+  });
 });

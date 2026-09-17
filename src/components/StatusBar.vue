@@ -127,6 +127,14 @@
       </span>
 
       <span class="w-px h-3 bg-border/60"></span>
+      <span
+        class="px-1.5 py-0.5 rounded text-[9.5px] font-semibold uppercase tracking-wider"
+        :class="editorStore.activeTab?.format === 'notebook' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' : 'text-muted-foreground'"
+      >
+        {{ editorStore.activeTab?.format === 'notebook' ? 'Notebook' : 'SQL' }}
+      </span>
+
+      <span class="w-px h-3 bg-border/60"></span>
       <span>{{ (connStore.activeConnection?.dbType || 'mysql').toUpperCase() }}</span>
 
       <span class="w-px h-3 bg-border/60"></span>
