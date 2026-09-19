@@ -74,6 +74,7 @@
         />
         <SchemaInspector />
         <SaveQueryDialog />
+        <UnsavedChangesDialog />
         <DestructiveQueryDialog />
         <KeyboardShortcuts />
         <ExportDialog />
@@ -82,6 +83,7 @@
         <QueriesDirDialog />
         <VirtualKeyDialog />
         <QueryHistoryDialog />
+        <WhatsNewDialog />
         <Toaster position="top-right" />
       </div>
 
@@ -109,12 +111,14 @@ import SchemaDiagram from './components/SchemaDiagram.vue'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'vue-sonner'
 import SaveQueryDialog from './components/SaveQueryDialog.vue'
+import UnsavedChangesDialog from './components/UnsavedChangesDialog.vue'
 import DestructiveQueryDialog from './components/DestructiveQueryDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import ExportDialog from './components/ExportDialog.vue'
 import QueriesDirDialog from './components/QueriesDirDialog.vue'
 import VirtualKeyDialog from './components/VirtualKeyDialog.vue'
 import QueryHistoryDialog from './components/QueryHistoryDialog.vue'
+import WhatsNewDialog from './components/WhatsNewDialog.vue'
 import { initThemeSystem } from './theme'
 
 import { useConnectionStore } from './stores/connection'
@@ -161,6 +165,7 @@ onMounted(async () => {
       toast.error('Connection failed', { description: connStore.lastError })
     }
   }
+  uiStore.checkForUpdates(true)
 })
 
 onUnmounted(() => {

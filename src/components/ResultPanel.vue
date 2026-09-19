@@ -91,6 +91,20 @@
           </Button>
         </ActionTooltip>
 
+        <!-- Export All Rows Button -->
+        <ActionTooltip text="Export all rows to file (>10,000 rows)">
+          <Button
+            v-if="currentStatus === 'success' && currentColumns.length > 0"
+            variant="outline"
+            size="sm"
+            class="h-6.5 px-2 text-[11px] gap-1 rounded bg-background"
+            @click="uiStore.openExport()"
+          >
+            <PhDownloadSimple class="w-3 h-3" />
+            <span class="hidden sm:inline">Export All</span>
+          </Button>
+        </ActionTooltip>
+
         <!-- Clear Results -->
         <ActionTooltip text="Clear Results">
           <Button
@@ -102,11 +116,52 @@
             <PhTrash class="w-3.5 h-3.5" />
           </Button>
         </ActionTooltip>
+
+        <!-- Hide Result Panel -->
+        <ActionTooltip text="Hide Result Panel (⌘J)">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="h-6.5 w-6.5 text-muted-foreground hover:text-foreground rounded cursor-pointer"
+            aria-label="Hide Result Panel"
+            @click="uiStore.setResultPanelOpen(false)"
+          >
+            <PhCaretDown class="w-3.5 h-3.5" />
+          </Button>
+        </ActionTooltip>
       </div>
     </div>
 
     <!-- Main View Contents -->
     <div class="flex-1 min-h-0 overflow-hidden flex flex-col relative bg-background">
+      <!-- Active Query Execution Overlay -->
+      <div
+        v-if="currentStatus === 'running'"
+        class="absolute inset-0 z-30 bg-background/95 backdrop-blur-xs flex flex-col items-center justify-center p-6 gap-3 select-none"
+      >
+        <div class="flex items-center gap-3">
+          <svg class="w-5 h-5 animate-spin text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+          </svg>
+          <span class="text-sm font-semibold text-foreground">Executing query…</span>
+          <span class="text-xs font-mono text-muted-foreground px-2 py-0.5 rounded bg-muted/70 border border-border/60">
+            {{ runningElapsedFormatted }}
+          </span>
+        </div>
+        <div v-if="resultStore.lastSql" class="max-w-md w-full px-3 py-2 rounded bg-muted/40 border border-border/60 text-muted-foreground font-mono text-xs truncate text-center">
+          {{ resultStore.lastSql.trim().split('\n')[0].slice(0, 80) }}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive hover:border-destructive/40"
+          :disabled="resultStore.cancelling"
+          @click="resultStore.cancelQuery()"
+        >
+          <PhX class="w-3.5 h-3.5" />
+          <span>{{ resultStore.cancelling ? 'Cancelling…' : 'Cancel execution' }}</span>
+        </Button>
+      </div>
       <!-- Error Banner (if any) -->
       <div
         v-if="currentStatus === 'error' && currentError"
@@ -216,12 +271,18 @@
         <DialogHeader>
           <DialogTitle class="text-sm">Fetch remaining rows</DialogTitle>
           <DialogDescription class="text-xs">
-            This loads more pages from the server, up to 10,000 rows. Local filters only apply to loaded rows.
+            This loads more pages from the server into the grid (up to 10,000 rows).
+            For larger datasets (>10,000 rows), stream directly to disk without memory limits.
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter>
-          <Button variant="outline" size="sm" class="h-8 text-xs" @click="confirmFetchAll = false">Cancel</Button>
-          <Button size="sm" class="h-8 text-xs" @click="runFetchAll">Fetch all</Button>
+        <DialogFooter class="flex sm:justify-between items-center gap-2">
+          <Button variant="secondary" size="sm" class="h-8 text-xs" @click="confirmFetchAll = false; uiStore.openExport()">
+            Stream to file (>10k)…
+          </Button>
+          <div class="flex gap-2">
+            <Button variant="outline" size="sm" class="h-8 text-xs" @click="confirmFetchAll = false">Cancel</Button>
+            <Button size="sm" class="h-8 text-xs" @click="runFetchAll">Fetch all</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -229,7 +290,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { useResultStore, type Column, type ResultRow } from '@/stores/result'
 import { useConnectionStore } from '@/stores/connection'
@@ -243,7 +304,7 @@ import { Button } from '@/components/ui/button'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
-  PhPushPin, PhX, PhTreeStructure, PhCopy, PhTrash, PhWarningCircle, PhLightbulb
+  PhPushPin, PhX, PhTreeStructure, PhCopy, PhTrash, PhWarningCircle, PhLightbulb, PhCaretDown, PhDownloadSimple
 } from '@phosphor-icons/vue'
 import { toast } from 'vue-sonner'
 import { injectWhereClause } from '@/lib/gridFilters'
@@ -253,6 +314,30 @@ const resultStore = useResultStore()
 const schemaStore = useSchemaStore()
 const editorStore = useEditorStore()
 const uiStore = useUiStore()
+
+const elapsedSeconds = ref(0)
+let timerInterval: ReturnType<typeof setInterval> | null = null
+
+watch(() => resultStore.status === 'running', (isRunning) => {
+  if (isRunning) {
+    elapsedSeconds.value = 0
+    const start = Date.now()
+    timerInterval = setInterval(() => {
+      elapsedSeconds.value = (Date.now() - start) / 1000
+    }, 100)
+  } else {
+    if (timerInterval) clearInterval(timerInterval)
+    timerInterval = null
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (timerInterval) clearInterval(timerInterval)
+})
+
+const runningElapsedFormatted = computed(() => {
+  return `${elapsedSeconds.value.toFixed(1)}s`
+})
 
 const VIEWS = [
   { id: 'table', label: 'Table' },
@@ -357,7 +442,16 @@ const canEditRows = computed(() => {
   if (connStore.activeConnection?.readOnly) return false
   if (!editableTableName.value) return false
   const keyInfo = schemaStore.getKeyColumnsForTable(editableTableName.value)
-  return keyInfo.keyType !== 'all_columns' && keyInfo.columns.length > 0
+  if (keyInfo.keyType === 'all_columns' || keyInfo.columns.length === 0) return false
+  const cols = currentColumns.value
+  if (!cols.length) return false
+  return keyInfo.columns.every(keyCol =>
+    cols.some(c =>
+      (c.orgName || c.name).toLowerCase() === keyCol.toLowerCase() ||
+      c.name.toLowerCase() === keyCol.toLowerCase() ||
+      (c.key || c.name).toLowerCase() === keyCol.toLowerCase()
+    )
+  )
 })
 
 function getStatementLabel(sql: string): string {
@@ -434,6 +528,19 @@ async function handleBatchSaveEdits(
     return
   }
 
+  const missingKeys = keyInfo.columns.filter(keyCol =>
+    !currentColumns.value.some(c =>
+      (c.orgName || c.name).toLowerCase() === keyCol.toLowerCase() ||
+      c.name.toLowerCase() === keyCol.toLowerCase() ||
+      (c.key || c.name).toLowerCase() === keyCol.toLowerCase()
+    )
+  )
+  if (missingKeys.length > 0) {
+    toast.error(`Cannot save edits: key column(s) "${missingKeys.join(', ')}" are not included in the query result. Include them in your SELECT query or configure virtual keys.`)
+    uiStore.openVirtualKeyDialog(targetTable)
+    return
+  }
+
   const batch: { updates: { column: string; value: any }[]; pks: { column: string; value: any }[] }[] = []
 
   for (const update of updates) {
@@ -454,6 +561,11 @@ async function handleBatchSaveEdits(
       }
     }
 
+    if (pks.length < keyInfo.columns.length || pks.length === 0) {
+      toast.error(`Cannot update row: missing key values to uniquely identify the row.`)
+      return
+    }
+
     const changesList: { column: string; value: any }[] = []
     for (const [colKey, val] of Object.entries(update.changes)) {
       const colDef = currentColumns.value.find(c => (c.key || c.name) === colKey || c.name === colKey)
@@ -463,6 +575,8 @@ async function handleBatchSaveEdits(
 
     batch.push({ updates: changesList, pks })
   }
+
+  if (batch.length === 0) return
 
   const count = batch.reduce((n, row) => n + row.updates.length, 0)
   pendingReview.value = {

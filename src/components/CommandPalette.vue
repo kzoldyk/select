@@ -650,6 +650,17 @@ const allGroups = computed<Group[]>(() => {
       },
     },
     {
+      id: 'check-for-updates',
+      label: "What's New & Check for Updates",
+      description: 'View release notes, latest improvements, and check for new versions',
+      iconComponent: PhSparkle,
+      category: 'tools',
+      action: () => {
+        uiStore.closePalette()
+        uiStore.checkForUpdates(false)
+      },
+    },
+    {
       id: 'refresh-schema',
       label: 'Refresh Schema Objects',
       description: 'Reload tables, columns, indexes, and routines',

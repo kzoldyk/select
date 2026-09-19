@@ -171,6 +171,71 @@ describe("editor store", () => {
       expect(store.tabs[0].savedQueryId).toBe("New Name.sql");
       expect(store.tabs[0].name).toBe("New Name");
     });
+
+    it("createFolder calls create_query_folder invoke", async () => {
+      mockInvoke.mockResolvedValueOnce("analytics");
+      mockInvoke.mockResolvedValueOnce([]);
+      mockInvoke.mockResolvedValueOnce(["analytics"]);
+      const store = useEditorStore();
+      await store.createFolder("analytics");
+      expect(mockInvoke).toHaveBeenCalledWith("create_query_folder", {
+        name: "analytics",
+        parentFolder: null,
+      });
+    });
+
+    it("deleteFolder calls delete_query_folder and resets matching tabs", async () => {
+      mockInvoke.mockResolvedValueOnce(undefined);
+      mockInvoke.mockResolvedValueOnce([]);
+      mockInvoke.mockResolvedValueOnce([]);
+      const store = useEditorStore();
+      store.tabs[0].savedQueryId = "analytics/report.sql";
+      await store.deleteFolder("analytics");
+      expect(mockInvoke).toHaveBeenCalledWith("delete_query_folder", {
+        folderPath: "analytics",
+      });
+      expect(store.tabs[0].savedQueryId).toBeNull();
+      expect(store.tabs[0].isUnsaved).toBe(true);
+    });
+
+    it("moveQuery calls move_query_file and updates tab savedQueryId", async () => {
+      const moved = { id: "reports/My Query.sql", name: "My Query", sql: "SELECT 1", createdAt: "", updatedAt: "", folder: "reports" };
+      mockInvoke.mockResolvedValueOnce(moved);
+      mockInvoke.mockResolvedValueOnce([moved]);
+      mockInvoke.mockResolvedValueOnce(["reports"]);
+      const store = useEditorStore();
+      store.tabs[0].savedQueryId = "My Query.sql";
+      await store.moveQuery("My Query.sql", "reports");
+      expect(mockInvoke).toHaveBeenCalledWith("move_query_file", {
+        id: "My Query.sql",
+        targetFolder: "reports",
+      });
+      expect(store.tabs[0].savedQueryId).toBe("reports/My Query.sql");
+    });
+
+    it("saveQueryAs passes folder if provided", async () => {
+      const saved = { id: "reports/Q.sql", name: "Q", sql: "", createdAt: "", updatedAt: "", folder: "reports" };
+      mockInvoke.mockResolvedValueOnce(saved);
+      mockInvoke.mockResolvedValueOnce([saved]);
+      mockInvoke.mockResolvedValueOnce(["reports"]);
+      const store = useEditorStore();
+      await store.saveQueryAs("tab-1", "Q", "reports");
+      expect(mockInvoke).toHaveBeenCalledWith("save_query", {
+        name: "Q",
+        sql: "",
+        id: null,
+        folder: "reports",
+      });
+      expect(store.tabs[0].savedQueryId).toBe("reports/Q.sql");
+    });
+
+    it("openNewQueryInFolder opens dialog with folder preselected", () => {
+      const store = useEditorStore();
+      const tabId = store.openNewQueryInFolder("reports");
+      expect(tabId).toBeTruthy();
+      expect(store.saveDialogOpen).toBe(true);
+      expect(store.saveDialogFolder).toBe("reports");
+    });
   });
 
   describe("zoom and selection management", () => {
@@ -235,6 +300,126 @@ describe("editor store", () => {
       expect(tab.format).toBe("sql");
       expect(tab.sql).toContain("/*\n# My Notes\n*/");
       expect(tab.sql).toContain("SELECT 42;");
+    });
+  });
+
+  describe("closeTab confirmation for unsaved queries", () => {
+    it("requests confirmation when closing unsaved tab with content", () => {
+      const store = useEditorStore();
+      const tab = store.tabs[0];
+      store.updateSql(tab.id, "SELECT * FROM users");
+      expect(tab.isUnsaved).toBe(true);
+
+      const closed = store.closeTab(tab.id);
+      expect(closed).toBe(false);
+      expect(store.confirmCloseTabId).toBe(tab.id);
+      expect(store.tabs).toHaveLength(1);
+    });
+
+    it("cancelCloseTab dismisses confirmation without closing tab", () => {
+      const store = useEditorStore();
+      const tab = store.tabs[0];
+      store.updateSql(tab.id, "SELECT 123");
+      store.closeTab(tab.id);
+      expect(store.confirmCloseTabId).toBe(tab.id);
+
+      store.cancelCloseTab();
+      expect(store.confirmCloseTabId).toBeNull();
+      expect(store.tabs).toHaveLength(1);
+    });
+
+    it("discardAndCloseTab closes unsaved tab without saving", () => {
+      const store = useEditorStore();
+      const id2 = store.addTab();
+      store.updateSql(id2, "SELECT * FROM dirty");
+      store.closeTab(id2);
+      expect(store.confirmCloseTabId).toBe(id2);
+
+      store.discardAndCloseTab();
+      expect(store.confirmCloseTabId).toBeNull();
+      expect(store.tabs.find(t => t.id === id2)).toBeUndefined();
+    });
+
+    it("saveAndCloseTab saves existing query and closes tab", async () => {
+      const store = useEditorStore();
+      const tab = store.tabs[0];
+      tab.savedQueryId = "users.sql";
+      tab.name = "users.sql";
+      store.updateSql(tab.id, "SELECT count(*) FROM users");
+      store.closeTab(tab.id);
+      expect(store.confirmCloseTabId).toBe(tab.id);
+
+      mockInvoke.mockResolvedValueOnce({ id: "users.sql", name: "users.sql", sql: tab.sql });
+      mockInvoke.mockResolvedValueOnce([]); // refresh saved queries
+
+      await store.saveAndCloseTab();
+      expect(mockInvoke).toHaveBeenCalledWith("save_query", {
+        id: "users.sql",
+        name: "users.sql",
+        sql: "SELECT count(*) FROM users",
+      });
+      expect(store.confirmCloseTabId).toBeNull();
+    });
+
+    it("saveAndCloseTab on new query opens save dialog and auto-closes on saveQueryAs", async () => {
+      const store = useEditorStore();
+      const tab = store.tabs[0];
+      store.updateSql(tab.id, "SELECT 'unsaved' AS test");
+      store.closeTab(tab.id);
+      expect(store.confirmCloseTabId).toBe(tab.id);
+
+      await store.saveAndCloseTab();
+      expect(store.confirmCloseTabId).toBeNull();
+      expect(store.saveDialogOpen).toBe(true);
+      expect(store.saveDialogTabId).toBe(tab.id);
+      expect(store.pendingCloseAfterSaveTabId).toBe(tab.id);
+
+      mockInvoke.mockResolvedValueOnce({ id: "test.sql", name: "test.sql", sql: tab.sql });
+      mockInvoke.mockResolvedValueOnce([]); // refresh saved queries
+
+      await store.saveQueryAs(tab.id, "test.sql");
+      expect(store.saveDialogOpen).toBe(false);
+      expect(store.pendingCloseAfterSaveTabId).toBeNull();
+    });
+
+    it("renameFolder updates open tabs savedQueryId and refreshes queries", async () => {
+      const store = useEditorStore();
+      const tab = store.tabs[0];
+      tab.savedQueryId = "reports/daily.sql";
+      tab.name = "daily.sql";
+
+      mockInvoke.mockResolvedValueOnce("analytics"); // rename_query_folder returns new folder path
+      mockInvoke.mockResolvedValueOnce([]); // refresh saved queries
+
+      const result = await store.renameFolder("reports", "analytics");
+      expect(mockInvoke).toHaveBeenCalledWith("rename_query_folder", {
+        oldFolderPath: "reports",
+        newName: "analytics",
+      });
+      expect(result).toBe("analytics");
+      expect(tab.savedQueryId).toBe("analytics/daily.sql");
+    });
+
+    it("moveQuery moves query to folder and updates open tabs", async () => {
+      const store = useEditorStore();
+      const tab = store.tabs[0];
+      tab.savedQueryId = "monthly.sql";
+      tab.name = "monthly.sql";
+
+      mockInvoke.mockResolvedValueOnce({
+        id: "reports/monthly.sql",
+        name: "monthly.sql",
+        sql: "SELECT 1",
+        folder: "reports",
+      });
+      mockInvoke.mockResolvedValueOnce([]); // refresh saved queries
+
+      await store.moveQuery("monthly.sql", "reports");
+      expect(mockInvoke).toHaveBeenCalledWith("move_query_file", {
+        id: "monthly.sql",
+        targetFolder: "reports",
+      });
+      expect(tab.savedQueryId).toBe("reports/monthly.sql");
     });
   });
 });

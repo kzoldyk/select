@@ -203,4 +203,27 @@ describe("result store", () => {
       expect(store.error).toBeNull();
     });
   });
+
+  describe("streamExport", () => {
+    it("streamExport invokes stream_export_query with query, format and null file path", async () => {
+      mockInvoke.mockResolvedValueOnce({
+        filePath: "/path/to/export.csv",
+        rowCount: 12500,
+        durationMs: 450,
+        fileSizeBytes: 1048576,
+      });
+      const store = useResultStore();
+      store.lastSql = "SELECT * FROM huge_table";
+      const res = await store.streamExport("csv");
+      expect(mockInvoke).toHaveBeenCalledWith("stream_export_query", {
+        sql: "SELECT * FROM huge_table",
+        format: "csv",
+        filePath: null,
+        id: null,
+        maxRows: null,
+      });
+      expect(res.rowCount).toBe(12500);
+      expect(res.filePath).toBe("/path/to/export.csv");
+    });
+  });
 });

@@ -151,6 +151,20 @@
         </Button>
       </ActionTooltip>
 
+      <!-- Toggle Results Panel Button -->
+      <ActionTooltip text="Toggle Results Panel (⌘J)">
+        <Button
+          variant="ghost"
+          size="icon"
+          class="h-6.5 w-6.5 text-muted-foreground hover:text-foreground rounded transition-colors cursor-pointer"
+          :class="{ 'text-foreground bg-accent/60': uiStore.resultPanelOpen }"
+          aria-label="Toggle Results Panel"
+          @click="uiStore.toggleResultPanel()"
+        >
+          <PhTable class="w-3.5 h-3.5" />
+        </Button>
+      </ActionTooltip>
+
       <div class="h-4 w-px bg-border/60 mx-0.5"></div>
 
       <!-- Run / Cancel Button -->
@@ -316,7 +330,8 @@ function ctxCloseOtherTabs() {
     const keepId = tabCtxMenu.value.tab.id
     const toClose = editorStore.tabs.filter(t => t.id !== keepId)
     for (const t of toClose) {
-      editorStore.closeTab(t.id)
+      const closed = editorStore.closeTab(t.id)
+      if (!closed) break
     }
   }
   closeTabCtxMenu()

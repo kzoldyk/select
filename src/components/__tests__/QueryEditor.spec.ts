@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import QueryEditor from '../QueryEditor.vue'
 import { useEditorStore } from '../../stores/editor'
+import { ensureSyntaxTree } from '@codemirror/language'
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -132,7 +133,7 @@ LIMIT 10;
     await wrapper.vm.$nextTick()
 
     const cmView = (wrapper.vm as any).$.setupState.view
-    const tree = cmView.state.tree
+    const tree = ensureSyntaxTree(cmView.state, cmView.state.doc.length, 2000) || cmView.state.tree
 
     const nodeNames: string[] = []
     tree.iterate({

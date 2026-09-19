@@ -49,16 +49,29 @@ fn write_queries_dir_to_config(app: &tauri::AppHandle, dir: &str) -> Result<(), 
     std::fs::write(path, content).map_err(|e| e.to_string())
 }
 
-fn get_safe_filename(id: &str) -> Result<String, String> {
-    let path = std::path::Path::new(id);
-    let file_name = path.file_name()
-        .and_then(|f| f.to_str())
-        .ok_or_else(|| "Invalid file name".to_string())?;
-    
-    if file_name != id || id.contains('/') || id.contains('\\') || id == ".." || id == "." {
-        return Err("Invalid path characters in query ID".into());
+fn get_safe_relative_path(id: &str) -> Result<PathBuf, String> {
+    let raw = id.trim().trim_start_matches('/').trim_start_matches('\\');
+    let trimmed = raw.replace('\\', "/");
+    if trimmed.is_empty() {
+        return Err("Invalid query ID: cannot be empty".into());
     }
-    Ok(file_name.to_string())
+    let mut clean_path = PathBuf::new();
+    for comp in std::path::Path::new(&trimmed).components() {
+        match comp {
+            std::path::Component::Normal(part) => {
+                let s = part.to_string_lossy();
+                if s == ".." || s == "." {
+                    return Err("Invalid path component in query ID".into());
+                }
+                clean_path.push(part);
+            }
+            _ => return Err("Illegal path component in query ID".into()),
+        }
+    }
+    if clean_path.as_os_str().is_empty() {
+        return Err("Empty relative path in query ID".into());
+    }
+    Ok(clean_path)
 }
 
 fn is_same_file(p1: &std::path::Path, p2: &std::path::Path) -> bool {
@@ -77,8 +90,12 @@ fn safe_rename(from: &std::path::Path, to: &std::path::Path) -> Result<(), Strin
         let tmp = from.with_extension("sql.tmp");
         std::fs::rename(from, &tmp).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, to).map_err(|e| e.to_string())?;
-    } else {
-        std::fs::rename(from, to).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    if let Err(e) = std::fs::rename(from, to) {
+        // Fallback for cross-device moves or systems with restricted rename
+        std::fs::copy(from, to).map_err(|copy_err| format!("Failed to move file (rename: {}, copy: {})", e, copy_err))?;
+        let _ = std::fs::remove_file(from);
     }
     Ok(())
 }
@@ -140,7 +157,7 @@ fn system_time_to_iso(time: std::time::SystemTime) -> String {
     datetime.to_rfc3339()
 }
 
-fn saved_query_from_file(path: &std::path::Path) -> Option<SavedQuery> {
+fn saved_query_from_file(path: &std::path::Path, base_dir: Option<&std::path::Path>) -> Option<SavedQuery> {
     let file_name = path.file_name()?.to_str()?.to_string();
     let lower = file_name.to_lowercase();
     if !lower.ends_with(".sql") && !lower.ends_with(".md") {
@@ -160,13 +177,27 @@ fn saved_query_from_file(path: &std::path::Path) -> Option<SavedQuery> {
         .map(system_time_to_iso)
         .unwrap_or_else(now_iso);
 
+    let (id, folder) = if let Some(base) = base_dir {
+        if let Ok(rel) = path.strip_prefix(base) {
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            let f = rel.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.to_string_lossy().replace('\\', "/"));
+            (rel_str, f)
+        } else {
+            (file_name, None)
+        }
+    } else {
+        (file_name, None)
+    };
+
     Some(SavedQuery {
-        // Stable id is the filename so renames/deletes target the right file
-        id: file_name,
+        id,
         name,
         sql,
         created_at,
         updated_at,
+        folder,
     })
 }
 
@@ -216,6 +247,54 @@ fn migrate_legacy_queries_json(app: &tauri::AppHandle, dir: &PathBuf) -> Result<
     Ok(())
 }
 
+fn collect_queries_recursive(base_dir: &std::path::Path, current_dir: &std::path::Path, queries: &mut Vec<SavedQuery>, depth: usize) {
+    if depth > 5 {
+        return;
+    }
+    let entries = match std::fs::read_dir(current_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(sq) = saved_query_from_file(&path, Some(base_dir)) {
+                queries.push(sq);
+            }
+        } else if path.is_dir() {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+            if !name.starts_with('.') {
+                collect_queries_recursive(base_dir, &path, queries, depth + 1);
+            }
+        }
+    }
+}
+
+fn collect_folders_recursive(base_dir: &std::path::Path, current_dir: &std::path::Path, folders: &mut Vec<String>, depth: usize) {
+    if depth > 5 {
+        return;
+    }
+    let entries = match std::fs::read_dir(current_dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+            if !name.starts_with('.') {
+                if let Ok(rel) = path.strip_prefix(base_dir) {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    folders.push(rel_str);
+                }
+                collect_folders_recursive(base_dir, &path, folders, depth + 1);
+            }
+        }
+    }
+}
+
 fn load_queries_from_disk(app: &tauri::AppHandle) -> Vec<SavedQuery> {
     let dir = match queries_dir(app) {
         Ok(d) => d,
@@ -223,20 +302,8 @@ fn load_queries_from_disk(app: &tauri::AppHandle) -> Vec<SavedQuery> {
     };
     let _ = migrate_legacy_queries_json(app, &dir);
 
-    let mut queries: Vec<SavedQuery> = match std::fs::read_dir(&dir) {
-        Ok(entries) => entries
-            .filter_map(|entry| entry.ok())
-            .filter_map(|entry| {
-                let path = entry.path();
-                if path.is_file() {
-                    saved_query_from_file(&path)
-                } else {
-                    None
-                }
-            })
-            .collect(),
-        Err(_) => return Vec::new(),
-    };
+    let mut queries: Vec<SavedQuery> = Vec::new();
+    collect_queries_recursive(&dir, &dir, &mut queries, 0);
 
     queries.sort_by(|a, b| {
         b.updated_at
@@ -1034,6 +1101,8 @@ pub struct SavedQuery {
     pub created_at: String,
     #[serde(alias = "updated_at")]
     pub updated_at: String,
+    #[serde(default)]
+    pub folder: Option<String>,
 }
 
 async fn resolve_connection(
@@ -2845,6 +2914,7 @@ pub async fn save_query(
     name: String,
     sql: String,
     id: Option<String>,
+    folder: Option<String>,
 ) -> Result<SavedQuery, String> {
     let dir = queries_dir(&app)?;
     let name = name.trim().to_string();
@@ -2852,19 +2922,27 @@ pub async fn save_query(
         return Err("Query name cannot be empty".into());
     }
 
-    // Prefer updating by id (filename) when the tab already has a saved query.
+    let target_dir = if let Some(f) = folder.as_ref().filter(|s| !s.trim().is_empty()) {
+        let safe_rel = get_safe_relative_path(f)?;
+        let d = dir.join(safe_rel);
+        std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+        d
+    } else {
+        dir.clone()
+    };
+
     let target_path = if let Some(existing_id) = id.as_ref().filter(|s| !s.is_empty()) {
-        let safe_id = get_safe_filename(existing_id)?;
-        let path = dir.join(safe_id);
+        let safe_rel = get_safe_relative_path(existing_id)?;
+        let path = dir.join(&safe_rel);
         if path.exists() && path.is_file() {
-            // If the display name changed, rename the file to match.
             let existing_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("sql");
             let target_name = if name.to_lowercase().ends_with(".md") || name.to_lowercase().ends_with(".sql") {
                 name.clone()
             } else {
                 format!("{}.{}", name, existing_ext)
             };
-            let desired = query_file_path(&dir, &target_name);
+            let parent_dir = path.parent().unwrap_or(&target_dir).to_path_buf();
+            let desired = query_file_path(&parent_dir, &target_name);
             if !is_same_file(&path, &desired) {
                 if desired.exists() {
                     let desired_filename = desired.file_name().and_then(|f| f.to_str()).unwrap_or("file");
@@ -2876,21 +2954,19 @@ pub async fn save_query(
                 safe_rename(&path, &desired)?;
                 desired
             } else {
-                // If it's the same file (e.g. casing change), we safely rename to apply casing change on disk
                 safe_rename(&path, &desired)?;
                 desired
             }
         } else {
-            // Stale id — fall back to name-based path
-            resolve_unique_query_path(&dir, &name)
+            resolve_unique_query_path(&target_dir, &name)
         }
     } else {
-        resolve_unique_query_path(&dir, &name)
+        resolve_unique_query_path(&target_dir, &name)
     };
 
     write_query_file(&target_path, &sql)?;
 
-    let saved = saved_query_from_file(&target_path).ok_or_else(|| "Failed to read saved query file".to_string())?;
+    let saved = saved_query_from_file(&target_path, Some(&dir)).ok_or_else(|| "Failed to read saved query file".to_string())?;
     invalidate_queries_cache(&state);
     Ok(saved)
 }
@@ -2901,6 +2977,133 @@ pub async fn load_queries(
     state: State<'_, AppState>,
 ) -> Result<Vec<SavedQuery>, String> {
     Ok(load_queries_cached(&app, &state).await)
+}
+
+#[tauri::command]
+pub async fn load_query_folders(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let dir = queries_dir(&app)?;
+    let mut folders = Vec::new();
+    collect_folders_recursive(&dir, &dir, &mut folders, 0);
+    folders.sort();
+    Ok(folders)
+}
+
+#[tauri::command]
+pub async fn create_query_folder(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    parent_folder: Option<String>,
+) -> Result<String, String> {
+    let dir = queries_dir(&app)?;
+    let sanitized_name = sanitize_query_filename(name.trim());
+    if sanitized_name.is_empty() {
+        return Err("Folder name cannot be empty".into());
+    }
+    let folder_rel = if let Some(parent) = parent_folder.filter(|p| !p.trim().is_empty()) {
+        let safe_parent = get_safe_relative_path(&parent)?;
+        safe_parent.join(&sanitized_name)
+    } else {
+        PathBuf::from(&sanitized_name)
+    };
+    let target_dir = dir.join(&folder_rel);
+    std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    invalidate_queries_cache(&state);
+    Ok(folder_rel.to_string_lossy().replace('\\', "/"))
+}
+
+#[tauri::command]
+pub async fn delete_query_folder(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    folder_path: String,
+) -> Result<(), String> {
+    let dir = queries_dir(&app)?;
+    let safe_rel = get_safe_relative_path(&folder_path)?;
+    let target_dir = dir.join(&safe_rel);
+    if !target_dir.exists() || !target_dir.is_dir() {
+        return Err("Folder not found".into());
+    }
+    std::fs::remove_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    invalidate_queries_cache(&state);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn rename_query_folder(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    old_folder_path: String,
+    new_name: String,
+) -> Result<String, String> {
+    let dir = queries_dir(&app)?;
+    let old_safe = get_safe_relative_path(&old_folder_path)?;
+    let old_dir = dir.join(&old_safe);
+    if !old_dir.exists() || !old_dir.is_dir() {
+        return Err("Folder not found".into());
+    }
+    let sanitized_new = sanitize_query_filename(new_name.trim());
+    if sanitized_new.is_empty() {
+        return Err("Folder name cannot be empty".into());
+    }
+    let parent = old_dir.parent().unwrap_or(&dir);
+    let new_dir = parent.join(&sanitized_new);
+    if !is_same_file(&old_dir, &new_dir) {
+        if new_dir.exists() {
+            return Err(format!("A folder named \"{}\" already exists", sanitized_new));
+        }
+        std::fs::rename(&old_dir, &new_dir).map_err(|e| format!("Failed to rename folder: {}", e))?;
+    }
+    invalidate_queries_cache(&state);
+    let new_rel = new_dir.strip_prefix(&dir).map_err(|e| e.to_string())?;
+    Ok(new_rel.to_string_lossy().replace('\\', "/"))
+}
+
+#[tauri::command]
+pub async fn move_query_file(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    target_folder: Option<String>,
+) -> Result<SavedQuery, String> {
+    let dir = queries_dir(&app)?;
+    let safe_id = get_safe_relative_path(&id)?;
+    let old_path = dir.join(&safe_id);
+    if !old_path.exists() || !old_path.is_file() {
+        return Err("Query not found".into());
+    }
+    let filename = old_path.file_name().ok_or_else(|| "Invalid file name".to_string())?;
+    let target_dir = if let Some(tf) = target_folder.filter(|f| !f.trim().is_empty()) {
+        let safe_folder = get_safe_relative_path(&tf)?;
+        let d = dir.join(&safe_folder);
+        std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+        d
+    } else {
+        dir.clone()
+    };
+    let mut new_path = target_dir.join(filename);
+    if !is_same_file(&old_path, &new_path) {
+        if new_path.exists() {
+            let stem = old_path.file_stem().and_then(|s| s.to_str()).unwrap_or("query");
+            let ext = old_path.extension().and_then(|s| s.to_str()).unwrap_or("sql");
+            let mut counter = 1;
+            loop {
+                let candidate = target_dir.join(format!("{} ({}).{}", stem, counter, ext));
+                if !candidate.exists() {
+                    new_path = candidate;
+                    break;
+                }
+                counter += 1;
+                if counter > 100 {
+                    return Err(format!("A query file named \"{}\" already exists in target destination", filename.to_string_lossy()));
+                }
+            }
+        }
+        safe_rename(&old_path, &new_path)?;
+    }
+    invalidate_queries_cache(&state);
+    let saved = saved_query_from_file(&new_path, Some(&dir)).ok_or_else(|| "Failed to read moved query".to_string())?;
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -2916,8 +3119,8 @@ pub async fn rename_query(
         return Err("Query name cannot be empty".into());
     }
 
-    let safe_id = get_safe_filename(&id)?;
-    let old_path = dir.join(&safe_id);
+    let safe_rel = get_safe_relative_path(&id)?;
+    let old_path = dir.join(&safe_rel);
     if !old_path.exists() || !old_path.is_file() {
         return Err("Query not found".into());
     }
@@ -2928,7 +3131,8 @@ pub async fn rename_query(
     } else {
         format!("{}.{}", new_name, existing_ext)
     };
-    let new_path = query_file_path(&dir, &target_name);
+    let parent_dir = old_path.parent().unwrap_or(&dir).to_path_buf();
+    let new_path = query_file_path(&parent_dir, &target_name);
     if !is_same_file(&old_path, &new_path) {
         if new_path.exists() {
             let desired_filename = new_path.file_name().and_then(|f| f.to_str()).unwrap_or("file");
@@ -2942,7 +3146,7 @@ pub async fn rename_query(
         safe_rename(&old_path, &new_path)?;
     }
 
-    let saved = saved_query_from_file(&new_path).ok_or_else(|| "Failed to read renamed query file".to_string())?;
+    let saved = saved_query_from_file(&new_path, Some(&dir)).ok_or_else(|| "Failed to read renamed query file".to_string())?;
     invalidate_queries_cache(&state);
     Ok(saved)
 }
@@ -2954,8 +3158,8 @@ pub async fn delete_query(
     id: String,
 ) -> Result<(), String> {
     let dir = queries_dir(&app)?;
-    let safe_id = get_safe_filename(&id)?;
-    let path = dir.join(&safe_id);
+    let safe_rel = get_safe_relative_path(&id)?;
+    let path = dir.join(&safe_rel);
     if !path.exists() || !path.is_file() {
         return Err("Query not found".into());
     }
@@ -3067,6 +3271,304 @@ pub async fn export_csv(result: QueryResult) -> Result<String, String> {
 
     // Prepend UTF-8 BOM for Excel compatibility
     Ok(format!("\u{FEFF}{}\n{}", header, rows.join("\n")))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamExportResult {
+    pub file_path: String,
+    pub row_count: u64,
+    pub duration_ms: u64,
+    pub file_size_bytes: u64,
+}
+
+#[tauri::command]
+pub async fn pick_export_path(
+    default_name: Option<String>,
+    format: Option<String>,
+) -> Result<Option<String>, String> {
+    let fmt_lower = format.unwrap_or_else(|| "csv".into()).trim().to_lowercase();
+    let (ext, filter_name) = match fmt_lower.as_str() {
+        "json" => ("json", "JSON (*.json)"),
+        "tsv" => ("tsv", "TSV (*.tsv)"),
+        "jsonl" | "ndjson" => ("jsonl", "JSON Lines (*.jsonl)"),
+        _ => ("csv", "CSV (*.csv)"),
+    };
+    let def_name = default_name.unwrap_or_else(|| {
+        format!("export_{}.{}", chrono::Utc::now().format("%Y%m%d_%H%M%S"), ext)
+    });
+    let picked = tokio::task::spawn_blocking(move || {
+        rfd::FileDialog::new()
+            .set_file_name(&def_name)
+            .add_filter(filter_name, &[ext])
+            .save_file()
+    })
+    .await
+    .map_err(|e| format!("File dialog error: {e}"))?;
+
+    Ok(picked.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub async fn stream_export_query(
+    _app: tauri::AppHandle,
+    sql: String,
+    format: String,
+    file_path: Option<String>,
+    id: Option<String>,
+    max_rows: Option<u64>,
+    state: State<'_, AppState>,
+) -> Result<StreamExportResult, String> {
+    use std::io::Write;
+    let start = std::time::Instant::now();
+    let fmt_lower = format.trim().to_lowercase();
+    let (conn_id, pool) = resolve_connection(&state, id).await?;
+
+    let save_path: PathBuf = match file_path {
+        Some(fp) => {
+            let mut p = PathBuf::from(fp.trim());
+            if p.is_dir() {
+                let (ext, _) = match fmt_lower.as_str() {
+                    "json" => ("json", "JSON (*.json)"),
+                    "tsv" => ("tsv", "TSV (*.tsv)"),
+                    "jsonl" | "ndjson" => ("jsonl", "JSON Lines (*.jsonl)"),
+                    _ => ("csv", "CSV (*.csv)"),
+                };
+                p = p.join(format!("export_{}.{}", chrono::Utc::now().format("%Y%m%d_%H%M%S"), ext));
+            }
+            p
+        }
+        None => {
+            let (ext, filter_name) = match fmt_lower.as_str() {
+                "json" => ("json", "JSON (*.json)"),
+                "tsv" => ("tsv", "TSV (*.tsv)"),
+                "jsonl" | "ndjson" => ("jsonl", "JSON Lines (*.jsonl)"),
+                _ => ("csv", "CSV (*.csv)"),
+            };
+            let default_name = format!("export_{}.{}", chrono::Utc::now().format("%Y%m%d_%H%M%S"), ext);
+            let picked = tokio::task::spawn_blocking(move || {
+                rfd::FileDialog::new()
+                    .set_file_name(&default_name)
+                    .add_filter(filter_name, &[ext])
+                    .save_file()
+            })
+            .await
+            .map_err(|e| format!("File dialog error: {e}"))?;
+
+            match picked {
+                Some(p) => p,
+                None => return Err("Export cancelled by user".into()),
+            }
+        }
+    };
+
+    if let Some(parent) = save_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let file = std::fs::File::create(&save_path).map_err(|e| format!("Failed to create export file at {}: {}", save_path.display(), e))?;
+    let mut writer = std::io::BufWriter::new(file);
+
+    let clean_sql = strip_trailing_semicolon(sql.trim());
+    let (first_sql, second_sql) = if let Some(limit) = max_rows {
+        let has_top_limit = has_top_level_limit(&clean_sql);
+        let paged_sql = format!("{}\nLIMIT {}", clean_sql, limit);
+        let subquery_sql = format!("SELECT * FROM ({}) AS _stream_sub\nLIMIT {}", clean_sql, limit);
+        if has_top_limit {
+            (subquery_sql, None)
+        } else {
+            (paged_sql, Some(subquery_sql))
+        }
+    } else {
+        (clean_sql.clone(), None)
+    };
+
+    let thread_ids = state.thread_ids.clone();
+    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    let tid = conn.id();
+    thread_ids.lock().await.insert(conn_id.clone(), tid);
+
+    let query_exec = async {
+        let mut result = match conn.query_iter(&first_sql).await {
+            Ok(r) => r,
+            Err(_) => {
+                let second_attempt = if let Some(second) = second_sql.as_deref() {
+                    conn.query_iter(second)
+                        .await
+                        .map(Some)
+                        .map_err(|e| safe_error(&e))
+                } else {
+                    Err(String::new())
+                };
+                match second_attempt {
+                    Ok(Some(r)) => r,
+                    _ => conn.query_iter(&clean_sql).await.map_err(|e| safe_error(&e))?,
+                }
+            }
+        };
+
+        let mut col_names = Vec::new();
+        let mut col_types = Vec::new();
+        for col in result.columns_ref() {
+            let name = col.name_str().into_owned();
+            let type_str = format!("{:?}", col.column_type());
+            col_types.push(map_column_type(&type_str));
+            col_names.push(name);
+        }
+
+        let mut row_count = 0u64;
+        let mut truncated = false;
+
+        match fmt_lower.as_str() {
+            "tsv" => {
+                let header = col_names.join("\t");
+                writer.write_all(header.as_bytes()).map_err(|e| e.to_string())?;
+                writer.write_all(b"\n").map_err(|e| e.to_string())?;
+
+                while let Some(row) = result.next().await.map_err(|e| safe_error(&e))? {
+                    if let Some(limit) = max_rows {
+                        if row_count >= limit {
+                            truncated = true;
+                            break;
+                        }
+                    }
+                    let mut line = String::new();
+                    for (i, col_type) in col_types.iter().enumerate() {
+                        if i > 0 {
+                            line.push('\t');
+                        }
+                        let val = row.get_opt::<mysql_async::Value, _>(i);
+                        let jval = convert_mysql_value_to_json(val, col_type);
+                        match jval {
+                            Value::Null => {}
+                            Value::String(s) => {
+                                line.push_str(&s.replace('\t', " ").replace('\n', " ").replace('\r', ""));
+                            }
+                            other => {
+                                line.push_str(&other.to_string());
+                            }
+                        }
+                    }
+                    line.push('\n');
+                    writer.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+                    row_count += 1;
+                }
+            }
+            "json" => {
+                writer.write_all(b"[\n").map_err(|e| e.to_string())?;
+                let mut first = true;
+                while let Some(row) = result.next().await.map_err(|e| safe_error(&e))? {
+                    if let Some(limit) = max_rows {
+                        if row_count >= limit {
+                            truncated = true;
+                            break;
+                        }
+                    }
+                    if !first {
+                        writer.write_all(b",\n").map_err(|e| e.to_string())?;
+                    }
+                    first = false;
+                    let mut map = serde_json::Map::new();
+                    for (i, col_type) in col_types.iter().enumerate() {
+                        let val = row.get_opt::<mysql_async::Value, _>(i);
+                        let jval = convert_mysql_value_to_json(val, col_type);
+                        map.insert(col_names[i].clone(), jval);
+                    }
+                    let json_str = serde_json::to_string(&Value::Object(map)).map_err(|e| e.to_string())?;
+                    writer.write_all(json_str.as_bytes()).map_err(|e| e.to_string())?;
+                    row_count += 1;
+                }
+                writer.write_all(b"\n]\n").map_err(|e| e.to_string())?;
+            }
+            "jsonl" | "ndjson" => {
+                while let Some(row) = result.next().await.map_err(|e| safe_error(&e))? {
+                    if let Some(limit) = max_rows {
+                        if row_count >= limit {
+                            truncated = true;
+                            break;
+                        }
+                    }
+                    let mut map = serde_json::Map::new();
+                    for (i, col_type) in col_types.iter().enumerate() {
+                        let val = row.get_opt::<mysql_async::Value, _>(i);
+                        let jval = convert_mysql_value_to_json(val, col_type);
+                        map.insert(col_names[i].clone(), jval);
+                    }
+                    let json_str = serde_json::to_string(&Value::Object(map)).map_err(|e| e.to_string())?;
+                    writer.write_all(json_str.as_bytes()).map_err(|e| e.to_string())?;
+                    writer.write_all(b"\n").map_err(|e| e.to_string())?;
+                    row_count += 1;
+                }
+            }
+            _ => {
+                // CSV: Write UTF-8 BOM
+                writer.write_all("\u{FEFF}".as_bytes()).map_err(|e| e.to_string())?;
+                fn csv_escape(value: &str) -> String {
+                    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+                        format!("\"{}\"", value.replace('"', "\"\""))
+                    } else {
+                        value.to_string()
+                    }
+                }
+                let header = col_names.iter().map(|n| csv_escape(n)).collect::<Vec<_>>().join(",");
+                writer.write_all(header.as_bytes()).map_err(|e| e.to_string())?;
+                writer.write_all(b"\n").map_err(|e| e.to_string())?;
+
+                while let Some(row) = result.next().await.map_err(|e| safe_error(&e))? {
+                    if let Some(limit) = max_rows {
+                        if row_count >= limit {
+                            truncated = true;
+                            break;
+                        }
+                    }
+                    let mut line = String::new();
+                    for (i, col_type) in col_types.iter().enumerate() {
+                        if i > 0 {
+                            line.push(',');
+                        }
+                        let val = row.get_opt::<mysql_async::Value, _>(i);
+                        let jval = convert_mysql_value_to_json(val, col_type);
+                        match jval {
+                            Value::Null => {}
+                            Value::String(s) => {
+                                line.push_str(&csv_escape(&s));
+                            }
+                            other => {
+                                line.push_str(&csv_escape(&other.to_string()));
+                            }
+                        }
+                    }
+                    line.push('\n');
+                    writer.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+                    row_count += 1;
+                }
+            }
+        }
+
+        if truncated {
+            // Disconnect immediately so we don't drain remaining rows
+            let _ = conn.disconnect().await;
+        } else {
+            result.drop_result().await.map_err(|e| safe_error(&e))?;
+        }
+
+        writer.flush().map_err(|e| e.to_string())?;
+        Ok::<u64, String>(row_count)
+    };
+
+    let res = query_exec.await;
+    thread_ids.lock().await.remove(&conn_id);
+    let row_count = res?;
+
+    let file_size_bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    Ok(StreamExportResult {
+        file_path: save_path.to_string_lossy().to_string(),
+        row_count,
+        duration_ms,
+        file_size_bytes,
+    })
 }
 
 #[tauri::command]

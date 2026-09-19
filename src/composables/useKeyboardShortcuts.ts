@@ -204,6 +204,13 @@ export function useKeyboardShortcuts(handlers: { onRun?: () => void; onExplain?:
       return
     }
 
+    // ⌘J — Toggle result panel
+    if (meta && !shift && key === 'j') {
+      e.preventDefault()
+      ui.toggleResultPanel()
+      return
+    }
+
     // ⌘R — Run query (alias of ⌘↵)
     if (meta && !shift && !alt && key === 'r') {
       e.preventDefault()

@@ -1,0 +1,48 @@
+{
+  "latest": {
+    "version": "0.1.0",
+    "releaseDate": "2026-09-19",
+    "title": "Supercharged Workflow & High-Scale Data",
+    "downloadUrl": "https://github.com/hitesh103/select/releases/latest",
+    "summary": "Major upgrades including Saved Query Folders, Direct Streaming Export (>10,000 rows), Realtime Execution Monitoring, and Collapsible Results.",
+    "highlights": [
+      {
+        "icon": "folder",
+        "title": "Saved Query Folders & Drag-and-Drop",
+        "description": "Organize your SQL queries into custom folders with quick actions, folder context menus, and drag-and-drop support.",
+        "tag": "New"
+      },
+      {
+        "icon": "download",
+        "title": "Direct Streaming Export (>10,000 rows)",
+        "description": "Stream unlimited query results directly to disk in CSV (with Excel BOM), JSON, TSV, or JSONL with zero memory bloat.",
+        "tag": "New"
+      },
+      {
+        "icon": "timer",
+        "title": "Realtime Execution Loader & Cancel",
+        "description": "Live elapsed timer, animated query progress indicator, and instant cancellation keep query execution responsive without stale states.",
+        "tag": "Improved"
+      },
+      {
+        "icon": "layout",
+        "title": "Collapsible Results Panel (⌘J)",
+        "description": "Toggle the bottom query results view on demand via ⌘J shortcut or toolbar button to maximize your SQL editor workspace.",
+        "tag": "New"
+      },
+      {
+        "icon": "shield",
+        "title": "Safe Inline Table Updates",
+        "description": "Primary key projection validation prevents invalid UPDATE queries, protecting against silent update errors and data corruption.",
+        "tag": "Fix"
+      }
+    ]
+  },
+  "history": [
+    {
+      "version": "0.1.0",
+      "releaseDate": "2026-09-19",
+      "title": "Supercharged Workflow & High-Scale Data"
+    }
+  ]
+}

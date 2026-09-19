@@ -1,6 +1,16 @@
 import { defineStore } from 'pinia'
+import { toast } from 'vue-sonner'
 import { setTheme as setThemeFromSystem } from '../theme/manager'
 import { syncSoundsEnabled } from '../lib/cuelume'
+import {
+  type AppRelease,
+  BUILTIN_RELEASE,
+  CURRENT_APP_VERSION,
+  fetchLatestRelease,
+  evaluateUpdateStatus,
+  setLastSeenVersion,
+  setDismissedUpdateVersion,
+} from '../lib/updates'
 
 export type Theme = 'dark' | 'light' | 'system'
 export type GrainIntensity = 'subtle' | 'medium' | 'high'
@@ -40,6 +50,11 @@ export const useUiStore = defineStore('ui', {
     historyOpen: false,
     virtualKeyDialogOpen: false,
     virtualKeyTable: null as string | null,
+    whatsNewOpen: false,
+    activeRelease: BUILTIN_RELEASE as AppRelease,
+    isNewUpdateAvailable: false,
+    isNewlyUpdated: false,
+    updateChecking: false,
     theme: ((typeof window !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'system',
     systemIsDark: false,
     resultPanelOpen: typeof window !== 'undefined' ? localStorage.getItem('resultPanelOpen') !== 'false' : true,
@@ -137,6 +152,41 @@ export const useUiStore = defineStore('ui', {
       this.virtualKeyDialogOpen = false
       this.virtualKeyTable = null
     },
+    openWhatsNew(release?: AppRelease) {
+      if (release) this.activeRelease = release
+      this.whatsNewOpen = true
+    },
+    closeWhatsNew(markAsSeen = true) {
+      if (markAsSeen) {
+        if (this.isNewUpdateAvailable && this.activeRelease?.version) {
+          setDismissedUpdateVersion(this.activeRelease.version)
+        }
+        setLastSeenVersion(CURRENT_APP_VERSION)
+      }
+      this.whatsNewOpen = false
+    },
+    async checkForUpdates(silent = false) {
+      this.updateChecking = true
+      try {
+        const release = await fetchLatestRelease()
+        const status = evaluateUpdateStatus(release)
+        this.activeRelease = status.release
+        this.isNewUpdateAvailable = status.isNewUpdateAvailable
+        this.isNewlyUpdated = status.isNewlyUpdated
+
+        if (status.isNewUpdateAvailable || status.isNewlyUpdated) {
+          this.whatsNewOpen = true
+        } else if (!silent) {
+          toast.info(`Select is up to date (v${CURRENT_APP_VERSION})`)
+        }
+      } catch (e) {
+        if (!silent) {
+          toast.error('Could not check for updates right now')
+        }
+      } finally {
+        this.updateChecking = false
+      }
+    },
     closeAll() {
       this.paletteOpen = false
       this.inspectorOpen = false
@@ -149,6 +199,7 @@ export const useUiStore = defineStore('ui', {
       this.themeGalleryOpen = false
       this.historyOpen = false
       this.virtualKeyDialogOpen = false
+      this.whatsNewOpen = false
       this.activeInspectorTable = null
       this.virtualKeyTable = null
     },

@@ -263,6 +263,7 @@ export const useResultStore = defineStore('result', {
     activeResultIndex: 0,
     pinnedResults: loadStoredPins() as PinnedResult[],
     activeResultTabId: 'current' as string,
+    queryStartedAt: null as number | null,
   }),
 
   getters: {
@@ -337,8 +338,12 @@ export const useResultStore = defineStore('result', {
 
       const requestId = ++this.requestId
       this.status = 'running'
+      this.queryStartedAt = Date.now()
       playSound('loading')
       this.error = null
+      this.messages = []
+      this.dirtyCells = {}
+      this.editingCell = null
       this.selectedRows = new Set()
       this.lastSql = _sql
       this.lastDatabase = connStore.activeConnection?.database ?? ''
@@ -381,6 +386,10 @@ export const useResultStore = defineStore('result', {
         playSound('error')
         this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
         this.activeView = 'messages'
+      } finally {
+        if (requestId === this.requestId) {
+          this.queryStartedAt = null
+        }
       }
       this.loadHistory()
     },
@@ -406,8 +415,12 @@ export const useResultStore = defineStore('result', {
 
       const requestId = ++this.requestId
       this.status = 'running'
+      this.queryStartedAt = Date.now()
       playSound('loading')
       this.error = null
+      this.messages = []
+      this.dirtyCells = {}
+      this.editingCell = null
       this.selectedRows = new Set()
       this.lastSql = _sql
       this.lastDatabase = connStore.activeConnection?.database ?? ''
@@ -469,6 +482,10 @@ export const useResultStore = defineStore('result', {
         playSound('error')
         this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
         this.activeView = 'messages'
+      } finally {
+        if (requestId === this.requestId) {
+          this.queryStartedAt = null
+        }
       }
       this.loadHistory()
     },
@@ -660,8 +677,12 @@ export const useResultStore = defineStore('result', {
       }
       const requestId = ++this.requestId
       this.status = 'running'
+      this.queryStartedAt = Date.now()
       playSound('loading')
       this.error = null
+      this.messages = []
+      this.dirtyCells = {}
+      this.editingCell = null
       this.selectedRows = new Set()
       this.lastSql = _sql
       this.lastDatabase = connStore.activeConnection?.database ?? ''
@@ -691,6 +712,10 @@ export const useResultStore = defineStore('result', {
         playSound('error')
         this.messages = [parsedErr.hint ? `[${parsedErr.code}] ${parsedErr.message}\nHint: ${parsedErr.hint}` : `Error: ${parsedErr.message}`]
         this.activeView = 'messages'
+      } finally {
+        if (requestId === this.requestId) {
+          this.queryStartedAt = null
+        }
       }
       this.loadHistory()
     },
@@ -852,6 +877,42 @@ export const useResultStore = defineStore('result', {
       a.download = `query_result_${Date.now()}.csv`
       a.click()
       URL.revokeObjectURL(url)
+    },
+    async streamExport(
+      format: 'csv' | 'json' | 'tsv' | 'jsonl' = 'csv',
+      filePath?: string | null,
+      maxRows?: number | null,
+      sqlOverride?: string,
+    ) {
+      const connStore = useConnectionStore()
+      const sql = (sqlOverride || this.lastSql || '').trim()
+      if (!sql) throw new Error('No SQL query to export')
+      return await invoke<{
+        filePath: string
+        rowCount: number
+        durationMs: number
+        fileSizeBytes: number
+      }>('stream_export_query', {
+        sql,
+        format,
+        filePath: filePath || null,
+        id: connStore.activeId,
+        maxRows: maxRows || null,
+      })
+    },
+    async pickExportPath(defaultName?: string, format?: string) {
+      return await invoke<string | null>('pick_export_path', {
+        defaultName: defaultName || null,
+        format: format || 'csv',
+      })
+    },
+    async cancelExport() {
+      const connStore = useConnectionStore()
+      try {
+        await invoke('cancel_query', { id: connStore.activeId })
+      } catch (e) {
+        console.warn('Cancel export error:', e)
+      }
     },
   },
 })

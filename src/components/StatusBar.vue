@@ -163,6 +163,20 @@
         </button>
       </ActionTooltip>
 
+      <!-- Version & Updates Indicator -->
+      <ActionTooltip :text="uiStore.isNewUpdateAvailable ? `Update available: v${uiStore.activeRelease.version} (Click to view)` : `Select v${CURRENT_APP_VERSION} (Click for What's New)`">
+        <button
+          id="btn-statusbar-version"
+          class="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-accent/60 transition-colors text-[10px] font-mono cursor-pointer border border-transparent hover:border-border/50 bg-transparent"
+          :class="{ 'text-emerald-400 font-semibold border-emerald-500/30 bg-emerald-500/10': uiStore.isNewUpdateAvailable }"
+          @click="uiStore.openWhatsNew()"
+          aria-label="Release notes and updates"
+        >
+          <PhSparkle v-if="uiStore.isNewUpdateAvailable" class="w-3 h-3 text-emerald-400 animate-pulse" />
+          <span>v{{ CURRENT_APP_VERSION }}</span>
+        </button>
+      </ActionTooltip>
+
       <!-- Settings Gear Button -->
       <ActionTooltip text="Settings (⌘,)">
         <button
@@ -182,13 +196,14 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import {
   PhActivity, PhSun, PhMoon, PhSpeakerHigh, PhSpeakerSlash,
-  PhGear, PhCaretDown, PhCheck, PhPlug, PhPower
+  PhGear, PhCaretDown, PhCheck, PhPlug, PhPower, PhSparkle
 } from '@phosphor-icons/vue'
 import { useConnectionStore } from '../stores/connection'
 import { useResultStore } from '../stores/result'
 import { useEditorStore } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { environmentBadgeClass, environmentLabel, resolveEnvironment } from '@/lib/connectionEnv'
+import { CURRENT_APP_VERSION } from '@/lib/updates'
 import { toast } from 'vue-sonner'
 
 const connStore = useConnectionStore()

@@ -28,12 +28,13 @@ export interface Tab {
 }
 
 export interface SavedQuery {
-  /** Filename used as stable id, e.g. `My Query.sql` */
+  /** Filename or relative path used as stable id, e.g. `reports/My Query.sql` */
   id: string
   name: string
   sql: string
   createdAt: string
   updatedAt: string
+  folder?: string | null
 }
 
 const MAX_TABS = 20
@@ -66,8 +67,12 @@ export const useEditorStore = defineStore('editor', {
     splitRatio: 0.5,
     fontSize: 13,
     savedQueries: [] as SavedQuery[],
+    queryFolders: [] as string[],
     saveDialogOpen: false,
     saveDialogTabId: null as string | null,
+    saveDialogFolder: null as string | null,
+    confirmCloseTabId: null as string | null,
+    pendingCloseAfterSaveTabId: null as string | null,
     /** Absolute path to the on-disk queries folder */
     queriesDir: null as string | null,
     queriesDirNeedsSetup: false,
@@ -216,6 +221,15 @@ export const useEditorStore = defineStore('editor', {
       this.saveTabState()
       return tab.id
     },
+    openNewQueryInFolder(folder?: string | null) {
+      const tabId = this.addTab()
+      if (tabId) {
+        this.saveDialogTabId = tabId
+        this.saveDialogFolder = folder || null
+        this.saveDialogOpen = true
+      }
+      return tabId
+    },
     addNotebookTab(initialContent?: string) {
       if (this.tabs.length >= MAX_TABS) return ''
       tabCounter++
@@ -318,12 +332,15 @@ export const useEditorStore = defineStore('editor', {
       this.saveTabState()
       return tab.id
     },
-    closeTab(id: string) {
+    closeTab(id: string, force = false): boolean {
       const tab = this.tabs.find(t => t.id === id)
-      if (!tab) return
-      if (tab.isUnsaved && tab.sql.trim()) {
-        const confirmed = window.confirm(`"${tab.name}" has unsaved changes. Close anyway?`)
-        if (!confirmed) return
+      if (!tab) return true
+      if (!force && tab.isUnsaved && (tab.savedQueryId !== null || tab.sql.trim().length > 0)) {
+        this.confirmCloseTabId = id
+        return false
+      }
+      if (this.confirmCloseTabId === id) {
+        this.confirmCloseTabId = null
       }
       const idx = this.tabs.indexOf(tab)
       this.tabs.splice(idx, 1)
@@ -332,6 +349,33 @@ export const useEditorStore = defineStore('editor', {
         if (this.tabs.length === 0) this.addTab()
       }
       this.saveTabState()
+      return true
+    },
+    cancelCloseTab() {
+      this.confirmCloseTabId = null
+    },
+    discardAndCloseTab(id?: string) {
+      const targetId = id || this.confirmCloseTabId
+      if (targetId) {
+        this.closeTab(targetId, true)
+      }
+    },
+    async saveAndCloseTab(id?: string) {
+      const targetId = id || this.confirmCloseTabId
+      if (!targetId) return
+      const tab = this.tabs.find(t => t.id === targetId)
+      if (!tab) return
+      if (tab.savedQueryId) {
+        const ok = await this.saveTab(targetId)
+        if (ok) {
+          this.closeTab(targetId, true)
+        }
+      } else {
+        this.confirmCloseTabId = null
+        this.pendingCloseAfterSaveTabId = targetId
+        this.saveDialogTabId = targetId
+        this.saveDialogOpen = true
+      }
     },
     selectTab(id: string) {
       if (this.tabs.find(t => t.id === id)) {
@@ -347,9 +391,9 @@ export const useEditorStore = defineStore('editor', {
         this.scheduleSaveTabState()
       }
     },
-    async saveTab(id: string) {
+    async saveTab(id: string): Promise<boolean> {
       const tab = this.tabs.find(t => t.id === id)
-      if (!tab) return
+      if (!tab) return false
       if (tab.savedQueryId) {
         try {
           const saveName = tab.format === 'notebook' && !tab.name.toLowerCase().endsWith('.md')
@@ -365,35 +409,120 @@ export const useEditorStore = defineStore('editor', {
           tab.isUnsaved = false
           this.flushTabState()
           await this._refreshSavedQueries()
+          return true
         } catch (e) {
           console.error('Failed to save query:', e)
+          return false
         }
       } else {
         this.saveDialogTabId = id
         this.saveDialogOpen = true
+        return false
       }
     },
-    async saveQueryAs(tabId: string, name: string) {
+    async saveQueryAs(tabId: string, name: string, folder?: string | null) {
       const tab = this.tabs.find(t => t.id === tabId)
       if (!tab) return
       try {
         const saveName = tab.format === 'notebook' && !name.toLowerCase().endsWith('.md')
           ? `${name}.md`
           : name
-        const saved = await invoke<SavedQuery>('save_query', {
+        const payload: Record<string, any> = {
           name: saveName,
           sql: tab.sql,
           id: null,
-        })
+        }
+        const targetFolder = folder ?? this.saveDialogFolder
+        if (targetFolder) {
+          payload.folder = targetFolder
+        }
+        const saved = await invoke<SavedQuery>('save_query', payload)
         tab.name = saved.name
         tab.savedQueryId = saved.id
         tab.isUnsaved = false
         this.saveDialogOpen = false
         this.saveDialogTabId = null
+        this.saveDialogFolder = null
+        this.flushTabState()
+        await this._refreshSavedQueries()
+        if (this.pendingCloseAfterSaveTabId === tabId) {
+          this.pendingCloseAfterSaveTabId = null
+          this.closeTab(tabId, true)
+        }
+      } catch (e) {
+        console.error('Failed to save query:', e)
+      }
+    },
+    async createFolder(name: string, parentFolder?: string | null) {
+      const trimmed = name.trim()
+      if (!trimmed) return
+      try {
+        const folder = await invoke<string>('create_query_folder', {
+          name: trimmed,
+          parentFolder: parentFolder || null,
+        })
+        await this._refreshSavedQueries()
+        return folder
+      } catch (e) {
+        console.error('Failed to create folder:', e)
+        throw e
+      }
+    },
+    async deleteFolder(folderPath: string) {
+      try {
+        await invoke('delete_query_folder', { folderPath })
+        this.tabs.forEach(t => {
+          if (t.savedQueryId && (t.savedQueryId.startsWith(`${folderPath}/`) || t.savedQueryId === folderPath)) {
+            t.savedQueryId = null
+            t.isUnsaved = true
+          }
+        })
         this.flushTabState()
         await this._refreshSavedQueries()
       } catch (e) {
-        console.error('Failed to save query:', e)
+        console.error('Failed to delete folder:', e)
+        throw e
+      }
+    },
+    async renameFolder(oldFolderPath: string, newName: string) {
+      const trimmed = newName.trim()
+      if (!trimmed) return
+      try {
+        const newRel = await invoke<string>('rename_query_folder', {
+          oldFolderPath,
+          newName: trimmed,
+        })
+        this.tabs.forEach(t => {
+          if (t.savedQueryId && (t.savedQueryId.startsWith(`${oldFolderPath}/`) || t.savedQueryId === oldFolderPath)) {
+            t.savedQueryId = t.savedQueryId.replace(oldFolderPath, newRel)
+          }
+        })
+        this.flushTabState()
+        await this._refreshSavedQueries()
+        return newRel
+      } catch (e) {
+        console.error('Failed to rename folder:', e)
+        throw e
+      }
+    },
+    async moveQuery(id: string, targetFolder?: string | null) {
+      try {
+        const moved = await invoke<SavedQuery>('move_query_file', {
+          id,
+          targetFolder: targetFolder || null,
+        })
+        this.tabs.forEach(t => {
+          if (t.savedQueryId === id) {
+            t.savedQueryId = moved.id
+            t.name = moved.name
+          }
+        })
+        this.flushTabState()
+        await this._refreshSavedQueries()
+        return moved
+      } catch (e) {
+        console.error('Failed to move query:', e)
+        throw e
       }
     },
     async dropSavedQuery(id: string) {
@@ -456,7 +585,15 @@ export const useEditorStore = defineStore('editor', {
     },
     async loadSavedQueries() {
       try {
-        this.savedQueries = await invoke<SavedQuery[]>('load_queries')
+        this.savedQueries = (await invoke<SavedQuery[]>('load_queries')) || []
+        try {
+          const folders = await invoke<string[]>('load_query_folders')
+          if (Array.isArray(folders)) {
+            this.queryFolders = folders.filter(f => typeof f === 'string')
+          }
+        } catch {
+          this.queryFolders = []
+        }
         try {
           this.queriesDir = await invoke<string>('get_queries_dir')
           const customDir = await invoke<string | null>('get_custom_queries_dir')
@@ -481,7 +618,13 @@ export const useEditorStore = defineStore('editor', {
     },
     async _refreshSavedQueries() {
       try {
-        this.savedQueries = await invoke<SavedQuery[]>('load_queries')
+        this.savedQueries = (await invoke<SavedQuery[]>('load_queries')) || []
+        try {
+          const folders = await invoke<string[]>('load_query_folders')
+          if (Array.isArray(folders)) {
+            this.queryFolders = folders.filter(f => typeof f === 'string')
+          }
+        } catch {}
       } catch (e) {
         console.error('Failed to refresh queries:', e)
       }

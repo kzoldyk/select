@@ -95,6 +95,27 @@
             </Button>
           </div>
         </div>
+
+        <!-- App Updates & Release Notes section -->
+        <div class="space-y-3 pt-4 border-t border-border/40">
+          <div class="flex items-center justify-between">
+            <div>
+              <Label class="text-xs font-medium text-foreground">Select Version</Label>
+              <p class="text-[11px] text-muted-foreground">Installed: v{{ CURRENT_APP_VERSION }}</p>
+            </div>
+            <Button
+              id="btn-settings-check-updates"
+              variant="outline"
+              size="sm"
+              class="text-xs gap-1.5 h-8 cursor-pointer"
+              :disabled="uiStore.updateChecking"
+              @click="checkUpdatesFromSettings"
+            >
+              <Sparkles class="w-3.5 h-3.5 text-primary" />
+              {{ uiStore.updateChecking ? 'Checking…' : "What's New & Updates" }}
+            </Button>
+          </div>
+        </div>
       </div>
 
       <DialogFooter class="border-t border-border/40 pt-4 flex justify-end">
@@ -118,9 +139,10 @@ import {
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { Sun, Moon, Monitor, Palette, FolderOpen } from '@lucide/vue'
+import { Sun, Moon, Monitor, Palette, FolderOpen, Sparkles } from '@lucide/vue'
 import { useUiStore, type Theme } from '../stores/ui'
 import { useEditorStore } from '../stores/editor'
+import { CURRENT_APP_VERSION } from '@/lib/updates'
 import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'vue-sonner'
 
@@ -136,6 +158,11 @@ const themeOptions = [
 function openGallery() {
   uiStore.closeSettings()
   uiStore.openThemeGallery()
+}
+
+function checkUpdatesFromSettings() {
+  uiStore.closeSettings()
+  uiStore.checkForUpdates(false)
 }
 
 async function changeQueriesFolder() {

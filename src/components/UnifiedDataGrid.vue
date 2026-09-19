@@ -112,12 +112,14 @@
 
           <div
             v-if="showExportMenu"
-            class="absolute right-0 mt-1 w-36 bg-popover border border-border/80 rounded-md shadow-lg py-1 z-50 text-[11px] animate-in fade-in-50 zoom-in-95 duration-fast"
+            class="absolute right-0 mt-1 w-44 bg-popover border border-border/80 rounded-md shadow-lg py-1 z-50 text-[11px] animate-in fade-in-50 zoom-in-95 duration-fast"
             @mouseleave="showExportMenu = false"
           >
             <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent" @click="exportCsv">Export as CSV</button>
             <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent" @click="exportJson">Export as JSON</button>
             <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent" @click="copyAllTsv">Copy all (TSV)</button>
+            <div class="h-px bg-border/60 my-1"></div>
+            <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent font-medium text-primary" @click="openStreamExport">Stream export (>10k)…</button>
           </div>
         </div>
 
@@ -1586,7 +1588,7 @@ function resolveInlineEditInput(): HTMLInputElement | null {
 
 function startEditCell(rowIndex: number, colKey: string, _e?: MouseEvent) {
   if (!props.canEdit) {
-    toast.error('This result is not safely editable. Define a primary or virtual key first.')
+    toast.error('This result cannot be edited: table key columns are missing from the query projection or no unique/virtual key is configured.')
     if (props.tableName) uiStore.openVirtualKeyDialog(props.tableName)
     return
   }
@@ -1944,6 +1946,11 @@ async function exportJson() {
   a.download = `${props.tableName || 'data'}_${Date.now()}.json`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function openStreamExport() {
+  showExportMenu.value = false
+  uiStore.openExport()
 }
 
 function isNumericCol(col: ColumnDef): boolean {
