@@ -83,7 +83,7 @@ If SmartScreen blocks the installer entirely, right-click the file, choose **Pro
 **Debian / Ubuntu (.deb)**
 
 ```bash
-sudo dpkg -i select_0.1.0_amd64.deb
+sudo dpkg -i select_0.2.0_amd64.deb
 sudo apt-get install -f
 ```
 
@@ -96,8 +96,8 @@ select
 **AppImage (any distro)**
 
 ```bash
-chmod +x select_0.1.0_amd64.AppImage
-./select_0.1.0_amd64.AppImage
+chmod +x select_0.2.0_amd64.AppImage
+./select_0.2.0_amd64.AppImage
 ```
 
 If the AppImage does not launch, install FUSE:

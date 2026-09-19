@@ -14,12 +14,12 @@ export interface AppRelease {
   downloadUrl?: string
 }
 
-export const CURRENT_APP_VERSION = '0.1.0'
+export const CURRENT_APP_VERSION = '0.2.0'
 
 export const DEFAULT_MANIFEST_URL = 'https://raw.githubusercontent.com/hitesh103/select/main/releases.json'
 
 export const BUILTIN_RELEASE: AppRelease = {
-  version: '0.1.0',
+  version: '0.2.0',
   releaseDate: '2026-09-19',
   title: 'Supercharged Workflow & High-Scale Data',
   summary: 'Major upgrades including Saved Query Folders, Direct Streaming Export (>10,000 rows), Realtime Execution Monitoring, and Collapsible Results.',

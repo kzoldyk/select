@@ -1,6 +1,6 @@
 {
   "latest": {
-    "version": "0.1.0",
+    "version": "0.2.0",
     "releaseDate": "2026-09-19",
     "title": "Supercharged Workflow & High-Scale Data",
     "downloadUrl": "https://github.com/hitesh103/select/releases/latest",
@@ -40,9 +40,14 @@
   },
   "history": [
     {
-      "version": "0.1.0",
+      "version": "0.2.0",
       "releaseDate": "2026-09-19",
       "title": "Supercharged Workflow & High-Scale Data"
+    },
+    {
+      "version": "0.1.0",
+      "releaseDate": "2026-09-19",
+      "title": "Initial Release"
     }
   ]
 }
