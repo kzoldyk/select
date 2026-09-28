@@ -14,46 +14,40 @@ export interface AppRelease {
   downloadUrl?: string
 }
 
-export const CURRENT_APP_VERSION = '0.2.0'
+export const CURRENT_APP_VERSION = '0.2.1'
 
 export const DEFAULT_MANIFEST_URL = 'https://raw.githubusercontent.com/hitesh103/select/main/releases.json'
 
 export const BUILTIN_RELEASE: AppRelease = {
-  version: '0.2.0',
-  releaseDate: '2026-09-19',
-  title: 'Supercharged Workflow & High-Scale Data',
-  summary: 'Major upgrades including Saved Query Folders, Direct Streaming Export (>10,000 rows), Realtime Execution Monitoring, and Collapsible Results.',
+  version: '0.2.1',
+  releaseDate: '2026-09-28',
+  title: 'Connection Stability & Inline Editing Fixes',
+  summary: 'Fixed connection crash when default schema is empty, eliminated duplicate query loader, and improved in-cell updates with NULL & type coercion.',
   downloadUrl: 'https://github.com/hitesh103/select/releases/latest',
   highlights: [
     {
-      icon: 'folder',
-      title: 'Saved Query Folders & Drag-and-Drop',
-      description: 'Organize your SQL queries into custom folders with quick actions, folder context menus, and drag-and-drop support.',
-      tag: 'New',
-    },
-    {
-      icon: 'download',
-      title: 'Direct Streaming Export (>10,000 rows)',
-      description: 'Stream unlimited query results directly to disk in CSV (with Excel BOM), JSON, TSV, or JSONL with zero memory bloat.',
-      tag: 'New',
+      icon: 'shield',
+      title: 'Empty Database Connection Fix',
+      description: 'Fixed crash on connect when no default database is selected and added auto-selection for available databases.',
+      tag: 'Fix',
     },
     {
       icon: 'timer',
-      title: 'Realtime Execution Loader & Cancel',
-      description: 'Live elapsed timer, animated query progress indicator, and instant cancellation keep query execution responsive without stale states.',
-      tag: 'Improved',
+      title: 'Cleaner Single Query Loader',
+      description: 'Removed duplicate inner spinner overlay so long-running queries show one clean execution status.',
+      tag: 'Fix',
     },
     {
       icon: 'layout',
-      title: 'Collapsible Results Panel (⌘J)',
-      description: 'Toggle the bottom query results view on demand via ⌘J shortcut or toolbar button to maximize your SQL editor workspace.',
-      tag: 'New',
+      title: 'Enhanced In-Cell Table Updates',
+      description: 'Fixed in-cell update queries to support NULL values, IS NULL key predicates, and strict column type coercion.',
+      tag: 'Fix',
     },
     {
-      icon: 'shield',
-      title: 'Safe Inline Table Updates',
-      description: 'Primary key projection validation prevents invalid UPDATE queries, protecting against silent update errors and data corruption.',
-      tag: 'Fix',
+      icon: 'sparkles',
+      title: 'Refined Update Notification Modal',
+      description: 'Fixed cross button and version badge positioning for clean, unclipped dialog header layout.',
+      tag: 'Improved',
     },
   ],
 }

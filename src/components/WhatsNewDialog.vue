@@ -2,7 +2,7 @@
   <Dialog :open="uiStore.whatsNewOpen" @update:open="onClose">
     <DialogContent class="sm:max-w-xl font-mono p-0 overflow-hidden border-border/80 shadow-2xl">
       <!-- Header Banner -->
-      <div class="relative px-6 pt-6 pb-4 border-b border-border/60 bg-gradient-to-b from-primary/10 via-primary/5 to-transparent">
+      <div class="relative px-6 pt-6 pb-4 pr-14 border-b border-border/60 bg-gradient-to-b from-primary/10 via-primary/5 to-transparent">
         <div class="flex items-center justify-between gap-3 mb-2">
           <div class="flex items-center gap-2">
             <span class="flex items-center justify-center w-7 h-7 rounded-lg bg-primary/20 text-primary border border-primary/30 shadow-xs">
