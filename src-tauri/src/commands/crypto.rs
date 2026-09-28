@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 const ENCRYPTED_PASSWORD_PREFIX: &str = "enc:v1:";
-const KEYCHAIN_SERVICE: &str = "com.select.app";
-const LEGACY_KEYCHAIN_SERVICE: &str = "com.hiteshbhaiprajapati.select";
+const KEYCHAIN_SERVICE: &str = "com.select.desktop";
+const LEGACY_KEYCHAIN_SERVICES: &[&str] = &["com.select.app", "com.hiteshbhaiprajapati.select"];
 const KEYCHAIN_USER: &str = "sql-encryption-key";
 
 pub fn password_looks_encrypted(password: &str) -> bool {
@@ -26,10 +26,12 @@ fn encryption_key_paths(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
     let mut paths = vec![current, legacy];
 
     if let Some(parent) = base.parent() {
-        let old_base = parent.join("com.hiteshbhaiprajapati.select");
-        if old_base.exists() {
-            paths.push(old_base.join(".encryption_key"));
-            paths.push(old_base.join(".select-key"));
+        for old_id in ["com.select.app", "com.hiteshbhaiprajapati.select"] {
+            let old_base = parent.join(old_id);
+            if old_base.exists() {
+                paths.push(old_base.join(".encryption_key"));
+                paths.push(old_base.join(".select-key"));
+            }
         }
     }
 
@@ -48,13 +50,15 @@ fn read_key_from_keychain() -> Result<Option<Vec<u8>>, String> {
             .map(Some)
             .map_err(|e| format!("Corrupted keychain key: {e}")),
         Err(keyring::Error::NoEntry) => {
-            // Check legacy keychain entry from previous versions
-            if let Ok(legacy_entry) = Entry::new(LEGACY_KEYCHAIN_SERVICE, KEYCHAIN_USER) {
-                if let Ok(b64) = legacy_entry.get_password() {
-                    if let Ok(key) = BASE64.decode(b64) {
-                        // Mirror into current keychain service for future reads
-                        let _ = write_key_to_keychain(&key);
-                        return Ok(Some(key));
+            // Check legacy keychain entries from previous versions
+            for legacy_svc in LEGACY_KEYCHAIN_SERVICES {
+                if let Ok(legacy_entry) = Entry::new(legacy_svc, KEYCHAIN_USER) {
+                    if let Ok(b64) = legacy_entry.get_password() {
+                        if let Ok(key) = BASE64.decode(b64) {
+                            // Mirror into current keychain service for future reads
+                            let _ = write_key_to_keychain(&key);
+                            return Ok(Some(key));
+                        }
                     }
                 }
             }

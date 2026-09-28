@@ -36,14 +36,16 @@ pub fn run() {
             use tauri::Manager;
             if let Ok(base) = app.path().app_data_dir() {
                 if let Some(parent) = base.parent() {
-                    let legacy = parent.join("com.hiteshbhaiprajapati.select");
-                    if legacy.exists() && legacy.is_dir() {
-                        let _ = std::fs::create_dir_all(&base);
-                        if let Ok(entries) = std::fs::read_dir(&legacy) {
-                            for entry in entries.flatten() {
-                                let dest = base.join(entry.file_name());
-                                if !dest.exists() {
-                                    let _ = std::fs::rename(entry.path(), &dest);
+                    for legacy_name in ["com.select.app", "com.hiteshbhaiprajapati.select"] {
+                        let legacy = parent.join(legacy_name);
+                        if legacy.exists() && legacy.is_dir() {
+                            let _ = std::fs::create_dir_all(&base);
+                            if let Ok(entries) = std::fs::read_dir(&legacy) {
+                                for entry in entries.flatten() {
+                                    let dest = base.join(entry.file_name());
+                                    if !dest.exists() {
+                                        let _ = std::fs::rename(entry.path(), &dest);
+                                    }
                                 }
                             }
                         }
