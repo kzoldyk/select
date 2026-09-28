@@ -38,3 +38,6 @@ scratch/
 # Todo / notes files
 todo.md
 todos.md
+
+# Workspace Agent rules
+!AGENTS.md
