@@ -146,7 +146,7 @@ async function run() {
     }, { mockConn, mockTables, themeName });
   };
 
-  const brainDir = '/Users/hiteshbhai.prajapati/.gemini/antigravity/brain/c13ddc75-7727-4e77-9e94-c4d058d9acdb';
+  const brainDir = process.env.BRAIN_DIR || '';
 
   // 1. Capture Dark Theme
   console.log('🌑 Capturing Dark Theme screenshot...');
@@ -154,7 +154,7 @@ async function run() {
   await page.waitForTimeout(600);
   const darkPath = path.join(rootDir, 'select_app_dark.png');
   await page.screenshot({ path: darkPath });
-  if (fs.existsSync(brainDir)) {
+  if (brainDir && fs.existsSync(brainDir)) {
     fs.copyFileSync(darkPath, path.join(brainDir, 'select_app_dark.png'));
   }
 

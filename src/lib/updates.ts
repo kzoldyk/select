@@ -14,40 +14,34 @@ export interface AppRelease {
   downloadUrl?: string
 }
 
-export const CURRENT_APP_VERSION = '0.2.1'
+export const CURRENT_APP_VERSION = '0.2.2'
 
 export const DEFAULT_MANIFEST_URL = 'https://raw.githubusercontent.com/hitesh103/select/main/releases.json'
 
 export const BUILTIN_RELEASE: AppRelease = {
-  version: '0.2.1',
+  version: '0.2.2',
   releaseDate: '2026-09-28',
-  title: 'Connection Stability & Inline Editing Fixes',
-  summary: 'Fixed connection crash when default schema is empty, eliminated duplicate query loader, and improved in-cell updates with NULL & type coercion.',
+  title: 'Logo Squircle, Noise Grain Toggle & Dynamic App Identity',
+  summary: 'Added dark macOS squircle background to the logo across all themes, resolved the noise grain toggle switch, and made bundle identifiers and paths fully dynamic.',
   downloadUrl: 'https://github.com/hitesh103/select/releases/latest',
   highlights: [
     {
+      icon: 'sparkles',
+      title: 'Persistent Dark Logo Background',
+      description: 'Added dark macOS squircle background to the logo so the white icon stays crisp and visible in both light and dark themes.',
+      tag: 'Improved',
+    },
+    {
       icon: 'shield',
-      title: 'Empty Database Connection Fix',
-      description: 'Fixed crash on connect when no default database is selected and added auto-selection for available databases.',
+      title: 'Film Grain Toggle Switch Fix',
+      description: 'Fixed the settings toggle switch to reliably enable and disable tactile noise grain texture across all intensity levels.',
       tag: 'Fix',
     },
     {
       icon: 'timer',
-      title: 'Cleaner Single Query Loader',
-      description: 'Removed duplicate inner spinner overlay so long-running queries show one clean execution status.',
+      title: 'Dynamic Identity & Seamless Migration',
+      description: 'Removed hardcoded user paths and identifiers with automated migration from legacy app data folders.',
       tag: 'Fix',
-    },
-    {
-      icon: 'layout',
-      title: 'Enhanced In-Cell Table Updates',
-      description: 'Fixed in-cell update queries to support NULL values, IS NULL key predicates, and strict column type coercion.',
-      tag: 'Fix',
-    },
-    {
-      icon: 'sparkles',
-      title: 'Refined Update Notification Modal',
-      description: 'Fixed cross button and version badge positioning for clean, unclipped dialog header layout.',
-      tag: 'Improved',
     },
   ],
 }

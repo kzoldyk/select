@@ -258,6 +258,9 @@ export const useUiStore = defineStore('ui', {
       this.filmGrainEnabled = enabled
       if (typeof window !== 'undefined') {
         localStorage.setItem('filmGrainEnabled', String(enabled))
+        if (enabled) {
+          document.documentElement.setAttribute('data-grain-intensity', this.grainIntensity)
+        }
       }
     },
     setGrainIntensity(intensity: GrainIntensity) {

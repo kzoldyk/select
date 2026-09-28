@@ -32,6 +32,26 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .setup(|app| {
+            use tauri::Manager;
+            if let Ok(base) = app.path().app_data_dir() {
+                if let Some(parent) = base.parent() {
+                    let legacy = parent.join("com.hiteshbhaiprajapati.select");
+                    if legacy.exists() && legacy.is_dir() {
+                        let _ = std::fs::create_dir_all(&base);
+                        if let Ok(entries) = std::fs::read_dir(&legacy) {
+                            for entry in entries.flatten() {
+                                let dest = base.join(entry.file_name());
+                                if !dest.exists() {
+                                    let _ = std::fs::rename(entry.path(), &dest);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::run_query,
             commands::run_multi_query,

@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 const ENCRYPTED_PASSWORD_PREFIX: &str = "enc:v1:";
-const KEYCHAIN_SERVICE: &str = "com.hiteshbhaiprajapati.select";
+const KEYCHAIN_SERVICE: &str = "com.select.app";
+const LEGACY_KEYCHAIN_SERVICE: &str = "com.hiteshbhaiprajapati.select";
 const KEYCHAIN_USER: &str = "sql-encryption-key";
 
 pub fn password_looks_encrypted(password: &str) -> bool {
@@ -20,9 +21,19 @@ fn encryption_key_paths(app: &AppHandle) -> Result<Vec<PathBuf>, String> {
     std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
     let mut legacy = base.clone();
     legacy.push(".select-key");
-    let mut current = base;
+    let mut current = base.clone();
     current.push(".encryption_key");
-    Ok(vec![current, legacy])
+    let mut paths = vec![current, legacy];
+
+    if let Some(parent) = base.parent() {
+        let old_base = parent.join("com.hiteshbhaiprajapati.select");
+        if old_base.exists() {
+            paths.push(old_base.join(".encryption_key"));
+            paths.push(old_base.join(".select-key"));
+        }
+    }
+
+    Ok(paths)
 }
 
 fn keychain_entry() -> Result<Entry, String> {
@@ -36,7 +47,19 @@ fn read_key_from_keychain() -> Result<Option<Vec<u8>>, String> {
             .decode(b64)
             .map(Some)
             .map_err(|e| format!("Corrupted keychain key: {e}")),
-        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(keyring::Error::NoEntry) => {
+            // Check legacy keychain entry from previous versions
+            if let Ok(legacy_entry) = Entry::new(LEGACY_KEYCHAIN_SERVICE, KEYCHAIN_USER) {
+                if let Ok(b64) = legacy_entry.get_password() {
+                    if let Ok(key) = BASE64.decode(b64) {
+                        // Mirror into current keychain service for future reads
+                        let _ = write_key_to_keychain(&key);
+                        return Ok(Some(key));
+                    }
+                }
+            }
+            Ok(None)
+        }
         Err(e) => Err(format!("Keychain read failed: {e}")),
     }
 }

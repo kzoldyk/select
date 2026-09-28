@@ -7,7 +7,7 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
-const homepagePublicDir = '/Users/hiteshbhai.prajapati/Desktop/code/Github/select-homepage/public';
+const homepagePublicDir = process.env.HOMEPAGE_PUBLIC_DIR || path.resolve(rootDir, '../select-homepage/public');
 
 async function run() {
   console.log('🚀 Starting Vite dev server for comprehensive screen capture...');

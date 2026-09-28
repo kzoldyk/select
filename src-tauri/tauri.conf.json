@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "select",
-  "version": "0.2.1",
-  "identifier": "com.hiteshbhaiprajapati.select",
+  "version": "0.2.2",
+  "identifier": "com.select.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

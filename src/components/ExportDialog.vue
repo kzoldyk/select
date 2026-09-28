@@ -32,7 +32,7 @@
             <Input
               id="export-path-input"
               v-model="saveFilePath"
-              placeholder="e.g. /Users/name/Downloads/export.csv"
+              placeholder="e.g. ~/Downloads/export.csv"
               class="h-8 text-xs font-mono flex-1 bg-background"
             />
             <Button

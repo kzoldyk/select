@@ -23,7 +23,7 @@
           Back
         </Button>
         <div class="flex items-center gap-2.5 min-w-0">
-          <img src="/select-logo.svg" alt="" class="w-7 h-7 flex-shrink-0" />
+          <img src="/select-logo.svg" alt="Select" class="w-8 h-8 flex-shrink-0 drop-shadow-xs" />
           <div class="min-w-0">
             <h1 class="text-sm font-semibold tracking-tight leading-none">
               {{ currentView === 'edit' ? 'Connection Settings' : 'Connections' }}
