@@ -202,7 +202,7 @@
           :rows="currentRows"
           :table-name="editableTableName"
           :duration-ms="currentDuration"
-          :loading="currentStatus === 'running'"
+          :loading="false"
           :page-size="resultStore.pageSize"
           :has-more="resultStore.hasMore && !isPinnedActive"
           :loading-more="resultStore.loadingMore"
@@ -555,7 +555,10 @@ async function handleBatchSaveEdits(
         (c.key || c.name).toLowerCase() === keyCol.toLowerCase()
       )
       const rowKey = colDef ? (colDef.key || colDef.name) : keyCol
-      const val = row[rowKey]
+      let val = row[rowKey]
+      if (typeof val === 'string' && (val.trim().toUpperCase() === 'NULL' || val.trim() === '\\N')) {
+        val = null
+      }
       if (val !== undefined) {
         pks.push({ column: keyCol, value: val })
       }
@@ -567,9 +570,18 @@ async function handleBatchSaveEdits(
     }
 
     const changesList: { column: string; value: any }[] = []
-    for (const [colKey, val] of Object.entries(update.changes)) {
+    for (const [colKey, rawVal] of Object.entries(update.changes)) {
       const colDef = currentColumns.value.find(c => (c.key || c.name) === colKey || c.name === colKey)
       const actualCol = colDef?.orgName || colDef?.name || colKey
+      let val = rawVal
+      if (typeof val === 'string') {
+        const trimmed = val.trim()
+        if (trimmed.toUpperCase() === 'NULL' || trimmed === '\\N') {
+          val = null
+        } else if (trimmed === '' && colDef?.type && !['string', 'text', 'char', 'varchar', 'json'].some(t => colDef.type.toLowerCase().includes(t))) {
+          val = null
+        }
+      }
       changesList.push({ column: actualCol, value: val })
     }
 

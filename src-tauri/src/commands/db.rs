@@ -1990,7 +1990,13 @@ pub(crate) fn json_to_mysql_val(val: &serde_json::Value) -> mysql_async::Value {
                 mysql_async::Value::Bytes(n.to_string().into_bytes())
             }
         }
-        serde_json::Value::String(s) => mysql_async::Value::Bytes(s.as_bytes().to_vec()),
+        serde_json::Value::String(s) => {
+            if s.eq_ignore_ascii_case("NULL") || s == "\\N" {
+                mysql_async::Value::NULL
+            } else {
+                mysql_async::Value::Bytes(s.as_bytes().to_vec())
+            }
+        }
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
             mysql_async::Value::Bytes(val.to_string().into_bytes())
         }
@@ -2177,9 +2183,10 @@ pub async fn connect(
         };
 
         let thread_id: u32 = conn
-            .query_first("SELECT CONNECTION_ID()")
+            .query_first::<Option<u32>, _>("SELECT CONNECTION_ID()")
             .await
             .map_err(|e| safe_error(&e))?
+            .flatten()
             .unwrap_or(0);
         state.connection_urls.lock().await.insert(id.clone(), url);
         state.thread_ids.lock().await.insert(id.clone(), thread_id);
@@ -2205,9 +2212,10 @@ pub async fn refresh_thread_id(
     };
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
     let thread_id: u32 = conn
-        .query_first("SELECT CONNECTION_ID()")
+        .query_first::<Option<u32>, _>("SELECT CONNECTION_ID()")
         .await
         .map_err(|e| safe_error(&e))?
+        .flatten()
         .unwrap_or(0);
     state.thread_ids.lock().await.insert(id, thread_id);
     Ok(())
@@ -2401,9 +2409,10 @@ pub async fn fetch_schema(
         Some(ref db) if !db.trim().is_empty() => db.clone(),
         _ => {
             let mut c = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-            c.query_first::<String, _>("SELECT DATABASE()")
+            c.query_first::<Option<String>, _>("SELECT DATABASE()")
                 .await
                 .map_err(|e| safe_error(&e))?
+                .flatten()
                 .unwrap_or_default()
         }
     };
@@ -2639,10 +2648,11 @@ pub async fn fetch_table_details(
         },
     ).await.map_err(|e| safe_error(&e))?;
 
-    let ddl_query = if let Some(schema) = schema_opt {
-        format!("SHOW CREATE TABLE {}.{}", quote_identifier(&schema), quote_identifier(&table_name))
-    } else {
-        format!("SHOW CREATE TABLE {}", quote_identifier(&table_name))
+    let ddl_query = match schema_opt.as_deref() {
+        Some(s) if !s.trim().is_empty() => {
+            format!("SHOW CREATE TABLE {}.{}", quote_identifier(s), quote_identifier(&table_name))
+        }
+        _ => format!("SHOW CREATE TABLE {}", quote_identifier(&table_name)),
     };
 
     let ddl_row: Option<mysql_async::Row> = conn
@@ -2818,14 +2828,14 @@ pub async fn fetch_referenced_row(
         None => (database.clone(), table.clone()),
     };
 
-    let full_table_identifier = match schema_opt {
-        Some(s) => {
+    let full_table_identifier = match schema_opt.as_deref() {
+        Some(s) if !s.trim().is_empty() => {
             if !s.chars().all(|c| c.is_alphanumeric() || c == '_') {
                 return Err("Invalid schema name identifier".to_string());
             }
-            format!("{}.{}", quote_identifier(&s), quote_identifier(&table_name))
+            format!("{}.{}", quote_identifier(s), quote_identifier(&table_name))
         }
-        None => quote_identifier(&table_name),
+        _ => quote_identifier(&table_name),
     };
 
     let sql = format!(

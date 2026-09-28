@@ -211,7 +211,15 @@ export const useSchemaStore = defineStore('schema', {
         if (!this.databases.length) {
           await this.fetchDatabases(connectionId)
         }
-        const dbName = connStore.activeConnection?.database ?? null
+        let dbName = connStore.activeConnection?.database ?? null
+        if (!dbName && this.databases.length > 0) {
+          const nonSystem = this.databases.find(db => !['information_schema', 'mysql', 'performance_schema', 'sys'].includes(db.toLowerCase()))
+          const targetDb = nonSystem ?? this.databases[0]
+          if (targetDb) {
+            dbName = targetDb
+            await connStore.changeDatabase(targetDb)
+          }
+        }
         const data = await invoke<any>('fetch_schema', { id: connectionId ?? 'default', database: dbName })
         
         const newTables: SchemaTable[] = data.tables
