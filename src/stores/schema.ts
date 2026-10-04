@@ -196,8 +196,10 @@ export const useSchemaStore = defineStore('schema', {
       
       try {
         const tables = await invoke<string[]>('fetch_schema_tables', { schema, id: connectionId ?? null })
-        this.schemaTablesCache[cacheKey] = tables
-        return tables
+        if (tables && tables.length > 0) {
+          this.schemaTablesCache[cacheKey] = tables
+        }
+        return tables || []
       } catch (e) {
         console.error(`Failed to fetch tables for schema ${schema}`, e)
         return []

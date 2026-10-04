@@ -143,20 +143,22 @@ export async function getSqlCompletionOptions(
 
     // A. Check if dotPrefix is a Database / Schema name (or fetch tables for schema)
     const isDatabase = schemaStore.databases?.some((d: string) => d.toLowerCase() === lowerPrefix)
-    if (isDatabase || schemaStore.fetchTablesForSchema) {
-      if (isDatabase) {
-        const tables = await schemaStore.fetchTablesForSchema(ctx.dotPrefix).catch(() => [])
-        if (tables.length > 0) {
-          return tables
-            .filter((t: string) => t.toLowerCase().startsWith(q))
-            .map((t: string) => ({
+    if (isDatabase && schemaStore.fetchTablesForSchema) {
+      const tables = await schemaStore.fetchTablesForSchema(ctx.dotPrefix).catch(() => [])
+      if (tables.length > 0) {
+        const matching = tables.filter((t: string) => !q || t.toLowerCase().startsWith(q))
+        return matching
+          .map((t: string) => {
+            const isExact = t.toLowerCase() === q
+            return {
               label: t,
               type: 'type',
               detail: `table · ${ctx.dotPrefix}`,
-              boost: 100,
+              boost: isExact ? 150 : 110,
               apply: makeIdentApply(t, inTick),
-            }))
-        }
+            }
+          })
+          .sort((a, b) => (b.boost ?? 0) - (a.boost ?? 0))
       }
     }
 
@@ -191,15 +193,19 @@ export async function getSqlCompletionOptions(
     if (schemaStore.fetchTablesForSchema) {
       const schemaTables = await schemaStore.fetchTablesForSchema(ctx.dotPrefix).catch(() => [])
       if (schemaTables.length > 0) {
-        return schemaTables
-          .filter((t: string) => t.toLowerCase().startsWith(q))
-          .map((t: string) => ({
-            label: t,
-            type: 'type',
-            detail: `table · ${ctx.dotPrefix}`,
-            boost: 100,
-            apply: makeIdentApply(t, inTick),
-          }))
+        const matching = schemaTables.filter((t: string) => !q || t.toLowerCase().startsWith(q))
+        return matching
+          .map((t: string) => {
+            const isExact = t.toLowerCase() === q
+            return {
+              label: t,
+              type: 'type',
+              detail: `table · ${ctx.dotPrefix}`,
+              boost: isExact ? 150 : 110,
+              apply: makeIdentApply(t, inTick),
+            }
+          })
+          .sort((a, b) => (b.boost ?? 0) - (a.boost ?? 0))
       }
     }
 

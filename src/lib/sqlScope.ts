@@ -261,8 +261,8 @@ export function analyzeSqlScope(fullSql: string, cursorPos: number): SqlScopeCon
   const beforeCursor = fullSql.substring(0, cursorPos)
   const sanitizedBefore = sanitized.substring(0, cursorPos)
 
-  // 1. Check dot completion trigger
-  const dotMatch = beforeCursor.match(/([`"\w]+)\.\s*$/)
+  // 1. Check dot completion trigger (e.g. `schema.` or `schema.tabl`)
+  const dotMatch = beforeCursor.match(/([`"\w]+)\.\s*([`"\w]*)$/)
   const isAfterDot = dotMatch !== null
   const dotPrefix = isAfterDot ? cleanIdentifier(dotMatch[1]) : ''
 

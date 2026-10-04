@@ -2377,7 +2377,8 @@ pub async fn fetch_schema_tables(
     let (_conn_id, pool) = resolve_connection(&state, id).await?;
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-    let tables: Vec<String> = conn
+    // Primary: query information_schema.tables
+    let tables: Result<Vec<String>, _> = conn
         .exec(
             r#"
         SELECT table_name
@@ -2385,11 +2386,28 @@ pub async fn fetch_schema_tables(
         WHERE table_schema = :schema
         ORDER BY table_name
         "#,
-            params! { "schema" => schema },
+            params! { "schema" => &schema },
         )
-        .await
-        .map_err(|e| safe_error(&e))?;
-    Ok(tables)
+        .await;
+
+    match tables {
+        Ok(t) if !t.is_empty() => Ok(t),
+        _ => {
+            // DBeaver fallback: execute SHOW FULL TABLES FROM `schema`
+            let escaped_schema = schema.replace('`', "``");
+            let query = format!("SHOW FULL TABLES FROM `{}`", escaped_schema);
+            let fallback_rows: Result<Vec<(String, String)>, _> = conn.query(query).await;
+            match fallback_rows {
+                Ok(rows) => Ok(rows.into_iter().map(|(name, _type)| name).collect()),
+                Err(_) => {
+                    // Try simple SHOW TABLES FROM `schema`
+                    let simple_query = format!("SHOW TABLES FROM `{}`", escaped_schema);
+                    let simple_rows: Vec<String> = conn.query(simple_query).await.unwrap_or_default();
+                    Ok(simple_rows)
+                }
+            }
+        }
+    }
 }
 
 #[tauri::command]
