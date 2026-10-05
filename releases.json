@@ -1,32 +1,37 @@
 {
   "latest": {
-    "version": "0.2.3",
-    "releaseDate": "2026-10-04",
-    "title": "DBeaver-Grade Autocomplete & Schema Fallback",
+    "version": "0.2.4",
+    "releaseDate": "2026-10-05",
+    "title": "Dynamic Versioning & Auto-Update CSP Fix",
     "downloadUrl": "https://github.com/hitesh103/select/releases/latest",
-    "summary": "Enhanced SQL autocompletion accuracy with exact-match priority ranking, multi-schema dot-trigger resolution, and DBeaver-style SHOW FULL TABLES fallback for restricted database permissions.",
+    "summary": "Fixed update notification modal by granting manifest access in Content Security Policy (CSP), replaced hardcoded app versions with dynamic package builds, and bundled embedded fallback release notes.",
     "highlights": [
       {
+        "icon": "shield",
+        "title": "Auto-Update CSP Whitelist",
+        "description": "Allowed GitHub raw manifest requests in the Content Security Policy so update notifications trigger seamlessly for all users.",
+        "tag": "Fix"
+      },
+      {
         "icon": "sparkles",
-        "title": "Exact-Match Autocomplete Priority",
-        "description": "Exact table and column matches now rank highest at the top of suggestions, eliminating keyword collisions on tables named after SQL keywords (e.g., order).",
+        "title": "Dynamic Version Synchronization",
+        "description": "App version is now dynamically resolved at build time from package metadata without manual hardcoding in TypeScript files.",
         "tag": "Improved"
       },
       {
-        "icon": "shield",
-        "title": "DBeaver-Style Schema Table Fallback",
-        "description": "Added SHOW FULL TABLES fallback with backtick-quoted schema identifiers when information_schema access is restricted.",
-        "tag": "Fix"
-      },
-      {
-        "icon": "timer",
-        "title": "Sub-word Dot Scope Resolution",
-        "description": "Fixed dot-trigger parsing so typing partial table names after a schema dot reliably resolves in-scope tables and columns.",
-        "tag": "Fix"
+        "icon": "folder",
+        "title": "Self-Contained Fallback Release Data",
+        "description": "Bundled embedded release notes directly from releases manifest for reliable offline fallback.",
+        "tag": "Improved"
       }
     ]
   },
   "history": [
+    {
+      "version": "0.2.4",
+      "releaseDate": "2026-10-05",
+      "title": "Dynamic Versioning & Auto-Update CSP Fix"
+    },
     {
       "version": "0.2.3",
       "releaseDate": "2026-10-04",

@@ -1,3 +1,5 @@
+import releasesManifest from '../../releases.json'
+
 export interface ReleaseFeature {
   icon: 'folder' | 'download' | 'timer' | 'layout' | 'shield' | 'sparkles'
   title: string
@@ -14,36 +16,17 @@ export interface AppRelease {
   downloadUrl?: string
 }
 
-export const CURRENT_APP_VERSION = '0.2.2'
+export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : (releasesManifest?.latest?.version || '0.2.3')
 
 export const DEFAULT_MANIFEST_URL = 'https://raw.githubusercontent.com/hitesh103/select/main/releases.json'
 
-export const BUILTIN_RELEASE: AppRelease = {
-  version: '0.2.2',
-  releaseDate: '2026-09-28',
-  title: 'Logo Squircle, Noise Grain Toggle & Dynamic App Identity',
-  summary: 'Added dark macOS squircle background to the logo across all themes, resolved the noise grain toggle switch, and made bundle identifiers and paths fully dynamic.',
+export const BUILTIN_RELEASE: AppRelease = (releasesManifest?.latest as AppRelease) || {
+  version: CURRENT_APP_VERSION,
+  releaseDate: '2026-10-04',
+  title: 'Latest Release',
+  summary: '',
+  highlights: [],
   downloadUrl: 'https://github.com/hitesh103/select/releases/latest',
-  highlights: [
-    {
-      icon: 'sparkles',
-      title: 'Persistent Dark Logo Background',
-      description: 'Added dark macOS squircle background to the logo so the white icon stays crisp and visible in both light and dark themes.',
-      tag: 'Improved',
-    },
-    {
-      icon: 'shield',
-      title: 'Film Grain Toggle Switch Fix',
-      description: 'Fixed the settings toggle switch to reliably enable and disable tactile noise grain texture across all intensity levels.',
-      tag: 'Fix',
-    },
-    {
-      icon: 'timer',
-      title: 'Dynamic Identity & Seamless Migration',
-      description: 'Removed hardcoded user paths and identifiers with automated migration from legacy app data folders.',
-      tag: 'Fix',
-    },
-  ],
 }
 
 /**
