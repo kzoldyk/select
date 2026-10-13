@@ -204,6 +204,10 @@ export const useUiStore = defineStore('ui', {
         this.isNewUpdateAvailable = status.isNewUpdateAvailable
         this.isNewlyUpdated = status.isNewlyUpdated
 
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('select_last_update_check', String(Date.now()))
+        }
+
         if (status.isNewlyUpdated) {
           this.whatsNewOpen = true
         } else if (status.isNewUpdateAvailable) {
@@ -220,6 +224,16 @@ export const useUiStore = defineStore('ui', {
       } finally {
         this.updateChecking = false
       }
+    },
+    async checkDailyUpdate() {
+      if (typeof window !== 'undefined') {
+        const lastCheck = Number(localStorage.getItem('select_last_update_check') || 0)
+        const ONE_DAY_MS = 24 * 60 * 60 * 1000
+        if (Date.now() - lastCheck < ONE_DAY_MS && !this.isNewUpdateAvailable) {
+          return
+        }
+      }
+      await this.checkForUpdates(true)
     },
     async applyUpdate() {
       if (this.updateState === 'updating') return

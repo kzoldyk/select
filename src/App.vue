@@ -152,6 +152,11 @@ const uiStore = useUiStore()
 const queryEditorRef = ref<InstanceType<typeof QueryEditor> | null>(null)
 
 let mediaQueryList: MediaQueryList | null = null
+let updatePollTimer: ReturnType<typeof setInterval> | null = null
+
+function onWindowFocusCheckUpdates() {
+  uiStore.checkDailyUpdate()
+}
 
 const handleSystemThemeChange = (e: MediaQueryListEvent) => {
   uiStore.updateSystemTheme(e.matches)
@@ -184,11 +189,24 @@ onMounted(async () => {
     }
   }
   uiStore.checkForUpdates(true)
+
+  // Poll for new version once a day (24h) for always-open apps
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000
+  updatePollTimer = setInterval(() => {
+    uiStore.checkDailyUpdate()
+  }, ONE_DAY_MS)
+
+  window.addEventListener('focus', onWindowFocusCheckUpdates)
 })
 
 onUnmounted(() => {
   flushEditorState()
   window.removeEventListener('beforeunload', flushEditorState)
+  if (updatePollTimer) {
+    clearInterval(updatePollTimer)
+    updatePollTimer = null
+  }
+  window.removeEventListener('focus', onWindowFocusCheckUpdates)
   if (mediaQueryList) {
     mediaQueryList.removeEventListener('change', handleSystemThemeChange)
   }

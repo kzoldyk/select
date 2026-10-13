@@ -241,4 +241,27 @@ describe("ui store", () => {
     expect(store.sidebarWidth).toBe(260);
     expect(localStorage.getItem("sidebarWidth")).toBe("260");
   });
+
+  describe("checkDailyUpdate", () => {
+    it("skips checkForUpdates if checked within the last 24 hours", async () => {
+      const store = useUiStore();
+      const spy = vi.spyOn(store, "checkForUpdates");
+      // Set last check to 2 hours ago
+      localStorage.setItem("select_last_update_check", String(Date.now() - 2 * 60 * 60 * 1000));
+      store.isNewUpdateAvailable = false;
+
+      await store.checkDailyUpdate();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("executes checkForUpdates if more than 24 hours have elapsed", async () => {
+      const store = useUiStore();
+      const spy = vi.spyOn(store, "checkForUpdates").mockResolvedValue();
+      // Set last check to 25 hours ago
+      localStorage.setItem("select_last_update_check", String(Date.now() - 25 * 60 * 60 * 1000));
+
+      await store.checkDailyUpdate();
+      expect(spy).toHaveBeenCalledWith(true);
+    });
+  });
 });
