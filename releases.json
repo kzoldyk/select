@@ -1,38 +1,31 @@
 {
   "latest": {
-    "version": "0.2.5",
+    "version": "0.2.6",
     "releaseDate": "2026-10-13",
-    "title": "Excel Grid Selection, Query Latency Fix & Toolbar Auto-Update",
+    "title": "Daily Background Version Polling & Focus Sync",
     "downloadUrl": "https://github.com/hitesh103/select/releases/latest",
-    "summary": "Excel-grade spreadsheet selection UI with column/row select and fill handles, connection pool keepalive tuning to fix query stalls, pinned result refresh, and in-toolbar glowing auto-update and restart.",
+    "summary": "Added 24-hour background polling and window-focus synchronization so users with always-open applications receive new version notifications without restarting.",
     "highlights": [
       {
-        "icon": "layout",
-        "title": "Excel-Grade Grid Selection",
-        "description": "Full column header selection, row number selection, 1x1 cell Cmd+C copy, rounded corners, and corner fill-handle indicator.",
-        "tag": "Improved"
-      },
-      {
         "icon": "timer",
-        "title": "Database Query Performance",
-        "description": "Fixed query latency by configuring persistent pool constraints, TCP keepalive, and throttled background schema fetching.",
-        "tag": "Fix"
+        "title": "Daily Version Polling",
+        "description": "Automatically polls for new application releases in the background every 24 hours.",
+        "tag": "New"
       },
       {
         "icon": "sparkles",
-        "title": "Pinned Result Refresh",
-        "description": "Added instant query re-execution and data refresh for pinned tabs directly from tab pills and toolbar.",
-        "tag": "New"
-      },
-      {
-        "icon": "download",
-        "title": "In-Toolbar Auto-Update & Restart",
-        "description": "Glowing update button appears side-by-side with Run button when an update is available, with one-click install and restart.",
-        "tag": "New"
+        "title": "Window Focus Sync",
+        "description": "Silently checks for updates when the window regains focus if more than 24 hours have elapsed.",
+        "tag": "Improved"
       }
     ]
   },
   "history": [
+    {
+      "version": "0.2.5",
+      "releaseDate": "2026-10-13",
+      "title": "Excel Grid Selection, Query Latency Fix & Toolbar Auto-Update"
+    },
     {
       "version": "0.2.4",
       "releaseDate": "2026-10-05",
