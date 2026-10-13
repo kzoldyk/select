@@ -217,4 +217,28 @@ describe("ui store", () => {
     expect(store.grainIntensity).toBe("subtle");
     expect(store.currentGrainLevel).toBe("subtle");
   });
+
+  it("manages sidebar width and persistence", () => {
+    const store = useUiStore();
+    expect(store.sidebarWidth).toBe(260);
+
+    store.setSidebarWidth(320);
+    expect(store.sidebarWidth).toBe(320);
+    expect(localStorage.getItem("sidebarWidth")).toBe("320");
+
+    // Clamps minimum to 180
+    store.setSidebarWidth(100);
+    expect(store.sidebarWidth).toBe(180);
+    expect(localStorage.getItem("sidebarWidth")).toBe("180");
+
+    // Clamps maximum to 800
+    store.setSidebarWidth(999);
+    expect(store.sidebarWidth).toBe(800);
+    expect(localStorage.getItem("sidebarWidth")).toBe("800");
+
+    // Resets to default 260
+    store.resetSidebarWidth();
+    expect(store.sidebarWidth).toBe(260);
+    expect(localStorage.getItem("sidebarWidth")).toBe("260");
+  });
 });

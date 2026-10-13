@@ -1,7 +1,25 @@
 <template>
   <TooltipProvider :delay-duration="120" :skip-delay-duration="300">
-    <div class="app" :style="appGridStyle">
+    <div class="app" :class="{ 'is-resizing': isResizing || isResizingSidebar }" :style="appGridStyle">
       <Sidebar class="app-sidebar" />
+
+      <div
+        v-show="uiStore.sidebarOpen"
+        class="sidebar-resize-handle group"
+        role="separator"
+        aria-label="Resize sidebar"
+        aria-orientation="vertical"
+        tabindex="0"
+        @pointerdown="startSidebarResize"
+        @dblclick="resetSidebarWidth"
+        @keydown="onSidebarHandleKeydown"
+      >
+        <div class="sidebar-resize-handle-icon group-hover:opacity-100 group-active:opacity-100 flex flex-col items-center justify-center gap-0.5 py-1.5 w-3.5 bg-muted/80 border border-border/80 rounded-full opacity-0 shadow-sm transition-all absolute pointer-events-none">
+          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+          <div class="w-1 h-1 rounded-full bg-muted-foreground/50 group-hover:bg-primary/80"></div>
+        </div>
+      </div>
 
       <main 
         class="main-content app-main"
@@ -179,8 +197,71 @@ onUnmounted(() => {
 useKeyboardShortcuts({ onRun: runQuery, onExplain: explainQuery })
 
 const appGridStyle = computed(() => ({
-  gridTemplateColumns: uiStore.sidebarOpen ? '260px 1fr' : '0 1fr',
+  gridTemplateColumns: uiStore.sidebarOpen ? `${uiStore.sidebarWidth}px 1fr` : '0 1fr',
 }))
+
+const isResizingSidebar = ref(false)
+let sidebarStartX = 0
+let sidebarStartWidth = 0
+
+function startSidebarResize(e: PointerEvent) {
+  const el = e.currentTarget as HTMLElement
+  el.setPointerCapture(e.pointerId)
+  isResizingSidebar.value = true
+  sidebarStartX = e.clientX
+  sidebarStartWidth = uiStore.sidebarWidth
+  el.addEventListener('pointermove', onSidebarResize)
+  el.addEventListener('pointerup', stopSidebarResize)
+  el.addEventListener('pointercancel', stopSidebarResize)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+function onSidebarResize(e: PointerEvent) {
+  if (!isResizingSidebar.value) return
+  const delta = e.clientX - sidebarStartX
+  const maxAllowed = typeof window !== 'undefined' ? Math.max(260, Math.min(800, window.innerWidth - 300)) : 800
+  const newWidth = Math.max(180, Math.min(maxAllowed, sidebarStartWidth + delta))
+  uiStore.setSidebarWidth(newWidth)
+}
+
+function stopSidebarResize(e: PointerEvent) {
+  const el = e.currentTarget as HTMLElement
+  try {
+    el.releasePointerCapture(e.pointerId)
+  } catch {}
+  el.removeEventListener('pointermove', onSidebarResize)
+  el.removeEventListener('pointerup', stopSidebarResize)
+  el.removeEventListener('pointercancel', stopSidebarResize)
+  isResizingSidebar.value = false
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+function resetSidebarWidth() {
+  uiStore.resetSidebarWidth()
+}
+
+function onSidebarHandleKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    const step = e.shiftKey ? 50 : 10
+    uiStore.setSidebarWidth(uiStore.sidebarWidth - step)
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    const step = e.shiftKey ? 50 : 10
+    uiStore.setSidebarWidth(uiStore.sidebarWidth + step)
+  } else if (e.key === 'Home') {
+    e.preventDefault()
+    uiStore.setSidebarWidth(180)
+  } else if (e.key === 'End') {
+    e.preventDefault()
+    uiStore.setSidebarWidth(800)
+  } else if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    resetSidebarWidth()
+  }
+}
 
 async function runQuery(sqlOverride?: string) {
   const tab = editorStore.activeTab
@@ -208,7 +289,7 @@ async function onConnectionSaved(connId: string) {
 }
 
 const mainRef = ref<HTMLDivElement | null>(null)
-let isResizing = false
+const isResizing = ref(false)
 let startY = 0
 let startRatio = 0
 
@@ -223,7 +304,7 @@ const resultPaneHeight = computed(() =>
 function startResize(e: PointerEvent) {
   const el = e.currentTarget as HTMLElement
   el.setPointerCapture(e.pointerId)
-  isResizing = true
+  isResizing.value = true
   startY = e.clientY
   startRatio = editorStore.splitRatio
   el.addEventListener('pointermove', onResize)
@@ -233,7 +314,7 @@ function startResize(e: PointerEvent) {
 }
 
 function onResize(e: PointerEvent) {
-  if (!isResizing || !mainRef.value) return
+  if (!isResizing.value || !mainRef.value) return
   const mainH = mainRef.value.clientHeight
   const delta = e.clientY - startY
   const newRatio = startRatio + delta / mainH
@@ -244,7 +325,7 @@ function stopResize(e: PointerEvent) {
   const el = e.currentTarget as HTMLElement
   el.removeEventListener('pointermove', onResize)
   el.removeEventListener('pointerup', stopResize)
-  isResizing = false
+  isResizing.value = false
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
@@ -270,21 +351,60 @@ function resetSplit() {
   transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.app.is-resizing {
+  transition: none !important;
+}
+
 .app-sidebar {
   grid-area: sidebar;
   border-right: 1px solid var(--border);
   overflow: hidden;
   background: var(--sidebar);
+  min-width: 0;
 }
 .app-main {
   grid-area: main;
   z-index: 10;
   background: var(--background);
+  min-width: 0;
 }
 .app-footer {
   grid-area: footer;
   z-index: 20;
   box-shadow: 0 -1px 0 var(--border);
+}
+
+.sidebar-resize-handle {
+  grid-area: sidebar;
+  justify-self: end;
+  width: 10px;
+  margin-right: -5px;
+  height: 100%;
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.sidebar-resize-handle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+}
+.sidebar-resize-handle::after {
+  content: '';
+  display: block;
+  width: 1px;
+  height: 100%;
+  background: transparent;
+  transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle:active::after {
+  background: var(--primary);
+  box-shadow: 0 0 6px var(--primary);
 }
 
 .main-content {

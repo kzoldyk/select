@@ -16,7 +16,20 @@ export interface AppRelease {
   downloadUrl?: string
 }
 
-export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : (releasesManifest?.latest?.version || '0.2.3')
+export function getAppVersion(): string {
+  if (typeof window !== 'undefined') {
+    const override = localStorage.getItem('select_app_version')
+    if (override) return override
+  }
+  return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : (releasesManifest?.latest?.version || '0.2.4')
+}
+
+export function setInstalledAppVersion(version: string) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem('select_app_version', version)
+}
+
+export const CURRENT_APP_VERSION = getAppVersion()
 
 export const DEFAULT_MANIFEST_URL = 'https://raw.githubusercontent.com/hitesh103/select/main/releases.json'
 

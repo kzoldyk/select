@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useConnectionStore } from './connection'
 import { useUiStore } from './ui'
 import { playSound } from '../lib/cuelume'
+import { toast } from 'vue-sonner'
 
 function cloneSnapshot<T>(value: T): T {
   try {
@@ -263,6 +264,7 @@ export const useResultStore = defineStore('result', {
     activeResultIndex: 0,
     pinnedResults: loadStoredPins() as PinnedResult[],
     activeResultTabId: 'current' as string,
+    refreshingPinId: null as string | null,
     queryStartedAt: null as number | null,
   }),
 
@@ -824,6 +826,46 @@ export const useResultStore = defineStore('result', {
         if (this.activeResultTabId === id) {
           this.activeResultTabId = 'current'
         }
+      }
+    },
+
+    async refreshPinnedResult(pinId: string) {
+      const pin = this.pinnedResults.find(p => p.id === pinId)
+      if (!pin) return
+
+      const connStore = useConnectionStore()
+      if (!connStore.activeId) {
+        toast.error('Cannot refresh pinned result: No active database connection')
+        return
+      }
+
+      this.refreshingPinId = pinId
+      const start = Date.now()
+      try {
+        const result = await invoke<PagedQueryResult>('run_query_paged', {
+          sql: pin.sql,
+          limit: this.pageSize,
+          offset: 0,
+          id: connStore.activeId,
+        })
+        const duration = result.duration_ms ?? (Date.now() - start)
+        pin.columns = result.columns
+        pin.rows = result.rows
+        pin.duration = duration
+        pin.error = null
+        pin.pinnedAt = new Date().toISOString()
+        pin.lastDatabase = connStore.activeConnection?.database ?? pin.lastDatabase
+        pin.messages = [
+          `Refreshed at ${new Date().toLocaleTimeString()} · ${result.rows.length} rows (${duration}ms)`
+        ]
+        saveStoredPins(this.pinnedResults)
+        toast.success(`Pinned result refreshed (${result.rows.length} rows)`)
+      } catch (err) {
+        pin.error = parseDatabaseError(err, pin.sql)
+        pin.messages = [`Refresh error: ${pin.error.message}`]
+        toast.error(`Failed to refresh pinned query: ${pin.error.message}`)
+      } finally {
+        this.refreshingPinId = null
       }
     },
 

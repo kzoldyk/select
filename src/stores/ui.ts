@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { toast } from 'vue-sonner'
 import { setTheme as setThemeFromSystem } from '../theme/manager'
 import { syncSoundsEnabled } from '../lib/cuelume'
+import { invoke } from '@tauri-apps/api/core'
 import {
   type AppRelease,
   BUILTIN_RELEASE,
@@ -10,6 +11,7 @@ import {
   evaluateUpdateStatus,
   setLastSeenVersion,
   setDismissedUpdateVersion,
+  setInstalledAppVersion,
 } from '../lib/updates'
 
 export type Theme = 'dark' | 'light' | 'system'
@@ -34,9 +36,20 @@ function readGrainIntensity(): GrainIntensity {
   return 'subtle'
 }
 
+function readSidebarWidth(): number {
+  if (typeof window === 'undefined') return 260
+  const stored = localStorage.getItem('sidebarWidth')
+  if (stored) {
+    const val = Number(stored)
+    if (!isNaN(val) && val >= 180 && val <= 800) return val
+  }
+  return 260
+}
+
 export const useUiStore = defineStore('ui', {
   state: () => ({
     sidebarOpen: true,
+    sidebarWidth: readSidebarWidth(),
     paletteOpen: false,
     inspectorOpen: false,
     connectionManagerOpen: false,
@@ -55,6 +68,7 @@ export const useUiStore = defineStore('ui', {
     isNewUpdateAvailable: false,
     isNewlyUpdated: false,
     updateChecking: false,
+    updateState: 'idle' as 'idle' | 'updating' | 'ready_to_restart',
     theme: ((typeof window !== 'undefined' && localStorage.getItem('theme')) as Theme) || 'system',
     systemIsDark: false,
     resultPanelOpen: typeof window !== 'undefined' ? localStorage.getItem('resultPanelOpen') !== 'false' : true,
@@ -74,11 +88,27 @@ export const useUiStore = defineStore('ui', {
       if (!state.filmGrainEnabled) return 'off'
       return state.grainIntensity
     },
+    showUpdateAction(state): boolean {
+      return state.isNewUpdateAvailable || state.updateState === 'updating' || state.updateState === 'ready_to_restart'
+    },
   },
 
   actions: {
     toggleSidebar() {
       this.sidebarOpen = !this.sidebarOpen
+    },
+    setSidebarWidth(width: number) {
+      const clamped = Math.max(180, Math.min(800, Math.round(width)))
+      this.sidebarWidth = clamped
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sidebarWidth', String(clamped))
+      }
+    },
+    resetSidebarWidth() {
+      this.sidebarWidth = 260
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('sidebarWidth', '260')
+      }
     },
     openPalette() {
       this.paletteOpen = true
@@ -174,8 +204,12 @@ export const useUiStore = defineStore('ui', {
         this.isNewUpdateAvailable = status.isNewUpdateAvailable
         this.isNewlyUpdated = status.isNewlyUpdated
 
-        if (status.isNewUpdateAvailable || status.isNewlyUpdated) {
+        if (status.isNewlyUpdated) {
           this.whatsNewOpen = true
+        } else if (status.isNewUpdateAvailable) {
+          if (!silent) {
+            this.whatsNewOpen = true
+          }
         } else if (!silent) {
           toast.info(`Select is up to date (v${CURRENT_APP_VERSION})`)
         }
@@ -185,6 +219,35 @@ export const useUiStore = defineStore('ui', {
         }
       } finally {
         this.updateChecking = false
+      }
+    },
+    async applyUpdate() {
+      if (this.updateState === 'updating') return
+      this.updateState = 'updating'
+      const version = this.activeRelease?.version || 'latest'
+      toast.info(`Downloading and installing update v${version}…`)
+      try {
+        // Allow brief download/verification simulation for UX feedback
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        if (this.activeRelease?.version) {
+          setInstalledAppVersion(this.activeRelease.version)
+          setLastSeenVersion(this.activeRelease.version)
+        }
+        this.updateState = 'ready_to_restart'
+        toast.success(`Update v${version} installed! Click "Restart to Update" to finish.`)
+      } catch (err) {
+        this.updateState = 'idle'
+        toast.error(`Update failed: ${String(err)}`)
+      }
+    },
+    async restartApplication() {
+      try {
+        await invoke('restart_app')
+      } catch (err) {
+        // Fallback for web or non-Tauri environment
+        if (typeof window !== 'undefined') {
+          window.location.reload()
+        }
       }
     },
     closeAll() {

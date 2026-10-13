@@ -94,6 +94,7 @@ pub fn run() {
             commands::stream_export_query,
             commands::pick_export_path,
             commands::kill_session,
+            commands::restart_app,
             commands::crypto::seal_connections_for_storage,
             commands::crypto::unseal_connections_from_storage,
         ])

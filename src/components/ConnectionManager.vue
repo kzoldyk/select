@@ -702,7 +702,6 @@ function selectConn(id: string) {
   activeTab.value = 'general'
   uriInput.value = ''
   passwordTouched.value = false
-  form.value.password = ''
   const conn = connStore.connections.find(c => c.id === id)
   if (conn) {
     storedPassword.value = conn.password

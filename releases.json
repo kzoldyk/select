@@ -1,28 +1,34 @@
 {
   "latest": {
-    "version": "0.2.4",
-    "releaseDate": "2026-10-05",
-    "title": "Dynamic Versioning & Auto-Update CSP Fix",
+    "version": "0.2.5",
+    "releaseDate": "2026-10-13",
+    "title": "Excel Grid Selection, Query Latency Fix & Toolbar Auto-Update",
     "downloadUrl": "https://github.com/hitesh103/select/releases/latest",
-    "summary": "Fixed update notification modal by granting manifest access in Content Security Policy (CSP), replaced hardcoded app versions with dynamic package builds, and bundled embedded fallback release notes.",
+    "summary": "Excel-grade spreadsheet selection UI with column/row select and fill handles, connection pool keepalive tuning to fix query stalls, pinned result refresh, and in-toolbar glowing auto-update and restart.",
     "highlights": [
       {
-        "icon": "shield",
-        "title": "Auto-Update CSP Whitelist",
-        "description": "Allowed GitHub raw manifest requests in the Content Security Policy so update notifications trigger seamlessly for all users.",
+        "icon": "layout",
+        "title": "Excel-Grade Grid Selection",
+        "description": "Full column header selection, row number selection, 1x1 cell Cmd+C copy, rounded corners, and corner fill-handle indicator.",
+        "tag": "Improved"
+      },
+      {
+        "icon": "timer",
+        "title": "Database Query Performance",
+        "description": "Fixed query latency by configuring persistent pool constraints, TCP keepalive, and throttled background schema fetching.",
         "tag": "Fix"
       },
       {
         "icon": "sparkles",
-        "title": "Dynamic Version Synchronization",
-        "description": "App version is now dynamically resolved at build time from package metadata without manual hardcoding in TypeScript files.",
-        "tag": "Improved"
+        "title": "Pinned Result Refresh",
+        "description": "Added instant query re-execution and data refresh for pinned tabs directly from tab pills and toolbar.",
+        "tag": "New"
       },
       {
-        "icon": "folder",
-        "title": "Self-Contained Fallback Release Data",
-        "description": "Bundled embedded release notes directly from releases manifest for reliable offline fallback.",
-        "tag": "Improved"
+        "icon": "download",
+        "title": "In-Toolbar Auto-Update & Restart",
+        "description": "Glowing update button appears side-by-side with Run button when an update is available, with one-click install and restart.",
+        "tag": "New"
       }
     ]
   },

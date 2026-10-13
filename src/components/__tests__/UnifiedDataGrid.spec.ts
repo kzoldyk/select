@@ -256,4 +256,98 @@ describe('UnifiedDataGrid.vue', () => {
     await resizers[0].trigger('mousedown', { clientX: 100 })
     expect(wrapper.vm).toBeDefined()
   })
+
+  it('copies single cell value to clipboard on Cmd+C when one cell is selected', async () => {
+    const writeTextSpy = vi.fn()
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: writeTextSpy
+      }
+    })
+
+    const wrapper = mount(UnifiedDataGrid, {
+      props: {
+        columns: sampleColumns,
+        rows: sampleRows,
+      },
+      attachTo: document.body,
+    })
+
+    const cells = wrapper.findAll('.grid-data-cell')
+    // Click Alice cell (row 0, col 1)
+    await cells[1].trigger('mousedown')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('1 cell')
+
+    // Press Cmd+C
+    const container = wrapper.find('#result-grid-table')
+    await container.trigger('keydown', { key: 'c', metaKey: true })
+
+    expect(writeTextSpy).toHaveBeenCalledWith('Alice')
+
+    wrapper.unmount()
+  })
+
+  it('selects whole column when column header is clicked', async () => {
+    const wrapper = mount(UnifiedDataGrid, {
+      props: {
+        columns: sampleColumns,
+        rows: sampleRows,
+      },
+      attachTo: document.body,
+    })
+
+    const nameHeader = wrapper.findAll('.group\\/head').find(h => h.text().includes('name'))
+    expect(nameHeader).toBeDefined()
+    await nameHeader!.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    // Header has column selected classes and all 3 rows in column are selected
+    expect(nameHeader!.classes()).toContain('bg-primary/15')
+    expect(wrapper.text()).toContain('3×1 cells')
+
+    wrapper.unmount()
+  })
+
+  it('selects entire row when row number is clicked', async () => {
+    const wrapper = mount(UnifiedDataGrid, {
+      props: {
+        columns: sampleColumns,
+        rows: sampleRows,
+      },
+      attachTo: document.body,
+    })
+
+    // Find row number cells (second column in each row, width 10)
+    const rowNumberCells = wrapper.findAll('.grid-corner-cell').filter(el => el.text().trim() === '2')
+    expect(rowNumberCells.length).toBeGreaterThan(0)
+
+    await rowNumberCells[0].trigger('click')
+    await wrapper.vm.$nextTick()
+
+    // Entire row 2 (index 1) with all 4 columns should be selected
+    expect(wrapper.text()).toContain('1×4 cells')
+
+    wrapper.unmount()
+  })
+
+  it('renders excel-style corner fill handle on selection corner cell', async () => {
+    const wrapper = mount(UnifiedDataGrid, {
+      props: {
+        columns: sampleColumns,
+        rows: sampleRows,
+      },
+      attachTo: document.body,
+    })
+
+    const cells = wrapper.findAll('.grid-data-cell')
+    await cells[0].trigger('mousedown')
+    await wrapper.vm.$nextTick()
+
+    const handle = wrapper.find('.selection-corner-handle')
+    expect(handle.exists()).toBe(true)
+
+    wrapper.unmount()
+  })
 })

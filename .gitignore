@@ -42,3 +42,9 @@ todos.md
 # Workspace Agent rules
 AGENTS.md
 agent.md
+
+# Agent skills & generated media
+.agents/
+skills-lock.json
+brag-output/
+video/

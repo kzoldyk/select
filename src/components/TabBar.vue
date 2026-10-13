@@ -196,6 +196,42 @@
           </Button>
         </ActionTooltip>
       </template>
+
+      <!-- Glowing Update / Restart Button (when update is available) -->
+      <template v-if="uiStore.showUpdateAction">
+        <ActionTooltip :text="updateTooltipText">
+          <Button
+            size="sm"
+            class="h-6.5 px-2.5 gap-1.5 text-[11px] font-semibold rounded-md shadow-sm transition-all cursor-pointer active:scale-95"
+            :class="updateButtonClass"
+            :disabled="uiStore.updateState === 'updating'"
+            aria-label="Application Update"
+            @click="handleUpdateClick"
+          >
+            <svg
+              v-if="uiStore.updateState === 'updating'"
+              class="w-3 h-3 animate-spin text-white"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <PhArrowClockwise
+              v-else-if="uiStore.updateState === 'ready_to_restart'"
+              class="w-3 h-3 text-white fill-current"
+              weight="bold"
+            />
+            <PhSparkle
+              v-else
+              class="w-3 h-3 text-white fill-current"
+              weight="fill"
+            />
+            <span>{{ updateButtonText }}</span>
+          </Button>
+        </ActionTooltip>
+      </template>
     </div>
 
     <!-- Tab Context Menu -->
@@ -245,7 +281,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useEditorStore, type Tab } from '../stores/editor'
 import { useUiStore } from '../stores/ui'
 import { useResultStore } from '../stores/result'
@@ -253,7 +289,7 @@ import { Button } from '@/components/ui/button'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import { 
   PhSidebar, PhPlus, PhMagnifyingGlass, PhMagicWand, PhTreeStructure, PhPlay, PhX,
-  PhTable, PhFileCode, PhGitBranch, PhNotebook
+  PhTable, PhFileCode, PhGitBranch, PhNotebook, PhSparkle, PhArrowClockwise
 } from '@phosphor-icons/vue'
 import { detectDocumentFormat } from '../lib/sqlExtract'
 
@@ -370,4 +406,34 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('click', handleGlobalClick)
 })
+
+const updateButtonText = computed(() => {
+  if (uiStore.updateState === 'updating') return 'Updating…'
+  if (uiStore.updateState === 'ready_to_restart') return 'Restart to Update'
+  return 'Update'
+})
+
+const updateTooltipText = computed(() => {
+  if (uiStore.updateState === 'updating') return 'Installing application update…'
+  if (uiStore.updateState === 'ready_to_restart') return 'Restart application to finish update'
+  return `New version available: v${uiStore.activeRelease?.version || ''} (Click to update)`
+})
+
+const updateButtonClass = computed(() => {
+  if (uiStore.updateState === 'ready_to_restart') {
+    return 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-400 text-white shadow-[0_0_14px_rgba(245,158,11,0.65)] ring-1 ring-amber-300/50 animate-pulse'
+  }
+  if (uiStore.updateState === 'updating') {
+    return 'bg-emerald-600/90 text-white shadow-[0_0_12px_rgba(16,185,129,0.4)] ring-1 ring-emerald-400/40 cursor-wait'
+  }
+  return 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 hover:to-teal-400 text-white shadow-[0_0_14px_rgba(16,185,129,0.65)] ring-1 ring-emerald-300/50 animate-pulse hover:shadow-[0_0_20px_rgba(16,185,129,0.85)]'
+})
+
+async function handleUpdateClick() {
+  if (uiStore.updateState === 'ready_to_restart') {
+    await uiStore.restartApplication()
+  } else if (uiStore.updateState === 'idle') {
+    await uiStore.applyUpdate()
+  }
+}
 </script>

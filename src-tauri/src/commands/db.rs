@@ -5,7 +5,7 @@ use crate::commands::cache::{
 
 use chrono::Utc;
 use mysql_async::prelude::*;
-use mysql_async::{params, Conn, Opts, OptsBuilder, Pool};
+use mysql_async::{params, Conn, Opts, OptsBuilder, Pool, PoolConstraints, PoolOpts};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -27,6 +27,11 @@ fn get_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
     path.push("config.json");
     Ok(path)
+}
+
+#[tauri::command]
+pub fn restart_app(app: tauri::AppHandle) {
+    app.restart();
 }
 
 fn read_queries_dir_from_config(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -1071,6 +1076,9 @@ fn get_connection_opts(config: &ConnectionConfig) -> Result<(Opts, String), Stri
             }
         }
     }
+    builder = builder
+        .tcp_keepalive(Some(15_000u32))
+        .pool_opts(PoolOpts::default().with_constraints(PoolConstraints::new(2, 32).unwrap()));
     Ok((Opts::from(builder), url))
 }
 
@@ -2321,7 +2329,11 @@ pub async fn change_database(
     };
 
     let opts = Opts::from_url(&new_url).map_err(|e| safe_error(&e))?;
-    let new_pool = Pool::new(opts);
+    let mut builder = OptsBuilder::from_opts(opts);
+    builder = builder
+        .tcp_keepalive(Some(15_000u32))
+        .pool_opts(PoolOpts::default().with_constraints(PoolConstraints::new(2, 32).unwrap()));
+    let new_pool = Pool::new(Opts::from(builder));
 
     {
         let mut pools = state.pools.lock().await;

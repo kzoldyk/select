@@ -45,9 +45,19 @@
       >
         <PhPushPin class="w-3 h-3 text-primary flex-shrink-0" weight="fill" />
         <span class="max-w-[120px] truncate" :title="pin.sql">{{ getStatementLabel(pin.sql) }}</span>
+        <!-- Refresh button -->
+        <button
+          class="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/60 hover:text-foreground hover:bg-accent cursor-pointer border-none bg-transparent opacity-0 group-hover:opacity-100 transition-opacity ml-0.5"
+          :class="{ 'opacity-100 text-primary': resultStore.refreshingPinId === pin.id }"
+          :disabled="resultStore.refreshingPinId === pin.id"
+          title="Refresh Pinned Result"
+          @click.stop="resultStore.refreshPinnedResult(pin.id)"
+        >
+          <PhArrowClockwise class="w-2.5 h-2.5" :class="{ 'animate-spin': resultStore.refreshingPinId === pin.id }" />
+        </button>
         <!-- Unpin button -->
         <button
-          class="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent cursor-pointer border-none bg-transparent opacity-0 group-hover:opacity-100 transition-opacity ml-0.5"
+          class="inline-flex items-center justify-center w-3.5 h-3.5 rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent cursor-pointer border-none bg-transparent opacity-0 group-hover:opacity-100 transition-opacity"
           title="Unpin Tab"
           @click.stop="resultStore.unpinResult(pin.id)"
         >
@@ -76,6 +86,24 @@
 
       <!-- Right: Pinning & Quick actions -->
       <div class="flex items-center gap-1.5 flex-shrink-0">
+        <!-- Refresh Active Pinned Result Button -->
+        <ActionTooltip text="Refresh Pinned Result">
+          <Button
+            v-if="isPinnedActive && activePinnedResult"
+            variant="outline"
+            size="sm"
+            class="h-6.5 px-2 text-[11px] gap-1 rounded bg-background hover:bg-accent cursor-pointer"
+            :disabled="resultStore.refreshingPinId === activePinnedResult.id"
+            @click="resultStore.refreshPinnedResult(activePinnedResult.id)"
+          >
+            <PhArrowClockwise
+              class="w-3 h-3"
+              :class="{ 'animate-spin text-primary': resultStore.refreshingPinId === activePinnedResult.id }"
+            />
+            <span class="hidden sm:inline">Refresh</span>
+          </Button>
+        </ActionTooltip>
+
         <!-- Pin Result Button -->
         <ActionTooltip :text="isCurrentPinned ? 'Unpin Result Tab' : 'Pin Result Tab'">
           <Button
@@ -304,7 +332,7 @@ import { Button } from '@/components/ui/button'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
-  PhPushPin, PhX, PhTreeStructure, PhCopy, PhTrash, PhWarningCircle, PhLightbulb, PhCaretDown, PhDownloadSimple
+  PhPushPin, PhX, PhTreeStructure, PhCopy, PhTrash, PhWarningCircle, PhLightbulb, PhCaretDown, PhDownloadSimple, PhArrowClockwise
 } from '@phosphor-icons/vue'
 import { toast } from 'vue-sonner'
 import { injectWhereClause } from '@/lib/gridFilters'

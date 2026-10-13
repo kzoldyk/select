@@ -5,6 +5,7 @@
     tabindex="0"
     ref="gridContainerRef"
     @keydown="handleKeydown"
+    @copy.prevent="copySelectedTsv"
   >
     <!-- Grid Control Bar -->
     <div v-if="showControls" class="flex items-center justify-between px-3 py-1.5 border-b border-border/80 bg-muted/20 flex-shrink-0 text-xs">
@@ -68,32 +69,39 @@
       </div>
 
       <div class="flex items-center gap-2 flex-shrink-0">
-        <div v-if="hasCellRangeSelection || selectedRowIndices.size > 0" class="flex items-center gap-1.5 bg-primary/10 border border-primary/20 px-2 py-0.5 rounded animate-in fade-in duration-100">
+        <div v-if="hasSelection" class="flex items-center gap-1.5 bg-primary/10 border border-primary/20 px-2 py-0.5 rounded animate-in fade-in duration-100">
           <span class="text-[10px] font-semibold text-primary">
             {{ selectionSummaryText }}
           </span>
-          <ActionTooltip text="Copy selected as TSV (⌘C)">
+          <ActionTooltip text="Copy selected (⌘C)">
             <Button
               variant="ghost"
               size="sm"
-              class="h-5 px-1.5 text-[10px] gap-1 rounded bg-background/80 text-foreground hover:bg-background"
+              class="h-5 px-1.5 text-[10px] gap-1 rounded bg-background/80 text-foreground hover:bg-background cursor-pointer"
               @click="copySelectedTsv"
             >
               <PhCopy class="w-2.5 h-2.5" />
-              <span>TSV</span>
+              <span>Copy</span>
             </Button>
           </ActionTooltip>
           <ActionTooltip text="Copy selected as JSON">
             <Button
               variant="ghost"
               size="sm"
-              class="h-5 px-1.5 text-[10px] gap-1 rounded bg-background/80 text-foreground hover:bg-background"
+              class="h-5 px-1.5 text-[10px] gap-1 rounded bg-background/80 text-foreground hover:bg-background cursor-pointer"
               @click="copySelectedJson"
             >
               <PhFileCode class="w-2.5 h-2.5" />
               <span>JSON</span>
             </Button>
           </ActionTooltip>
+          <button
+            class="text-primary/70 hover:text-primary hover:bg-primary/20 p-0.5 rounded cursor-pointer transition-colors border-none bg-transparent"
+            title="Clear selection (Esc)"
+            @click="clearAllSelection"
+          >
+            <PhX class="w-2.5 h-2.5" />
+          </button>
         </div>
 
         <div class="h-3.5 w-px bg-border/60 mx-0.5"></div>
@@ -260,7 +268,11 @@
           </div>
 
           <!-- Row Number Column Header -->
-          <div class="grid-corner-cell w-10 flex items-center justify-center border-r border-border/70 text-[10px] font-semibold text-muted-foreground flex-shrink-0 tabular-nums">
+          <div
+            class="grid-corner-cell w-10 flex items-center justify-center border-r border-border/70 text-[10px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors flex-shrink-0 tabular-nums cursor-pointer"
+            @click="selectAllCells"
+            title="Click to select all cells (⌘A)"
+          >
             #
           </div>
 
@@ -268,11 +280,15 @@
           <div
             v-for="(col, colIndex) in columns"
             :key="(col.key || col.name) + '_' + colIndex"
-            class="group/head relative flex items-center justify-between px-2.5 border-r border-border/70 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer grid-header-cell flex-shrink-0"
-            :class="sortCol === (col.key || col.name) ? 'bg-primary/8 text-foreground' : ''"
+            class="group/head relative flex items-center justify-between px-2.5 border-r border-border/70 text-[11px] font-semibold transition-colors cursor-pointer grid-header-cell flex-shrink-0 select-none"
+            :class="[
+              isColumnSelected(colIndex)
+                ? 'bg-primary/15 text-primary border-b-2 border-b-primary font-bold shadow-[inset_0_-2px_0_0_var(--primary)]'
+                : (sortCol === (col.key || col.name) ? 'bg-primary/8 text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/60')
+            ]"
             :style="{ width: getColumnWidth(col.key || col.name) + 'px', minWidth: getColumnWidth(col.key || col.name) + 'px' }"
-            @click="onHeaderClick($event, col.key || col.name)"
-            @contextmenu.prevent="openHeaderMenu($event, col.key || col.name)"
+            @click="onHeaderClick($event, col.key || col.name, colIndex)"
+            @contextmenu.prevent="openHeaderMenu($event, col.key || col.name, colIndex)"
           >
             <TooltipProvider :delay-duration="250" :skip-delay-duration="150">
               <Tooltip>
@@ -444,8 +460,14 @@
 
           <!-- Row Number -->
           <div
-            class="w-10 h-full flex items-center justify-center border-r border-b border-border/70 text-[10px] text-muted-foreground tabular-nums flex-shrink-0 select-none grid-corner-cell"
-            :class="isRowInSelection(item.index) ? 'text-primary font-semibold bg-primary/[0.06]' : ''"
+            class="w-10 h-full flex items-center justify-center border-r border-b border-border/70 text-[10px] tabular-nums flex-shrink-0 select-none cursor-pointer grid-corner-cell hover:bg-muted/60 transition-colors"
+            :class="[
+              isRowFullySelected(item.index)
+                ? 'text-primary font-bold bg-primary/15 shadow-[inset_2px_0_0_0_var(--primary)]'
+                : (isRowInSelection(item.index) ? 'text-primary font-semibold bg-primary/[0.06]' : 'text-muted-foreground')
+            ]"
+            @click="onRowNumberClick(item.index, $event)"
+            title="Click to select row, Shift+click to extend"
           >
             {{ item.index + 1 }}
           </div>
@@ -469,6 +491,11 @@
             @dblclick="startEditCell(item.index, col.key || col.name, $event)"
             @contextmenu.prevent="openCellContextMenu($event, item.index, col.key || col.name)"
           >
+            <!-- Excel-style fill handle indicator -->
+            <div
+              v-if="isCellCorner(item.index, colIndex, 'br')"
+              class="selection-corner-handle absolute -bottom-[3px] -right-[3px] w-2 h-2 bg-primary border border-background rounded-[1px] shadow-xs pointer-events-none z-20"
+            ></div>
             <!-- In-Place Cell Editor Input -->
             <template v-if="editingCell?.rowIndex === item.index && editingCell?.colKey === (col.key || col.name)">
               <input
@@ -701,6 +728,13 @@
         :style="{ left: headerContextMenu.x + 'px', top: headerContextMenu.y + 'px' }"
         @click.stop
       >
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="selectColumnFromHeader">
+          <PhTable class="w-3 h-3" /> Select Entire Column
+        </button>
+        <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="copyColumnFromHeader">
+          <PhCopy class="w-3 h-3" /> Copy Entire Column (TSV)
+        </button>
+        <div class="h-px bg-border/60 my-1"></div>
         <button class="w-full text-left px-3 py-1.5 hover:bg-accent transition-colors cursor-pointer border-none bg-transparent flex items-center gap-2" @click="sortFromHeader('asc')">
           <PhSortAscending class="w-3 h-3" /> Sort Ascending
         </button>
@@ -920,7 +954,8 @@ const headerContextMenu = reactive({
   visible: false,
   x: 0,
   y: 0,
-  colKey: ''
+  colKey: '',
+  colIndex: -1
 })
 
 const filterPopover = reactive({
@@ -1065,9 +1100,17 @@ const isResizingColumn = ref(false)
 let hasMovedDuringResize = false
 let justFinishedResize = false
 
-function onHeaderClick(_e: MouseEvent, colKey: string) {
+function onHeaderClick(e: MouseEvent, colKey: string, colIndex?: number) {
   if (isResizingColumn.value || justFinishedResize || hasMovedDuringResize) {
     return
+  }
+  const idx = colIndex !== undefined ? colIndex : props.columns.findIndex(c => (c.key || c.name) === colKey)
+  if (idx >= 0) {
+    if (e.shiftKey) {
+      selectColumn(idx, true)
+      return
+    }
+    selectColumn(idx, false)
   }
   sortBy(colKey)
 }
@@ -1549,29 +1592,57 @@ function isRowInSelection(rowIndex: number): boolean {
   return rowIndex >= b.minR && rowIndex <= b.maxR
 }
 
+function isCellCorner(rowIndex: number, colIndex: number, corner: 'tl' | 'tr' | 'bl' | 'br'): boolean {
+  const b = selectionBounds.value
+  if (!b) return false
+  if (corner === 'tl') return rowIndex === b.minR && colIndex === b.minC
+  if (corner === 'tr') return rowIndex === b.minR && colIndex === b.maxC
+  if (corner === 'bl') return rowIndex === b.maxR && colIndex === b.minC
+  if (corner === 'br') return rowIndex === b.maxR && colIndex === b.maxC
+  return false
+}
+
 function getCellSelectionStyle(rowIndex: number, colIndex: number): Record<string, string> {
   if (!isCellInSelection(rowIndex, colIndex)) return {}
 
   const b = selectionBounds.value!
-  const isActive = isCellFocused(rowIndex, colIndex)
-  const borderW = isActive ? '2px' : '1.5px'
-  const color = 'hsl(var(--primary))'
-  const shadows: string[] = []
+  const color = 'var(--primary)'
+  const borderW = '2px'
 
+  // Single cell selection: continuous 2px primary border with smooth rounded corners
+  if (b.minR === b.maxR && b.minC === b.maxC) {
+    return {
+      boxShadow: `inset 0 0 0 ${borderW} ${color}`,
+      borderRadius: '5px',
+    }
+  }
+
+  // Multi-cell range perimeter borders
+  const shadows: string[] = []
   if (rowIndex === b.minR) shadows.push(`inset 0 ${borderW} 0 0 ${color}`)
   if (rowIndex === b.maxR) shadows.push(`inset 0 -${borderW} 0 0 ${color}`)
   if (colIndex === b.minC) shadows.push(`inset ${borderW} 0 0 0 ${color}`)
   if (colIndex === b.maxC) shadows.push(`inset -${borderW} 0 0 0 ${color}`)
 
-  return { boxShadow: shadows.join(', ') }
+  const style: Record<string, string> = {
+    boxShadow: shadows.join(', ')
+  }
+
+  // Modern rounded outer corners on perimeter cells
+  if (rowIndex === b.minR && colIndex === b.minC) style.borderTopLeftRadius = '5px'
+  if (rowIndex === b.minR && colIndex === b.maxC) style.borderTopRightRadius = '5px'
+  if (rowIndex === b.maxR && colIndex === b.minC) style.borderBottomLeftRadius = '5px'
+  if (rowIndex === b.maxR && colIndex === b.maxC) style.borderBottomRightRadius = '5px'
+
+  return style
 }
 
 function getCellClass(rowIndex: number, colIndex: number, colName: string): string {
   const classes: string[] = []
   if (isCellInSelection(rowIndex, colIndex)) {
-    classes.push('bg-primary/[0.10] z-[1]')
+    classes.push('bg-primary/[0.10] is-in-selection z-[2]')
     if (isCellFocused(rowIndex, colIndex)) {
-      classes.push('selection-active-cell')
+      classes.push('selection-active-cell z-10')
     }
   }
   if (isCellDirty(rowIndex, colName)) {
@@ -1649,20 +1720,78 @@ function applyDirtyEdits() {
 }
 
 // Selection & Navigation
-const hasSelection = computed(() => selectedRowIndices.value.size > 0 || hasCellRangeSelection.value)
+const hasSelection = computed(() => selectedRowIndices.value.size > 0 || selectionBounds.value !== null)
 
 const selectionSummaryText = computed(() => {
   if (selectedRowIndices.value.size > 0) {
     return `${selectedRowIndices.value.size} row${selectedRowIndices.value.size > 1 ? 's' : ''}`
   }
-  if (hasCellRangeSelection.value && selectionBounds.value) {
+  if (selectionBounds.value) {
     const b = selectionBounds.value
     const rows = b.maxR - b.minR + 1
     const cols = b.maxC - b.minC + 1
+    if (rows === 1 && cols === 1) {
+      return '1 cell'
+    }
     return `${rows}×${cols} cells`
   }
   return ''
 })
+
+function selectColumn(colIndex: number, extend = false) {
+  if (filteredRows.value.length === 0) return
+  const maxRow = filteredRows.value.length - 1
+  if (extend && anchorCell.value) {
+    focusedCell.value = { rowIndex: maxRow, colIndex }
+  } else {
+    anchorCell.value = { rowIndex: 0, colIndex }
+    focusedCell.value = { rowIndex: maxRow, colIndex }
+  }
+  selectedRowIndices.value.clear()
+  gridContainerRef.value?.focus()
+}
+
+function isColumnSelected(colIndex: number): boolean {
+  if (!selectionBounds.value || filteredRows.value.length === 0) return false
+  const b = selectionBounds.value
+  return (
+    colIndex >= b.minC &&
+    colIndex <= b.maxC &&
+    b.minR === 0 &&
+    b.maxR >= filteredRows.value.length - 1
+  )
+}
+
+function onRowNumberClick(rowIndex: number, e: MouseEvent) {
+  if (props.columns.length === 0) return
+  if (e.shiftKey && anchorCell.value) {
+    focusedCell.value = { rowIndex, colIndex: props.columns.length - 1 }
+  } else {
+    anchorCell.value = { rowIndex, colIndex: 0 }
+    focusedCell.value = { rowIndex, colIndex: props.columns.length - 1 }
+  }
+  selectedRowIndices.value.clear()
+  gridContainerRef.value?.focus()
+}
+
+function isRowFullySelected(rowIndex: number): boolean {
+  if (!selectionBounds.value || props.columns.length === 0) return false
+  const b = selectionBounds.value
+  return (
+    rowIndex >= b.minR &&
+    rowIndex <= b.maxR &&
+    b.minC === 0 &&
+    b.maxC >= props.columns.length - 1
+  )
+}
+
+function selectAllCells() {
+  if (filteredRows.value.length === 0 || props.columns.length === 0) return
+  anchorCell.value = { rowIndex: 0, colIndex: 0 }
+  focusedCell.value = { rowIndex: filteredRows.value.length - 1, colIndex: props.columns.length - 1 }
+  selectedRowIndices.value.clear()
+  gridContainerRef.value?.focus()
+}
 
 const allRowsSelected = computed(() =>
   filteredRows.value.length > 0 && filteredRows.value.every(r => selectedRowIndices.value.has(r.index))
@@ -1716,8 +1845,7 @@ function handleKeydown(e: KeyboardEvent) {
   const target = e.target as HTMLElement | null
   const typingInField = target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')
 
-  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
-  const meta = isMac ? e.metaKey : e.ctrlKey
+  const meta = e.metaKey || e.ctrlKey
 
   if (meta && e.key.toLowerCase() === 'f') {
     e.preventDefault()
@@ -1853,8 +1981,30 @@ function copySelectedTsv() {
     return
   }
 
-  if (hasCellRangeSelection.value && selectionBounds.value) {
+  if (selectionBounds.value) {
     const b = selectionBounds.value
+
+    // Single cell copy
+    if (b.minR === b.maxR && b.minC === b.maxC) {
+      const col = props.columns[b.minC]
+      const rawVal = getCellValue(b.minR, col.key || col.name)
+      const text = rawVal === null || rawVal === undefined ? '' : String(rawVal)
+      navigator.clipboard.writeText(text)
+      const preview = text.length > 25 ? text.slice(0, 25) + '…' : text
+      toast.success(preview ? `Copied "${preview}" to clipboard` : 'Copied cell to clipboard')
+      return
+    }
+
+    // Entire column copy
+    if (b.minC === b.maxC && b.minR === 0 && b.maxR === filteredRows.value.length - 1) {
+      const col = props.columns[b.minC]
+      const lines = filteredRows.value.map(r => getCellValue(r.index, col.key || col.name) ?? '')
+      navigator.clipboard.writeText(lines.join('\n'))
+      toast.success(`Copied column "${col.name}" (${lines.length} rows) to clipboard`)
+      return
+    }
+
+    // Multi-cell matrix copy (TSV)
     const lines: string[] = []
     for (let r = b.minR; r <= b.maxR; r++) {
       const rowVals: string[] = []
@@ -1865,7 +2015,9 @@ function copySelectedTsv() {
       lines.push(rowVals.join('\t'))
     }
     navigator.clipboard.writeText(lines.join('\n'))
-    toast.success(`Copied ${lines.length} row(s) to clipboard (TSV)`)
+    const rows = b.maxR - b.minR + 1
+    const cols = b.maxC - b.minC + 1
+    toast.success(`Copied ${rows}×${cols} cells to clipboard (TSV)`)
   }
 }
 
@@ -1877,8 +2029,18 @@ function copySelectedJson() {
     return
   }
 
-  if (hasCellRangeSelection.value && selectionBounds.value) {
+  if (selectionBounds.value) {
     const b = selectionBounds.value
+
+    // Single cell copy
+    if (b.minR === b.maxR && b.minC === b.maxC) {
+      const col = props.columns[b.minC]
+      const val = getCellValue(b.minR, col.key || col.name)
+      navigator.clipboard.writeText(JSON.stringify(val))
+      toast.success('Copied cell value as JSON')
+      return
+    }
+
     const result: Record<string, any>[] = []
     for (let r = b.minR; r <= b.maxR; r++) {
       const row: Record<string, any> = {}
@@ -2091,6 +2253,12 @@ function onSearchInput() {
 
 // Context menus
 function openCellContextMenu(e: MouseEvent, rowIndex: number, colKey: string) {
+  const colIndex = props.columns.findIndex(c => (c.key || c.name) === colKey)
+  if (colIndex >= 0 && !isCellInSelection(rowIndex, colIndex)) {
+    anchorCell.value = { rowIndex, colIndex }
+    focusedCell.value = { rowIndex, colIndex }
+    selectedRowIndices.value.clear()
+  }
   cellContextMenu.visible = true
   cellContextMenu.x = e.clientX
   cellContextMenu.y = e.clientY
@@ -2098,11 +2266,35 @@ function openCellContextMenu(e: MouseEvent, rowIndex: number, colKey: string) {
   cellContextMenu.colKey = colKey
 }
 
-function openHeaderMenu(e: MouseEvent, colKey: string) {
+function openHeaderMenu(e: MouseEvent, colKey: string, colIndex?: number) {
   headerContextMenu.visible = true
   headerContextMenu.x = e.clientX
   headerContextMenu.y = e.clientY
   headerContextMenu.colKey = colKey
+  headerContextMenu.colIndex = colIndex !== undefined ? colIndex : props.columns.findIndex(c => (c.key || c.name) === colKey)
+}
+
+function selectColumnFromHeader() {
+  const colIndex = headerContextMenu.colIndex >= 0
+    ? headerContextMenu.colIndex
+    : props.columns.findIndex(c => (c.key || c.name) === headerContextMenu.colKey)
+  if (colIndex >= 0) {
+    selectColumn(colIndex, false)
+  }
+  headerContextMenu.visible = false
+}
+
+function copyColumnFromHeader() {
+  const colIndex = headerContextMenu.colIndex >= 0
+    ? headerContextMenu.colIndex
+    : props.columns.findIndex(c => (c.key || c.name) === headerContextMenu.colKey)
+  if (colIndex >= 0) {
+    const col = props.columns[colIndex]
+    const lines = filteredRows.value.map(r => getCellValue(r.index, col.key || col.name) ?? '')
+    navigator.clipboard.writeText(lines.join('\n'))
+    toast.success(`Copied column "${col.name}" (${lines.length} rows) to clipboard`)
+  }
+  headerContextMenu.visible = false
 }
 
 function copyTargetCell() {
@@ -2195,14 +2387,17 @@ const keyStatusTooltip = computed(() => {
   return 'No Primary Key. Using full row matching (Click to define Virtual Key)'
 })
 
+const handleWindowMouseUp = () => { isMouseDown.value = false }
+
 onMounted(() => {
   loadSavedWidths()
   document.addEventListener('click', closeAllContextMenus)
-  window.addEventListener('mouseup', () => { isMouseDown.value = false })
+  window.addEventListener('mouseup', handleWindowMouseUp)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', closeAllContextMenus)
+  window.removeEventListener('mouseup', handleWindowMouseUp)
 })
 
 watch(() => props.columns.map(c => c.key || c.name).join('\0'), (next, prev) => {
@@ -2254,8 +2449,12 @@ defineExpose({
 }
 
 /* Suppress default cell borders inside selection so the inset box-shadow outline reads cleanly */
-.grid-data-cell.bg-primary\/\[0\.10\] {
-  border-color: hsl(var(--primary) / 0.15);
+.grid-data-cell.is-in-selection {
+  border-color: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.selection-corner-handle {
+  box-shadow: 0 0 0 1px hsl(var(--background));
 }
 
 .column-resizer {
@@ -2263,6 +2462,6 @@ defineExpose({
 }
 
 .column-resizer.is-resizing {
-  background: hsl(var(--primary) / 0.12);
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
 }
 </style>

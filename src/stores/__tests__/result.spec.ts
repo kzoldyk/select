@@ -226,4 +226,82 @@ describe("result store", () => {
       expect(res.filePath).toBe("/path/to/export.csv");
     });
   });
+
+  describe("pinned results refresh", () => {
+    it("refreshes pinned result with updated rows and columns", async () => {
+      const store = useResultStore();
+      const connStore = useConnectionStore();
+      connStore.activeId = "conn-123";
+
+      // Setup an active query and pin it
+      store.status = "success";
+      store.lastSql = "SELECT name, age FROM users";
+      store.columns = [
+        { name: "name", type: "varchar" },
+        { name: "age", type: "int" },
+      ];
+      store.rows = [{ name: "Alice", age: 30 }];
+      store.duration = 42;
+      store.pinCurrentResult();
+
+      expect(store.pinnedResults.length).toBe(1);
+      const pinId = store.pinnedResults[0].id;
+
+      // Mock refreshed result
+      mockInvoke.mockResolvedValueOnce({
+        columns: [
+          { name: "name", type: "varchar" },
+          { name: "age", type: "int" },
+          { name: "status", type: "varchar" },
+        ],
+        rows: [
+          { name: "Alice", age: 31, status: "active" },
+          { name: "Bob", age: 25, status: "pending" },
+        ],
+        row_count: 2,
+        duration_ms: 55,
+        has_more: false,
+        offset: 0,
+        limit: 100,
+      });
+
+      await store.refreshPinnedResult(pinId);
+
+      const refreshed = store.pinnedResults.find((p) => p.id === pinId);
+      expect(refreshed).toBeDefined();
+      expect(refreshed?.rows.length).toBe(2);
+      expect(refreshed?.columns.length).toBe(3);
+      expect(refreshed?.duration).toBe(55);
+      expect(refreshed?.error).toBeNull();
+      expect(mockInvoke).toHaveBeenCalledWith("run_query_paged", {
+        sql: "SELECT name, age FROM users",
+        limit: store.pageSize,
+        offset: 0,
+        id: "conn-123",
+      });
+    });
+
+    it("handles error during pinned result refresh gracefully", async () => {
+      const store = useResultStore();
+      const connStore = useConnectionStore();
+      connStore.activeId = "conn-123";
+
+      store.status = "success";
+      store.lastSql = "SELECT * FROM missing_table";
+      store.columns = [{ name: "id", type: "int" }];
+      store.rows = [];
+      store.pinCurrentResult();
+      const pinId = store.pinnedResults[0].id;
+
+      mockInvoke.mockRejectedValueOnce(new Error("Table 'missing_table' doesn't exist"));
+
+      await store.refreshPinnedResult(pinId);
+
+      const pin = store.pinnedResults.find((p) => p.id === pinId);
+      expect(pin?.error).not.toBeNull();
+      expect(pin?.error?.message).toContain("missing_table");
+      expect(store.refreshingPinId).toBeNull();
+    });
+  });
 });
+

@@ -289,7 +289,7 @@ export const useSchemaStore = defineStore('schema', {
       }
     },
     async fetchAllTableDetails() {
-      const batchSize = 12
+      const batchSize = 3
       for (let i = 0; i < this.tables.length; i += batchSize) {
         const batch = this.tables.slice(i, i + batchSize)
         await Promise.all(
@@ -300,6 +300,8 @@ export const useSchemaStore = defineStore('schema', {
               this.fetchForeignKeys(t.name).catch(() => []),
             ]))
         )
+        // Yield execution so foreground user queries always take priority
+        await new Promise(resolve => setTimeout(resolve, 50))
       }
     },
     async fetchForeignKeys(tableName: string, force = false): Promise<ForeignKey[]> {
