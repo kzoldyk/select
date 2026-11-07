@@ -105,4 +105,46 @@ describe("schema store", () => {
     expect(store.tables[0].name).toBe("users");
     expect(store.tables[0].rowCount).toBe(100);
   });
+
+  it("setVirtualKey overrides physical keys and matches both qualified and bare names", () => {
+    const store = useSchemaStore();
+    store.detailsByTable["orders.orderitems"] = {
+      columns: [
+        { name: "order_id", columnType: "int", nullable: false, default: null, pk: true, extra: "" },
+        { name: "item_id", columnType: "int", nullable: false, default: null, pk: true, extra: "" },
+        { name: "id", columnType: "int", nullable: false, default: null, pk: false, extra: "" },
+      ],
+      indexes: [],
+      constraints: [],
+      ddl: "",
+    };
+
+    // Before virtual key: returns composite physical primary keys
+    expect(store.getKeyColumnsForTable("orders.orderitems")).toEqual({
+      columns: ["order_id", "item_id"],
+      keyType: "primary",
+    });
+
+    // Set virtual key with 'id'
+    store.setVirtualKey("orders.orderitems", ["id"]);
+
+    // After virtual key: returns virtual key override 'id'
+    expect(store.getKeyColumnsForTable("orders.orderitems")).toEqual({
+      columns: ["id"],
+      keyType: "virtual",
+    });
+
+    // Bare name also resolves to the virtual key
+    expect(store.getKeyColumnsForTable("orderitems")).toEqual({
+      columns: ["id"],
+      keyType: "virtual",
+    });
+
+    // Removing virtual key reverts to physical primary keys
+    store.removeVirtualKey("orders.orderitems");
+    expect(store.getKeyColumnsForTable("orders.orderitems")).toEqual({
+      columns: ["order_id", "item_id"],
+      keyType: "primary",
+    });
+  });
 });

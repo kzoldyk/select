@@ -148,4 +148,37 @@ LIMIT 10;
     expect(nodeNames).toContain('Identifier')
     expect(nodeNames).toContain('Task')
   })
+
+  it('guards against ghost shift-click on mousedown so single click places cursor without extending selection', async () => {
+    const editorStore = useEditorStore()
+    const content = 'SELECT 1;\nSELECT 2;\nSELECT 3;\n'
+    editorStore.updateSql(editorStore.activeTabId, content)
+
+    const wrapper = mount(QueryEditor)
+    await wrapper.vm.$nextTick()
+
+    const cmView = (wrapper.vm as any).$.setupState.view
+    // Start with cursor at position 0
+    cmView.dispatch({ selection: { anchor: 0, head: 0 } })
+    vi.spyOn(cmView, 'posAtCoords').mockReturnValue(10)
+
+    // Simulate ghost shift click (shiftKey true in event, but Shift key was never physically held down)
+    const contentDOM = cmView.contentDOM
+    const event = new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      detail: 1,
+      shiftKey: true,
+      clientX: 50,
+      clientY: 30,
+    })
+
+    contentDOM.dispatchEvent(event)
+    await wrapper.vm.$nextTick()
+
+    // Selection must remain collapsed (a single point), not a massive range selection
+    expect(cmView.state.selection.main.empty).toBe(true)
+    expect(cmView.state.selection.main.head).toBe(10)
+  })
 })

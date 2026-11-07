@@ -1,32 +1,37 @@
 {
   "latest": {
-    "version": "0.2.7",
+    "version": "0.2.8",
     "releaseDate": "2026-11-07",
-    "title": "In-Place Query Saving, Creative Line Highlighting & Grid Bug Fixes",
+    "title": "Real Update Downloads, Ghost Selection Guard & Virtual Key Overrides",
     "downloadUrl": "https://github.com/hitesh103/select/releases/latest",
-    "summary": "Resolved query file duplicate creation on save/rename, pre-populated directory navigation in dialogs, improved CodeMirror active line styling with synchronized gutter highlights, and hardened table grid row editing.",
+    "summary": "Eliminated simulated updates and version spoofing in favor of real installer downloads, prevented random multi-line selection from stuck Shift modifier events in the editor, and hardened virtual unique key overrides for seamless cell editing.",
     "highlights": [
       {
-        "icon": "floppy-disk",
-        "title": "In-Place Query Saving & Renaming",
-        "description": "Preserves original query files and current folder paths without creating duplicate copies in root.",
+        "icon": "download",
+        "title": "Real Release Downloads",
+        "description": "Removed simulated updater and local version spoofing. Direct installer download via default browser.",
         "tag": "Fix"
       },
       {
         "icon": "sparkles",
-        "title": "Creative Active Line Highlight",
-        "description": "Refined zero-jitter active line styling with ambient micro-glow and synchronized gutter markers.",
-        "tag": "Improved"
+        "title": "Ghost Shift Click Prevention",
+        "description": "Prevents erratic multi-line text selection when single clicking after running queries or switching windows.",
+        "tag": "Fix"
       },
       {
-        "icon": "table",
-        "title": "Data Grid Row Edit Guards",
-        "description": "Corrected literal 'NULL' string updates and duplicate column data mapping in exports.",
-        "tag": "Fix"
+        "icon": "shield",
+        "title": "Virtual Key Editing Overrides",
+        "description": "Prioritizes user-configured virtual keys over database schemas, allowing inline edits on tables without physical primary keys.",
+        "tag": "Improved"
       }
     ]
   },
   "history": [
+    {
+      "version": "0.2.7",
+      "releaseDate": "2026-11-07",
+      "title": "In-Place Query Saving, Creative Line Highlighting & Grid Bug Fixes"
+    },
     {
       "version": "0.2.6",
       "releaseDate": "2026-10-13",

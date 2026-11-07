@@ -11,7 +11,6 @@ import {
   evaluateUpdateStatus,
   setLastSeenVersion,
   setDismissedUpdateVersion,
-  setInstalledAppVersion,
 } from '../lib/updates'
 
 export type Theme = 'dark' | 'light' | 'system'
@@ -89,7 +88,7 @@ export const useUiStore = defineStore('ui', {
       return state.grainIntensity
     },
     showUpdateAction(state): boolean {
-      return state.isNewUpdateAvailable || state.updateState === 'updating' || state.updateState === 'ready_to_restart'
+      return state.isNewUpdateAvailable
     },
   },
 
@@ -236,22 +235,16 @@ export const useUiStore = defineStore('ui', {
       await this.checkForUpdates(true)
     },
     async applyUpdate() {
-      if (this.updateState === 'updating') return
-      this.updateState = 'updating'
       const version = this.activeRelease?.version || 'latest'
-      toast.info(`Downloading and installing update v${version}…`)
+      const url = this.activeRelease?.downloadUrl || 'https://github.com/hitesh103/select/releases/latest'
+      toast.info(`Opening download page for Select v${version}…`)
       try {
-        // Allow brief download/verification simulation for UX feedback
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        if (this.activeRelease?.version) {
-          setInstalledAppVersion(this.activeRelease.version)
-          setLastSeenVersion(this.activeRelease.version)
+        const { open } = await import('@tauri-apps/plugin-opener')
+        await open(url)
+      } catch {
+        if (typeof window !== 'undefined') {
+          window.open(url, '_blank')
         }
-        this.updateState = 'ready_to_restart'
-        toast.success(`Update v${version} installed! Click "Restart to Update" to finish.`)
-      } catch (err) {
-        this.updateState = 'idle'
-        toast.error(`Update failed: ${String(err)}`)
       }
     },
     async restartApplication() {

@@ -107,15 +107,17 @@ const availableColumns = computed(() => {
 
 const hasExistingVirtualKey = computed(() => {
   if (!targetTable.value) return false
-  const rawName = targetTable.value.toLowerCase()
-  return Boolean(schemaStore.virtualKeys[rawName]?.length)
+  const rawName = targetTable.value.toLowerCase().replace(/[`"\[\]']/g, '').trim()
+  const bareName = targetTable.value.includes('.') ? targetTable.value.split('.').pop()!.replace(/[`"\[\]']/g, '').toLowerCase().trim() : rawName
+  return Boolean(schemaStore.virtualKeys[rawName]?.length || schemaStore.virtualKeys[bareName]?.length)
 })
 
 watch(() => uiStore.virtualKeyDialogOpen, async (open) => {
   if (open && targetTable.value) {
-    const rawName = targetTable.value.toLowerCase()
+    const rawName = targetTable.value.toLowerCase().replace(/[`"\[\]']/g, '').trim()
+    const bareName = targetTable.value.includes('.') ? targetTable.value.split('.').pop()!.replace(/[`"\[\]']/g, '').toLowerCase().trim() : rawName
     // Load existing virtual key or default PKs
-    const existing = schemaStore.virtualKeys[rawName]
+    const existing = schemaStore.virtualKeys[rawName] || schemaStore.virtualKeys[bareName]
     if (existing && existing.length > 0) {
       selectedCols.value = [...existing]
     } else {

@@ -481,8 +481,58 @@ function insertDivider() {
   view.value.focus()
 }
 
+let isShiftPhysicallyDown = false
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Shift') isShiftPhysicallyDown = true
+  }, { capture: true })
+
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'Shift') isShiftPhysicallyDown = false
+  }, { capture: true })
+
+  window.addEventListener('blur', () => {
+    isShiftPhysicallyDown = false
+  })
+
+  window.addEventListener('focus', () => {
+    isShiftPhysicallyDown = false
+  })
+
+  window.addEventListener('pointerdown', (e) => {
+    if (!e.shiftKey) isShiftPhysicallyDown = false
+  }, { capture: true })
+}
+
 function buildGutterExtensions(_mode: 'sql' | 'notebook') {
-  return [lineNumbers(), singleActiveLineGutter, singleActiveLine]
+  return [
+    lineNumbers({
+      domEventHandlers: {
+        mousedown(view, line, event) {
+          if (event.button !== 0) return false
+          const isShift = event.shiftKey && isShiftPhysicallyDown
+          if (isShift) {
+            const anchor = view.state.selection.main.anchor
+            const head = anchor <= line.from ? line.to : line.from
+            view.dispatch({
+              selection: { anchor, head },
+              userEvent: 'select.line',
+            })
+          } else {
+            view.dispatch({
+              selection: { anchor: line.from, head: line.to },
+              userEvent: 'select.line',
+            })
+          }
+          event.preventDefault()
+          return true
+        },
+      },
+    }),
+    singleActiveLineGutter,
+    singleActiveLine,
+  ]
 }
 
 function buildHighlightExtensions(mode: 'sql' | 'notebook') {
@@ -669,6 +719,7 @@ function buildExtensions(
       {
         key: 'Mod-Shift-Enter',
         run: (v) => {
+          isShiftPhysicallyDown = false
           const sqlToRun = extractRunnableSql(v.state, editorMode.value)
           if (sqlToRun) onRun(sqlToRun)
           return true
@@ -686,6 +737,24 @@ function buildExtensions(
       { key: 'Mod-s', run: () => { if (editorStore.activeTabId) { editorStore.saveTab(editorStore.activeTabId); return true } return false } },
     ]),
     EditorView.domEventHandlers({
+      mousedown(event, view) {
+        // Guard against ghost/stuck Shift modifier in WebKit/Tauri:
+        // If a single click occurs and Shift is NOT physically held down, place cursor cleanly
+        // and prevent CodeMirror from extending selection from a previous cursor location.
+        if (event.button === 0 && event.detail === 1 && event.shiftKey && !isShiftPhysicallyDown) {
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+          if (pos !== null) {
+            view.dispatch({
+              selection: { anchor: pos, head: pos },
+              scrollIntoView: true,
+              userEvent: 'select.pointer',
+            })
+            event.preventDefault()
+            return true
+          }
+        }
+        return false
+      },
       click(event, view) {
         if (event.ctrlKey || event.metaKey) {
           const doc = view.state.doc.toString()

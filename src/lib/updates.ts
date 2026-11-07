@@ -18,15 +18,10 @@ export interface AppRelease {
 
 export function getAppVersion(): string {
   if (typeof window !== 'undefined') {
-    const override = localStorage.getItem('select_app_version')
-    if (override) return override
+    // Purge any legacy simulated version overrides from localStorage
+    localStorage.removeItem('select_app_version')
   }
-  return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : (releasesManifest?.latest?.version || '0.2.4')
-}
-
-export function setInstalledAppVersion(version: string) {
-  if (typeof window === 'undefined') return
-  localStorage.setItem('select_app_version', version)
+  return typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : (releasesManifest?.latest?.version || '0.2.8')
 }
 
 export const CURRENT_APP_VERSION = getAppVersion()

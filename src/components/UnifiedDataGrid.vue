@@ -1659,8 +1659,28 @@ function resolveInlineEditInput(): HTMLInputElement | null {
 
 function startEditCell(rowIndex: number, colKey: string, _e?: MouseEvent) {
   if (!props.canEdit) {
-    toast.error('This result cannot be edited: table key columns are missing from the query projection or no unique/virtual key is configured.')
-    if (props.tableName) uiStore.openVirtualKeyDialog(props.tableName)
+    if (props.tableName) {
+      const keyInfo = schemaStore.getKeyColumnsForTable(props.tableName)
+      if (keyInfo.columns.length === 0 || keyInfo.keyType === 'all_columns') {
+        toast.error(`Table "${props.tableName}" lacks a primary key. Please configure a Virtual Unique Key to safely edit rows.`)
+      } else {
+        const missing = keyInfo.columns.filter(k =>
+          !props.columns.some(c =>
+            (c.orgName || c.name).toLowerCase() === k.toLowerCase() ||
+            c.name.toLowerCase() === k.toLowerCase() ||
+            (c.key || c.name).toLowerCase() === k.toLowerCase()
+          )
+        )
+        if (missing.length > 0) {
+          toast.error(`Cannot edit: key column(s) [${missing.join(', ')}] are not in your SELECT query. Include them in your query projection or select different virtual key columns.`)
+        } else {
+          toast.error('This result cannot be edited: table key columns are missing from the query projection or connection is read-only.')
+        }
+      }
+      uiStore.openVirtualKeyDialog(props.tableName)
+    } else {
+      toast.error('This result cannot be edited because it does not map to a single editable database table.')
+    }
     return
   }
   editingCell.value = { rowIndex, colKey }

@@ -372,23 +372,46 @@ export const useSchemaStore = defineStore('schema', {
       }
     },
     setVirtualKey(tableName: string, columns: string[]) {
-      const rawName = tableName.toLowerCase()
-      this.virtualKeys[rawName] = columns
+      const rawName = tableName.toLowerCase().replace(/[`"\[\]']/g, '').trim()
+      const bareName = tableName.includes('.') ? tableName.split('.').pop()!.replace(/[`"\[\]']/g, '').toLowerCase().trim() : rawName
+      const next = { ...this.virtualKeys }
+      next[rawName] = columns
+      if (bareName !== rawName) {
+        next[bareName] = columns
+      }
+      this.virtualKeys = next
       saveVirtualKeys(this.virtualKeys)
     },
     removeVirtualKey(tableName: string) {
-      const rawName = tableName.toLowerCase()
-      delete this.virtualKeys[rawName]
+      const rawName = tableName.toLowerCase().replace(/[`"\[\]']/g, '').trim()
+      const bareName = tableName.includes('.') ? tableName.split('.').pop()!.replace(/[`"\[\]']/g, '').toLowerCase().trim() : rawName
+      const next = { ...this.virtualKeys }
+      delete next[rawName]
+      delete next[bareName]
+      this.virtualKeys = next
       saveVirtualKeys(this.virtualKeys)
     },
     getKeyColumnsForTable(tableName: string): { columns: string[]; keyType: 'primary' | 'unique' | 'virtual' | 'all_columns' } {
       if (!tableName) return { columns: [], keyType: 'all_columns' }
-      const rawName = tableName.toLowerCase()
-      const bareName = tableName.includes('.') ? tableName.split('.').pop()!.replace(/[`"\[\]']/g, '').toLowerCase() : rawName
+      const rawName = tableName.toLowerCase().replace(/[`"\[\]']/g, '').trim()
+      const bareName = tableName.includes('.') ? tableName.split('.').pop()!.replace(/[`"\[\]']/g, '').toLowerCase().trim() : rawName
 
+      // 1. User-configured virtual unique key takes highest precedence (explicit user override)
+      const virtualMatch = Object.entries(this.virtualKeys).find(([k, cols]) => {
+        if (!cols || cols.length === 0) return false
+        const lk = k.toLowerCase().replace(/[`"\[\]']/g, '').trim()
+        const lbare = lk.includes('.') ? lk.split('.').pop()!.trim() : lk
+        return lk === rawName || lk === bareName || lbare === bareName || lk.endsWith(`.${bareName}`) || rawName.endsWith(`.${lbare}`)
+      })
+      if (virtualMatch && virtualMatch[1].length > 0) {
+        return { columns: virtualMatch[1], keyType: 'virtual' }
+      }
+
+      // 2. Physical schema inspection (primary key or unique index)
       const tableKey = Object.keys(this.detailsByTable).find(k => {
-        const lk = k.toLowerCase()
-        return lk === rawName || lk === bareName || lk.endsWith(`.${bareName}`)
+        const lk = k.toLowerCase().replace(/[`"\[\]']/g, '').trim()
+        const lbare = lk.includes('.') ? lk.split('.').pop()!.trim() : lk
+        return lk === rawName || lk === bareName || lbare === bareName || lk.endsWith(`.${bareName}`) || rawName.endsWith(`.${lbare}`)
       })
       const details = tableKey ? this.detailsByTable[tableKey] : null
       if (details) {
@@ -403,12 +426,6 @@ export const useSchemaStore = defineStore('schema', {
             return { columns: uCols, keyType: 'unique' }
           }
         }
-      }
-      if (this.virtualKeys[rawName] && this.virtualKeys[rawName].length > 0) {
-        return { columns: this.virtualKeys[rawName], keyType: 'virtual' }
-      }
-      if (this.virtualKeys[bareName] && this.virtualKeys[bareName].length > 0) {
-        return { columns: this.virtualKeys[bareName], keyType: 'virtual' }
       }
       return { columns: [], keyType: 'all_columns' }
     },

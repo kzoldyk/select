@@ -53,63 +53,27 @@ describe('TabBar Update and Restart Button Flow', () => {
     expect(runBtn.exists()).toBe(true)
   })
 
-  it('transitions to "Updating…" then "Restart to Update" with glowing style on click', async () => {
-    vi.useFakeTimers()
+  it('triggers applyUpdate and opens What\'s New dialog on click', async () => {
     const uiStore = useUiStore()
     uiStore.isNewUpdateAvailable = true
-    uiStore.updateState = 'idle'
     uiStore.activeRelease = {
       version: '0.3.0',
       releaseDate: '2026-10-15',
       title: 'Major Release',
       summary: 'New features',
       highlights: [],
+      downloadUrl: 'https://github.com/hitesh103/select/releases/latest',
     }
+
+    const spy = vi.spyOn(uiStore, 'applyUpdate').mockResolvedValue()
+    const openWhatsNewSpy = vi.spyOn(uiStore, 'openWhatsNew')
 
     const wrapper = mount(TabBar)
     const updateBtn = wrapper.find('button[aria-label="Application Update"]')
     expect(updateBtn.exists()).toBe(true)
 
-    // Click Update
     await updateBtn.trigger('click')
-    await wrapper.vm.$nextTick()
-
-    // State is updating
-    expect(uiStore.updateState).toBe('updating')
-    expect(wrapper.find('button[aria-label="Application Update"]').text()).toContain('Updating…')
-
-    // Fast-forward simulated update download
-    await vi.advanceTimersByTimeAsync(1200)
-    await wrapper.vm.$nextTick()
-
-    // State transitions to ready_to_restart
-    expect(uiStore.updateState).toBe('ready_to_restart')
-    const restartBtn = wrapper.find('button[aria-label="Application Update"]')
-    expect(restartBtn.text()).toContain('Restart to Update')
-    // Distinct restart amber/orange glow
-    expect(restartBtn.classes().some(c => c.includes('from-amber') || c.includes('amber'))).toBe(true)
-
-    vi.useRealTimers()
-  })
-
-  it('invokes restart_app when clicking "Restart to Update"', async () => {
-    const uiStore = useUiStore()
-    uiStore.isNewUpdateAvailable = false
-    uiStore.updateState = 'ready_to_restart'
-    uiStore.activeRelease = {
-      version: '0.3.0',
-      releaseDate: '2026-10-15',
-      title: 'Major Release',
-      summary: 'New features',
-      highlights: [],
-    }
-
-    const wrapper = mount(TabBar)
-    const restartBtn = wrapper.find('button[aria-label="Application Update"]')
-    expect(restartBtn.exists()).toBe(true)
-    expect(restartBtn.text()).toContain('Restart to Update')
-
-    await restartBtn.trigger('click')
-    expect(mockInvoke).toHaveBeenCalledWith('restart_app')
+    expect(spy).toHaveBeenCalled()
+    expect(openWhatsNewSpy).toHaveBeenCalled()
   })
 })

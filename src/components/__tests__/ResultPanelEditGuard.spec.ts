@@ -119,4 +119,46 @@ describe('ResultPanel Edit Guard', () => {
     expect(grid.attributes('data-can-edit')).toBe('true')
     expect(grid.attributes('data-table')).toBe('users')
   })
+
+  it('allows editing when table has no physical PK but has a virtual key configured', async () => {
+    const resultStore = useResultStore()
+    const schemaStore = useSchemaStore()
+    schemaStore.detailsByTable['orders.orderitems'] = {
+      primaryKeys: [],
+      columns: [
+        { name: 'id', type: 'int', nullable: false, pk: false, default: null, extra: '', comment: '' },
+        { name: 'discount', type: 'decimal', nullable: true, pk: false, default: null, extra: '', comment: '' },
+      ],
+      indexes: [],
+      foreignKeys: [],
+    }
+
+    schemaStore.setVirtualKey('orders.orderitems', ['id'])
+
+    resultStore.status = 'success'
+    resultStore.columns = [
+      { name: 'id', type: 'int', orgTable: 'orderitems', schema: 'orders' },
+      { name: 'discount', type: 'decimal', orgTable: 'orderitems', schema: 'orders' },
+    ]
+    resultStore.rows = [{ id: 1, discount: 5.0 }]
+    resultStore.lastSql = 'SELECT id, discount FROM orders.orderitems'
+
+    const wrapper = mount(ResultPanel, {
+      global: {
+        stubs: {
+          UnifiedDataGrid: {
+            props: ['canEdit', 'tableName'],
+            template: '<div class="grid-stub" :data-can-edit="canEdit" :data-table="tableName"></div>',
+          },
+          EmptyState: true,
+          EditReviewDialog: true,
+        },
+      },
+    })
+    await wrapper.vm.$nextTick()
+
+    const grid = wrapper.find('.grid-stub')
+    expect(grid.attributes('data-can-edit')).toBe('true')
+    expect(grid.attributes('data-table')).toBe('orders.orderitems')
+  })
 })
