@@ -173,8 +173,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, shallowRef, nextTick } from 'vue'
 import {
-  EditorView, keymap, lineNumbers, highlightActiveLine,
-  drawSelection, dropCursor, rectangularSelection
+  EditorView, keymap, lineNumbers,
+  drawSelection, dropCursor
 } from '@codemirror/view'
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state'
 import { sql, MySQL, StandardSQL } from '@codemirror/lang-sql'
@@ -188,6 +188,7 @@ import { bracketMatching, indentOnInput } from '@codemirror/language'
 import { dynamicTheme, dynamicHighlight } from '../editor/sqlTheme'
 import { notebookEditorTheme, notebookProseHighlight } from '../editor/notebookTheme'
 import { notebookDecorationsField, notebookModeEffect } from '../editor/notebookDecorations'
+import { singleActiveLine, singleActiveLineGutter } from '../editor/activeLine'
 import { format } from 'sql-formatter'
 import { useEditorStore } from '../stores/editor'
 import { useConnectionStore } from '../stores/connection'
@@ -481,7 +482,7 @@ function insertDivider() {
 }
 
 function buildGutterExtensions(_mode: 'sql' | 'notebook') {
-  return [lineNumbers(), highlightActiveLine()]
+  return [lineNumbers(), singleActiveLineGutter, singleActiveLine]
 }
 
 function buildHighlightExtensions(mode: 'sql' | 'notebook') {
@@ -640,7 +641,8 @@ function buildExtensions(
     history(),
     drawSelection(),
     dropCursor(),
-    rectangularSelection(),
+    EditorState.allowMultipleSelections.of(false),
+    EditorView.clickAddsSelectionRange.of(() => false),
     languageCompartment.of(buildLanguageExtension(mode)),
     gutterCompartment.of(buildGutterExtensions(mode)),
     highlightCompartment.of(buildHighlightExtensions(mode)),
@@ -653,7 +655,7 @@ function buildExtensions(
     bracketMatching(),
     closeBrackets(),
     indentOnInput(),
-    highlightSelectionMatches(),
+    highlightSelectionMatches({ minSelectionLength: 2, wholeWords: true }),
     getSqlAutocomplete(),
     keymap.of([
       {
@@ -802,7 +804,7 @@ function syncEditorState() {
     const format = getActiveFormat()
     editorMode.value = format
     let targetState = tabStates.get(activeTabId)
-    if (!targetState) {
+    if (!targetState || targetState.doc.toString() !== activeTab.sql) {
       targetState = createTabState(activeTab.sql, format, activeTab.selectionAnchor, activeTab.selectionHead)
       tabStates.set(activeTabId, targetState)
     }
@@ -817,8 +819,10 @@ function syncEditorState() {
     }
     const docStr = view.value.state.doc.toString()
     if (docStr !== activeTab.sql) {
+      const selHead = Math.min(view.value.state.selection.main.head, activeTab.sql.length)
       view.value.dispatch({
-        changes: { from: 0, to: docStr.length, insert: activeTab.sql }
+        changes: { from: 0, to: docStr.length, insert: activeTab.sql },
+        selection: { anchor: selHead },
       })
     }
   }
@@ -863,8 +867,10 @@ watch(() => editorStore.activeTab?.sql, (sql) => {
   if (currentActiveTabId.value !== editorStore.activeTabId) return
   const current = view.value.state.doc.toString()
   if (current === sql) return
+  const selHead = Math.min(view.value.state.selection.main.head, sql.length)
   view.value.dispatch({
     changes: { from: 0, to: current.length, insert: sql },
+    selection: { anchor: selHead },
   })
   const format = getActiveFormat()
   if (editorMode.value !== format) {
@@ -967,17 +973,22 @@ defineExpose({
 
 <!-- Global (non-scoped) overrides: guarantee notebook-mode styles win regardless of CM specificity -->
 <style>
-/* ACTIVE LINE: nuke the red band everywhere in notebook prose areas */
+/* ACTIVE LINE: clean prose without line band in notebook mode */
 .cm-editor.cm-notebook-mode .cm-activeLine {
+  background: transparent !important;
   background-color: transparent !important;
   border-left: none !important;
+  box-shadow: none !important;
 }
 .cm-editor.cm-notebook-mode .cm-activeLineGutter {
+  background: transparent !important;
   background-color: transparent !important;
 }
 /* Keep subtle active highlight only within SQL code block lines */
 .cm-editor.cm-notebook-mode .cm-nb-code-line.cm-activeLine {
-  background-color: color-mix(in srgb, var(--nb-code-bg, #1e1e2e) 92%, white) !important;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 12%, transparent) 0%, color-mix(in srgb, var(--primary) 3%, transparent) 55%, transparent 100%) !important;
+  border-left: 3px solid var(--primary) !important;
+  box-shadow: inset 2px 0 6px -1px color-mix(in srgb, var(--primary) 30%, transparent) !important;
 }
 
 /* GUTTER: hide line numbers in notebook/prose mode */

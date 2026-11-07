@@ -134,6 +134,16 @@ describe("result store", () => {
       await store.runQuery("DROP TABLE users");
       expect(store.status).toBe("error");
     });
+
+    it("rejects destructive queries with apostrophes in comments in read-only mode", async () => {
+      const connStore = useConnectionStore();
+      connStore.connections = [{ id: "conn1", readOnly: true } as any];
+      connStore.activeId = "conn1";
+      const store = useResultStore();
+      await store.runQuery("-- Don't remove\nDELETE FROM users WHERE name = 'Alice';");
+      expect(store.status).toBe("error");
+      expect(store.error?.code).toBe("READ_ONLY_CONNECTION");
+    });
   });
 
   describe("query pinning", () => {

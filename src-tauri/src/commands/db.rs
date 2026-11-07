@@ -9,9 +9,12 @@ use mysql_async::{params, Conn, Opts, OptsBuilder, Pool, PoolConstraints, PoolOp
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::{Manager, State};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 const MAX_RESULT_ROWS: usize = 10_000;
@@ -1134,6 +1137,39 @@ async fn resolve_connection(
     Ok((conn_id, pool))
 }
 
+pub(crate) struct ThreadIdGuard {
+    conn_id: String,
+    thread_ids: Arc<Mutex<HashMap<String, u32>>>,
+}
+
+impl ThreadIdGuard {
+    pub async fn new(
+        thread_ids: &Arc<Mutex<HashMap<String, u32>>>,
+        conn_id: &str,
+        tid: u32,
+    ) -> Self {
+        thread_ids.lock().await.insert(conn_id.to_string(), tid);
+        Self {
+            conn_id: conn_id.to_string(),
+            thread_ids: thread_ids.clone(),
+        }
+    }
+}
+
+impl Drop for ThreadIdGuard {
+    fn drop(&mut self) {
+        if let Ok(mut map) = self.thread_ids.try_lock() {
+            map.remove(&self.conn_id);
+        } else {
+            let conn_id = self.conn_id.clone();
+            let thread_ids = self.thread_ids.clone();
+            tokio::spawn(async move {
+                thread_ids.lock().await.remove(&conn_id);
+            });
+        }
+    }
+}
+
 #[inline]
 pub(crate) fn convert_mysql_value_to_json(
     val: Option<Result<mysql_async::Value, mysql_async::FromValueError>>,
@@ -1230,8 +1266,7 @@ pub async fn run_query(
 
     let query_future = async move {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-        let tid = conn.id();
-        thread_ids.lock().await.insert(conn_id, tid);
+        let _guard = ThreadIdGuard::new(&thread_ids, &conn_id, conn.id()).await;
 
         let mut result = conn.query_iter(&sql_clone).await.map_err(|e| safe_error(&e))?;
         let mut columns = Vec::new();
@@ -1439,8 +1474,7 @@ pub async fn run_multi_query(
         .map_err(|_| format!("Connection timed out after {} seconds.", QUERY_TIMEOUT_SECS))?
         .map_err(|e| safe_error(&e))?;
 
-    let tid = conn.id();
-    thread_ids.lock().await.insert(conn_id, tid);
+    let _guard = ThreadIdGuard::new(&thread_ids, &conn_id, conn.id()).await;
 
     let mut results = Vec::new();
     for stmt in &statements {
@@ -1641,15 +1675,19 @@ pub async fn run_query_paged(
 
     let query_future = async move {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-        let tid = conn.id();
-        thread_ids.lock().await.insert(conn_id, tid);
+        let _guard = ThreadIdGuard::new(&thread_ids, &conn_id, conn.id()).await;
         
         let mut result_is_fallback = false;
         let mut result = match conn.query_iter(&first_sql_clone).await {
             Ok(r) => r,
             Err(e) => {
                 let err_msg = safe_error(&e);
-                if err_msg.to_lowercase().contains("syntax") || err_msg.to_lowercase().contains("parse") {
+                let err_lower = err_msg.to_lowercase();
+                let is_recoverable = err_lower.contains("syntax")
+                    || err_lower.contains("parse")
+                    || err_lower.contains("duplicate column name")
+                    || err_lower.contains("1060");
+                if is_recoverable {
                     let second_attempt = if let Some(second) = second_sql_clone.as_deref() {
                         conn.query_iter(second)
                             .await
@@ -1939,8 +1977,7 @@ pub async fn run_write_query(
 
     let affected = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
         let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-        let tid = conn.id();
-        thread_ids.lock().await.insert(conn_id, tid);
+        let _guard = ThreadIdGuard::new(&thread_ids, &conn_id, conn.id()).await;
 
         let result = conn.query_iter(&sql).await.map_err(|e| safe_error(&e))?;
         Ok::<u64, String>(result.affected_rows())
@@ -1999,11 +2036,7 @@ pub(crate) fn json_to_mysql_val(val: &serde_json::Value) -> mysql_async::Value {
             }
         }
         serde_json::Value::String(s) => {
-            if s.eq_ignore_ascii_case("NULL") || s == "\\N" {
-                mysql_async::Value::NULL
-            } else {
-                mysql_async::Value::Bytes(s.as_bytes().to_vec())
-            }
+            mysql_async::Value::Bytes(s.as_bytes().to_vec())
         }
         serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
             mysql_async::Value::Bytes(val.to_string().into_bytes())
@@ -2051,8 +2084,7 @@ pub async fn batch_update_rows(
     }
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-    let tid = conn.id();
-    state.thread_ids.lock().await.insert(conn_id, tid);
+    let _guard = ThreadIdGuard::new(&state.thread_ids, &conn_id, conn.id()).await;
 
     let mut total_affected = 0u64;
 
@@ -2139,14 +2171,10 @@ pub async fn update_rows(
         return Err("Connection is configured as read-only. Mutating operations are blocked.".into());
     }
 
-    if let Ok(c) = pool.get_conn().await {
-        let t = c.id();
-        state.thread_ids.lock().await.insert(conn_id, t);
-    }
-
     let (sql, params_vec) = build_update_sql(&table, &updates, &pks);
 
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
+    let _guard = ThreadIdGuard::new(&state.thread_ids, &conn_id, conn.id()).await;
 
     let result = tokio::time::timeout(Duration::from_secs(QUERY_TIMEOUT_SECS), async {
         conn.exec_iter(sql, params_vec).await.map_err(|e| safe_error(&e))
@@ -2177,7 +2205,7 @@ pub async fn connect(
 
     {
         let conn_fut = pool.get_conn();
-        let mut conn = if let Some(timeout_secs) = config.connect_timeout_secs {
+        let _conn = if let Some(timeout_secs) = config.connect_timeout_secs {
             if timeout_secs > 0 {
                 match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), conn_fut).await {
                     Ok(res) => res.map_err(|e| safe_error(&e))?,
@@ -2190,14 +2218,7 @@ pub async fn connect(
             conn_fut.await.map_err(|e| safe_error(&e))?
         };
 
-        let thread_id: u32 = conn
-            .query_first::<Option<u32>, _>("SELECT CONNECTION_ID()")
-            .await
-            .map_err(|e| safe_error(&e))?
-            .flatten()
-            .unwrap_or(0);
         state.connection_urls.lock().await.insert(id.clone(), url);
-        state.thread_ids.lock().await.insert(id.clone(), thread_id);
     }
 
     let old_pool = state.pools.lock().await.insert(id.clone(), pool);
@@ -2211,21 +2232,9 @@ pub async fn connect(
 
 #[tauri::command]
 pub async fn refresh_thread_id(
-    id: String,
-    state: State<'_, AppState>,
+    _id: String,
+    _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let pool = {
-        let pools = state.pools.lock().await;
-        pools.get(&id).cloned().ok_or("No active connection")?
-    };
-    let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-    let thread_id: u32 = conn
-        .query_first::<Option<u32>, _>("SELECT CONNECTION_ID()")
-        .await
-        .map_err(|e| safe_error(&e))?
-        .flatten()
-        .unwrap_or(0);
-    state.thread_ids.lock().await.insert(id, thread_id);
     Ok(())
 }
 
@@ -2236,8 +2245,8 @@ pub async fn cancel_query(
 ) -> Result<(), String> {
     let (conn_id, pool) = resolve_connection(&state, id).await?;
     let thread_id = {
-        let threads = state.thread_ids.lock().await;
-        threads.get(&conn_id).copied().ok_or("No active running query thread found for connection")?
+        let mut threads = state.thread_ids.lock().await;
+        threads.remove(&conn_id).ok_or("No active running query thread found for connection")?
     };
 
     let mut kill_conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
@@ -2438,8 +2447,7 @@ pub async fn fetch_schema(
     let db_to_query = match database {
         Some(ref db) if !db.trim().is_empty() => db.clone(),
         _ => {
-            let mut c = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-            c.query_first::<Option<String>, _>("SELECT DATABASE()")
+            conn.query_first::<Option<String>, _>("SELECT DATABASE()")
                 .await
                 .map_err(|e| safe_error(&e))?
                 .flatten()
@@ -2962,7 +2970,23 @@ pub async fn save_query(
         return Err("Query name cannot be empty".into());
     }
 
-    let target_dir = if let Some(f) = folder.as_ref().filter(|s| !s.trim().is_empty()) {
+    let normalized_name = name.replace('\\', "/");
+    let (embedded_folder, file_stem_name) = if let Some(last_slash) = normalized_name.rfind('/') {
+        let f = &normalized_name[..last_slash];
+        let n = &normalized_name[last_slash + 1..];
+        (Some(f), n)
+    } else {
+        (None, normalized_name.as_str())
+    };
+
+    let effective_folder = match (folder.as_ref().filter(|s| !s.trim().is_empty()), embedded_folder.filter(|s| !s.trim().is_empty())) {
+        (Some(f1), Some(f2)) => Some(format!("{}/{}", f1.trim_matches('/'), f2.trim_matches('/'))),
+        (Some(f1), None) => Some(f1.trim_matches('/').to_string()),
+        (None, Some(f2)) => Some(f2.trim_matches('/').to_string()),
+        (None, None) => None,
+    };
+
+    let target_dir = if let Some(ref f) = effective_folder {
         let safe_rel = get_safe_relative_path(f)?;
         let d = dir.join(safe_rel);
         std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
@@ -2973,15 +2997,28 @@ pub async fn save_query(
 
     let target_path = if let Some(existing_id) = id.as_ref().filter(|s| !s.is_empty()) {
         let safe_rel = get_safe_relative_path(existing_id)?;
-        let path = dir.join(&safe_rel);
+        let mut path = dir.join(&safe_rel);
+        if !path.is_file() {
+            let with_sql = dir.join(format!("{}.sql", safe_rel.display()));
+            let with_md = dir.join(format!("{}.md", safe_rel.display()));
+            if with_sql.is_file() {
+                path = with_sql;
+            } else if with_md.is_file() {
+                path = with_md;
+            }
+        }
         if path.exists() && path.is_file() {
             let existing_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("sql");
-            let target_name = if name.to_lowercase().ends_with(".md") || name.to_lowercase().ends_with(".sql") {
-                name.clone()
+            let target_name = if file_stem_name.to_lowercase().ends_with(".md") || file_stem_name.to_lowercase().ends_with(".sql") {
+                file_stem_name.to_string()
             } else {
-                format!("{}.{}", name, existing_ext)
+                format!("{}.{}", file_stem_name, existing_ext)
             };
-            let parent_dir = path.parent().unwrap_or(&target_dir).to_path_buf();
+            let parent_dir = if effective_folder.is_some() {
+                target_dir.clone()
+            } else {
+                path.parent().unwrap_or(&target_dir).to_path_buf()
+            };
             let desired = query_file_path(&parent_dir, &target_name);
             if !is_same_file(&path, &desired) {
                 if desired.exists() {
@@ -2994,14 +3031,13 @@ pub async fn save_query(
                 safe_rename(&path, &desired)?;
                 desired
             } else {
-                safe_rename(&path, &desired)?;
-                desired
+                path
             }
         } else {
-            resolve_unique_query_path(&target_dir, &name)
+            resolve_unique_query_path(&target_dir, file_stem_name)
         }
     } else {
-        resolve_unique_query_path(&target_dir, &name)
+        resolve_unique_query_path(&target_dir, file_stem_name)
     };
 
     write_query_file(&target_path, &sql)?;
@@ -3152,6 +3188,7 @@ pub async fn rename_query(
     state: State<'_, AppState>,
     id: String,
     new_name: String,
+    folder: Option<String>,
 ) -> Result<SavedQuery, String> {
     let dir = queries_dir(&app)?;
     let new_name = new_name.trim().to_string();
@@ -3165,28 +3202,60 @@ pub async fn rename_query(
         return Err("Query not found".into());
     }
 
-    let existing_ext = old_path.extension().and_then(|e| e.to_str()).unwrap_or("sql");
-    let target_name = if new_name.to_lowercase().ends_with(".md") || new_name.to_lowercase().ends_with(".sql") {
-        new_name.clone()
+    let normalized_name = new_name.replace('\\', "/");
+    let (embedded_folder, file_stem_name) = if let Some(last_slash) = normalized_name.rfind('/') {
+        let f = &normalized_name[..last_slash];
+        let n = &normalized_name[last_slash + 1..];
+        (Some(f), n)
     } else {
-        format!("{}.{}", new_name, existing_ext)
+        (None, normalized_name.as_str())
     };
-    let parent_dir = old_path.parent().unwrap_or(&dir).to_path_buf();
+
+    let effective_folder = match (
+        folder.as_ref().filter(|s| !s.trim().is_empty()),
+        embedded_folder.filter(|s| !s.trim().is_empty()),
+    ) {
+        (Some(f1), Some(f2)) => Some(format!("{}/{}", f1.trim_matches('/'), f2.trim_matches('/'))),
+        (Some(f1), None) => Some(f1.trim_matches('/').to_string()),
+        (None, Some(f2)) => Some(f2.trim_matches('/').to_string()),
+        (None, None) => None,
+    };
+
+    let existing_ext = old_path.extension().and_then(|e| e.to_str()).unwrap_or("sql");
+    let target_name = if file_stem_name.to_lowercase().ends_with(".md")
+        || file_stem_name.to_lowercase().ends_with(".sql")
+    {
+        file_stem_name.to_string()
+    } else {
+        format!("{}.{}", file_stem_name, existing_ext)
+    };
+
+    let parent_dir = if let Some(ref f) = effective_folder {
+        let safe_folder = get_safe_relative_path(f)?;
+        let d = dir.join(safe_folder);
+        std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+        d
+    } else {
+        old_path.parent().unwrap_or(&dir).to_path_buf()
+    };
+
     let new_path = query_file_path(&parent_dir, &target_name);
     if !is_same_file(&old_path, &new_path) {
         if new_path.exists() {
-            let desired_filename = new_path.file_name().and_then(|f| f.to_str()).unwrap_or("file");
+            let desired_filename = new_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("file");
             return Err(format!(
                 "A query file named \"{}\" already exists",
                 desired_filename
             ));
         }
         safe_rename(&old_path, &new_path)?;
-    } else {
-        safe_rename(&old_path, &new_path)?;
     }
 
-    let saved = saved_query_from_file(&new_path, Some(&dir)).ok_or_else(|| "Failed to read renamed query file".to_string())?;
+    let saved = saved_query_from_file(&new_path, Some(&dir))
+        .ok_or_else(|| "Failed to read renamed query file".to_string())?;
     invalidate_queries_cache(&state);
     Ok(saved)
 }
@@ -3298,11 +3367,14 @@ pub async fn export_csv(result: QueryResult) -> Result<String, String> {
             result
                 .columns
                 .iter()
-                .map(|col| match row.get(&col.name) {
-                    Some(Value::Null) => String::new(),
-                    Some(Value::String(s)) => csv_escape(s),
-                    Some(v) => csv_escape(&v.to_string()),
-                    None => String::new(),
+                .map(|col| {
+                    let key = col.key.as_deref().unwrap_or(&col.name);
+                    match row.get(key) {
+                        Some(Value::Null) => String::new(),
+                        Some(Value::String(s)) => csv_escape(s),
+                        Some(v) => csv_escape(&v.to_string()),
+                        None => String::new(),
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join(",")
@@ -3362,7 +3434,12 @@ pub async fn stream_export_query(
     use std::io::Write;
     let start = std::time::Instant::now();
     let fmt_lower = format.trim().to_lowercase();
+    validate_read_only_query(&sql)?;
     let (conn_id, pool) = resolve_connection(&state, id).await?;
+    let is_read_only = state.read_only_connections.lock().await.get(&conn_id).copied().unwrap_or(false);
+    if is_read_only && validate_read_only_query(&sql).is_err() {
+        return Err("Connection is configured as read-only. Mutating operations are blocked.".into());
+    }
 
     let save_path: PathBuf = match file_path {
         Some(fp) => {
@@ -3425,8 +3502,7 @@ pub async fn stream_export_query(
 
     let thread_ids = state.thread_ids.clone();
     let mut conn = pool.get_conn().await.map_err(|e| safe_error(&e))?;
-    let tid = conn.id();
-    thread_ids.lock().await.insert(conn_id.clone(), tid);
+    let _guard = ThreadIdGuard::new(&thread_ids, &conn_id, conn.id()).await;
 
     let query_exec = async {
         let mut result = match conn.query_iter(&first_sql).await {
@@ -3455,6 +3531,7 @@ pub async fn stream_export_query(
             col_types.push(map_column_type(&type_str));
             col_names.push(name);
         }
+        let col_keys = disambiguate_column_keys(&col_names);
 
         let mut row_count = 0u64;
         let mut truncated = false;
@@ -3512,7 +3589,7 @@ pub async fn stream_export_query(
                     for (i, col_type) in col_types.iter().enumerate() {
                         let val = row.get_opt::<mysql_async::Value, _>(i);
                         let jval = convert_mysql_value_to_json(val, col_type);
-                        map.insert(col_names[i].clone(), jval);
+                        map.insert(col_keys[i].clone(), jval);
                     }
                     let json_str = serde_json::to_string(&Value::Object(map)).map_err(|e| e.to_string())?;
                     writer.write_all(json_str.as_bytes()).map_err(|e| e.to_string())?;
@@ -3532,7 +3609,7 @@ pub async fn stream_export_query(
                     for (i, col_type) in col_types.iter().enumerate() {
                         let val = row.get_opt::<mysql_async::Value, _>(i);
                         let jval = convert_mysql_value_to_json(val, col_type);
-                        map.insert(col_names[i].clone(), jval);
+                        map.insert(col_keys[i].clone(), jval);
                     }
                     let json_str = serde_json::to_string(&Value::Object(map)).map_err(|e| e.to_string())?;
                     writer.write_all(json_str.as_bytes()).map_err(|e| e.to_string())?;
@@ -3597,7 +3674,6 @@ pub async fn stream_export_query(
     };
 
     let res = query_exec.await;
-    thread_ids.lock().await.remove(&conn_id);
     let row_count = res?;
 
     let file_size_bytes = std::fs::metadata(&save_path).map(|m| m.len()).unwrap_or(0);
@@ -3615,6 +3691,7 @@ pub async fn stream_export_query(
 pub async fn format_query_data(
     format: String,
     columns: Vec<String>,
+    keys: Option<Vec<String>>,
     rows: Vec<serde_json::Value>,
 ) -> Result<String, String> {
     fn csv_escape(value: &str) -> String {
@@ -3629,6 +3706,8 @@ pub async fn format_query_data(
         }
     }
 
+    let lookup_keys = keys.as_ref().unwrap_or(&columns);
+
     match format.to_lowercase().as_str() {
         "csv" => {
             let mut out = String::from("\u{FEFF}");
@@ -3637,7 +3716,7 @@ pub async fn format_query_data(
             out.push('\n');
             for row in rows {
                 if let Value::Object(map) = row {
-                    let line = columns.iter().map(|col| match map.get(col) {
+                    let line = lookup_keys.iter().map(|col| match map.get(col) {
                         Some(Value::Null) => String::new(),
                         Some(Value::String(s)) => csv_escape(s),
                         Some(v) => csv_escape(&v.to_string()),
@@ -3655,7 +3734,7 @@ pub async fn format_query_data(
             out.push('\n');
             for row in rows {
                 if let Value::Object(map) = row {
-                    let line = columns.iter().map(|col| match map.get(col) {
+                    let line = lookup_keys.iter().map(|col| match map.get(col) {
                         Some(Value::Null) => String::new(),
                         Some(Value::String(s)) => s.replace('\t', " ").replace('\n', " "),
                         Some(v) => v.to_string().replace('\t', " ").replace('\n', " "),
@@ -3863,6 +3942,30 @@ mod tests {
     }
 
     #[test]
+    fn update_sql_handles_string_null_keys_and_values() {
+        let updates = vec![UpdateCell {
+            column: "status".into(),
+            value: serde_json::Value::String("NULL".into()),
+        }];
+        let pks = vec![PkValue {
+            column: "code".into(),
+            value: serde_json::Value::String("NULL".into()),
+        }];
+        let (sql, params) = build_update_sql("records", &updates, &pks);
+        assert!(sql.contains("`code` = ?"));
+        assert!(!sql.contains("`code` IS NULL"));
+        assert_eq!(params.len(), 2);
+        match &params[0] {
+            mysql_async::Value::Bytes(b) => assert_eq!(b, b"NULL"),
+            other => panic!("Expected Bytes, got {:?}", other),
+        }
+        match &params[1] {
+            mysql_async::Value::Bytes(b) => assert_eq!(b, b"NULL"),
+            other => panic!("Expected Bytes, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn connection_url_encodes_credentials() {
         let config = ConnectionConfig {
             name: "test".into(),
@@ -3993,5 +4096,85 @@ mod tests {
         assert!(stmts[0].contains("SELECT 1"));
         assert!(stmts[1].contains("SELECT 2"));
         assert!(stmts[2].contains("SELECT 3"));
+    }
+
+    #[test]
+    fn json_to_mysql_val_preserves_null_string_literal() {
+        let null_val = serde_json::Value::Null;
+        assert_eq!(json_to_mysql_val(&null_val), mysql_async::Value::NULL);
+
+        let str_null = serde_json::Value::String("NULL".into());
+        match json_to_mysql_val(&str_null) {
+            mysql_async::Value::Bytes(b) => assert_eq!(b, b"NULL"),
+            other => panic!("Expected Bytes, got {:?}", other),
+        }
+
+        let str_slash_n = serde_json::Value::String("\\N".into());
+        match json_to_mysql_val(&str_slash_n) {
+            mysql_async::Value::Bytes(b) => assert_eq!(b, b"\\N"),
+            other => panic!("Expected Bytes, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn export_csv_preserves_duplicate_column_values() {
+        let col1 = Column {
+            name: "id".into(),
+            r#type: "int".into(),
+            org_name: Some("id".into()),
+            org_table: Some("users".into()),
+            schema: Some("mydb".into()),
+            key: Some("id".into()),
+        };
+        let col2 = Column {
+            name: "id".into(),
+            r#type: "int".into(),
+            org_name: Some("id".into()),
+            org_table: Some("orders".into()),
+            schema: Some("mydb".into()),
+            key: Some("id_2".into()),
+        };
+        let mut row = serde_json::Map::new();
+        row.insert("id".into(), serde_json::json!(101));
+        row.insert("id_2".into(), serde_json::json!(999));
+
+        let qr = QueryResult {
+            columns: vec![col1, col2],
+            rows: vec![serde_json::Value::Object(row)],
+            duration_ms: 10,
+            row_count: 1,
+        };
+
+        let csv = export_csv(qr).await.unwrap();
+        assert!(csv.contains("\u{FEFF}id,id\n101,999"));
+    }
+
+    #[tokio::test]
+    async fn format_query_data_handles_duplicate_columns_with_keys() {
+        let columns = vec!["id".into(), "id".into()];
+        let keys = Some(vec!["id".into(), "id_2".into()]);
+        let mut row = serde_json::Map::new();
+        row.insert("id".into(), serde_json::json!(101));
+        row.insert("id_2".into(), serde_json::json!(999));
+        let rows = vec![serde_json::Value::Object(row)];
+
+        let csv = format_query_data("csv".into(), columns.clone(), keys.clone(), rows.clone()).await.unwrap();
+        assert!(csv.contains("\u{FEFF}id,id\n101,999"));
+
+        let tsv = format_query_data("tsv".into(), columns, keys, rows).await.unwrap();
+        assert!(tsv.contains("id\tid\n101\t999"));
+    }
+
+    #[tokio::test]
+    async fn thread_id_guard_registers_and_auto_cleans_up_on_drop() {
+        let thread_ids = Arc::new(Mutex::new(HashMap::new()));
+        let conn_id = "test-conn-1";
+        {
+            let _guard = ThreadIdGuard::new(&thread_ids, conn_id, 42).await;
+            let current = thread_ids.lock().await.get(conn_id).copied();
+            assert_eq!(current, Some(42));
+        }
+        let after = thread_ids.lock().await.get(conn_id).copied();
+        assert_eq!(after, None);
     }
 }

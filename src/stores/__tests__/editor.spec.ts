@@ -229,6 +229,56 @@ describe("editor store", () => {
       expect(store.tabs[0].savedQueryId).toBe("reports/Q.sql");
     });
 
+    it("saveQueryAs updates existing query in place when isCopy is false", async () => {
+      const saved = { id: "reports/Existing.sql", name: "Existing", sql: "SELECT 1", createdAt: "", updatedAt: "", folder: "reports" };
+      mockInvoke.mockResolvedValueOnce(saved);
+      mockInvoke.mockResolvedValueOnce([saved]);
+      mockInvoke.mockResolvedValueOnce(["reports"]);
+      const store = useEditorStore();
+      store.tabs[0].savedQueryId = "reports/Existing.sql";
+      store.tabs[0].folder = "reports";
+      await store.saveQueryAs("tab-1", "Existing", undefined, false);
+      expect(mockInvoke).toHaveBeenCalledWith("save_query", {
+        name: "Existing",
+        sql: "",
+        id: "reports/Existing.sql",
+        folder: "reports",
+      });
+    });
+
+    it("saveQueryAs creates new duplicate copy when isCopy is true", async () => {
+      const saved = { id: "reports/Existing (1).sql", name: "Existing (1)", sql: "SELECT 1", createdAt: "", updatedAt: "", folder: "reports" };
+      mockInvoke.mockResolvedValueOnce(saved);
+      mockInvoke.mockResolvedValueOnce([saved]);
+      mockInvoke.mockResolvedValueOnce(["reports"]);
+      const store = useEditorStore();
+      store.tabs[0].savedQueryId = "reports/Existing.sql";
+      store.tabs[0].folder = "reports";
+      await store.saveQueryAs("tab-1", "Existing (1)", undefined, true);
+      expect(mockInvoke).toHaveBeenCalledWith("save_query", {
+        name: "Existing (1)",
+        sql: "",
+        id: null,
+        folder: "reports",
+      });
+    });
+
+    it("renameSavedQuery passes folder when specified", async () => {
+      const renamed = { id: "archive/Old Name.sql", name: "Old Name", sql: "SELECT 1", createdAt: "", updatedAt: "", folder: "archive" };
+      mockInvoke.mockResolvedValueOnce(renamed);
+      mockInvoke.mockResolvedValueOnce([renamed]);
+      const store = useEditorStore();
+      store.tabs[0].savedQueryId = "Old Name.sql";
+      await store.renameSavedQuery("Old Name.sql", "Old Name", "archive");
+      expect(mockInvoke).toHaveBeenCalledWith("rename_query", {
+        id: "Old Name.sql",
+        newName: "Old Name",
+        folder: "archive",
+      });
+      expect(store.tabs[0].savedQueryId).toBe("archive/Old Name.sql");
+      expect(store.tabs[0].folder).toBe("archive");
+    });
+
     it("openNewQueryInFolder opens dialog with folder preselected", () => {
       const store = useEditorStore();
       const tabId = store.openNewQueryInFolder("reports");
@@ -420,6 +470,27 @@ describe("editor store", () => {
         targetFolder: "reports",
       });
       expect(tab.savedQueryId).toBe("reports/monthly.sql");
+    });
+
+    it("toggles and checks bookmarked queries correctly", () => {
+      const store = useEditorStore();
+      store.savedQueries = [
+        { id: "q1.sql", name: "Q1", sql: "SELECT 1", createdAt: "", updatedAt: "" },
+        { id: "q2.sql", name: "Q2", sql: "SELECT 2", createdAt: "", updatedAt: "" },
+      ];
+
+      expect(store.isBookmarked("q1.sql")).toBe(false);
+      expect(store.bookmarkedQueries).toHaveLength(0);
+
+      store.toggleBookmark("q1.sql");
+      expect(store.isBookmarked("q1.sql")).toBe(true);
+      expect(store.bookmarkedQueries).toHaveLength(1);
+      expect(store.bookmarkedQueries[0].id).toBe("q1.sql");
+
+      // Untoggle
+      store.toggleBookmark("q1.sql");
+      expect(store.isBookmarked("q1.sql")).toBe(false);
+      expect(store.bookmarkedQueries).toHaveLength(0);
     });
   });
 });

@@ -53,6 +53,11 @@ import ocean from './themes/ocean'
 import sunset from './themes/sunset'
 import coffee from './themes/coffee'
 import iceberg from './themes/iceberg'
+import baton from './themes/baton'
+import tokyoNightLight from './themes/tokyo-night-light'
+import rosePineDawn from './themes/rose-pine-dawn'
+import nordSnow from './themes/nord-snow'
+import synthwave84 from './themes/synthwave-84'
 
 export const BUILTIN_THEMES: Theme[] = [
   defaultDark,
@@ -77,6 +82,7 @@ export const BUILTIN_THEMES: Theme[] = [
   githubDark,
   vitesseDark,
   solarizedDark,
+  baton,
 
   githubLight,
   oneLight,
@@ -85,6 +91,9 @@ export const BUILTIN_THEMES: Theme[] = [
   paper,
   minimal,
   everforestLight,
+  tokyoNightLight,
+  rosePineDawn,
+  nordSnow,
 
   pitchBlack,
   oledBlack,
@@ -98,6 +107,7 @@ export const BUILTIN_THEMES: Theme[] = [
 
   neon,
   cyberpunk,
+  synthwave84,
   lavender,
   sakura,
   forest,

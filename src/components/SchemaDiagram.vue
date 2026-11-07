@@ -450,6 +450,7 @@ function resetLayout(force = false) {
     const rightStack: string[] = []
     
     relations.value.forEach(r => {
+      if (!r.sourceTable || !r.targetTable) return
       if (r.sourceTable.toLowerCase() === focusName.toLowerCase()) {
         if (!leftStack.includes(r.targetTable)) leftStack.push(r.targetTable)
       }
@@ -576,16 +577,15 @@ let loadSequence = 0
 // Helper to batch async operations with concurrency limit
 async function runWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = []
-  const executing: Promise<void>[] = []
+  const executing: Set<Promise<any>> = new Set()
   for (const item of items) {
-    const p = Promise.resolve().then(() => fn(item)).then(res => {
-      results.push(res)
-    })
-    const e: Promise<void> = p.then(() => {
-      executing.splice(executing.indexOf(e), 1)
-    })
-    executing.push(e)
-    if (executing.length >= limit) {
+    const p: Promise<any> = Promise.resolve()
+      .then(() => fn(item))
+      .then(res => { results.push(res) })
+      .catch(err => { console.warn('Schema concurrency task error:', err) })
+      .finally(() => { executing.delete(p) })
+    executing.add(p)
+    if (executing.size >= limit) {
       await Promise.race(executing)
     }
   }
@@ -620,6 +620,7 @@ async function loadSchemaDetails() {
           const srcCol = fk.columnName || fk.column_name
           const tgtTbl = fk.referencedTable || fk.referenced_table
           const tgtCol = fk.referencedColumn || fk.referenced_column
+          if (!srcTbl || !srcCol || !tgtTbl || !tgtCol) return
           const srcSchema = fk.tableSchema || fk.table_schema || activeDb || undefined
           const tgtSchema = fk.referencedTableSchema || fk.referenced_table_schema || activeDb || undefined
 
@@ -650,6 +651,7 @@ async function loadSchemaDetails() {
           const srcCol = fk.columnName || fk.column_name
           const tgtTbl = fk.referencedTable || fk.referenced_table
           const tgtCol = fk.referencedColumn || fk.referenced_column
+          if (!srcTbl || !srcCol || !tgtTbl || !tgtCol) return
           const srcSchema = fk.tableSchema || fk.table_schema || activeDb || undefined
           const tgtSchema = fk.referencedTableSchema || fk.referenced_table_schema || activeDb || undefined
 
@@ -674,13 +676,18 @@ async function loadSchemaDetails() {
               database: activeDb
             })
             fks.forEach(fk => {
+              const srcTbl = fk.tableName || fk.table_name || table.name
+              const srcCol = fk.columnName || fk.column_name
+              const tgtTbl = fk.referencedTable || fk.referenced_table
+              const tgtCol = fk.referencedColumn || fk.referenced_column
+              if (!srcTbl || !srcCol || !tgtTbl || !tgtCol) return
               collectedRelations.push({
                 sourceSchema: fk.tableSchema || fk.table_schema || activeDb || undefined,
-                sourceTable: fk.tableName || fk.table_name || table.name,
-                sourceColumn: fk.columnName || fk.column_name,
+                sourceTable: srcTbl,
+                sourceColumn: srcCol,
                 targetSchema: fk.referencedTableSchema || fk.referenced_table_schema || activeDb || undefined,
-                targetTable: fk.referencedTable || fk.referenced_table,
-                targetColumn: fk.referencedColumn || fk.referenced_column,
+                targetTable: tgtTbl,
+                targetColumn: tgtCol,
                 isFocus: false
               })
             })
@@ -697,6 +704,7 @@ async function loadSchemaDetails() {
     const uniqueRelations: FKRelation[] = []
     const relKeySet = new Set<string>()
     for (const r of collectedRelations) {
+      if (!r.sourceTable || !r.targetTable || !r.sourceColumn || !r.targetColumn) continue
       const key = `${r.sourceSchema || ''}.${r.sourceTable.toLowerCase()}.${r.sourceColumn.toLowerCase()}->${r.targetSchema || ''}.${r.targetTable.toLowerCase()}.${r.targetColumn.toLowerCase()}`
       if (!relKeySet.has(key)) {
         relKeySet.add(key)
@@ -800,6 +808,7 @@ function onMouseUp() {
 function computeOrthogonalPath(rel: FKRelation): string {
   const sName = rel.sourceTable
   const tName = rel.targetTable
+  if (!sName || !tName || !rel.sourceColumn || !rel.targetColumn) return ''
   const sPos = positions.value[sName] || positions.value[sName.toLowerCase()]
   const tPos = positions.value[tName] || positions.value[tName.toLowerCase()]
   if (!sPos || !tPos) return ''

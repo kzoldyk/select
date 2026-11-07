@@ -64,27 +64,52 @@ export const dynamicTheme = EditorView.theme({
   },
   '.cm-line': {
     lineHeight: '1.65',
+    borderLeft: '2.5px solid transparent',
+    paddingLeft: '6px',
+    transition: 'border-color 0.15s ease, background-color 0.15s ease',
   },
   '.cm-cursor': {
     borderLeftColor: 'var(--editor-cursor, var(--primary, var(--foreground)))',
     borderLeftWidth: '2px',
   },
   '.cm-activeLine': {
-    backgroundColor: 'var(--editor-active-line, var(--accent))',
-    borderLeft: '2px solid var(--ring)',
+    background: 'linear-gradient(90deg, color-mix(in srgb, var(--primary) 10%, transparent) 0%, color-mix(in srgb, var(--primary) 2.5%, transparent) 60%, transparent 100%)',
+    borderLeft: '2.5px solid var(--primary)',
+    borderTopLeftRadius: '2px',
+    borderBottomLeftRadius: '2px',
+    boxShadow: 'inset 2px 0 6px -1px color-mix(in srgb, var(--primary) 25%, transparent)',
+    transition: 'background 0.15s ease-out, border-color 0.15s ease-out',
+  },
+  '&:not(.cm-focused) .cm-activeLine': {
+    background: 'linear-gradient(90deg, color-mix(in srgb, var(--primary) 4%, transparent) 0%, transparent 60%)',
+    borderLeftColor: 'color-mix(in srgb, var(--primary) 40%, transparent)',
+    boxShadow: 'none',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'var(--editor-active-line, var(--accent))',
+    backgroundColor: 'color-mix(in srgb, var(--primary) 9%, transparent)',
+    color: 'var(--primary) !important',
+    fontWeight: '600',
+    borderRight: '1px solid color-mix(in srgb, var(--primary) 40%, transparent)',
+    transition: 'color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease',
+  },
+  '&:not(.cm-focused) .cm-activeLineGutter': {
+    backgroundColor: 'transparent',
+    color: 'var(--muted-foreground) !important',
+    borderRightColor: 'transparent',
   },
   '.cm-gutters': {
     backgroundColor: 'var(--background)',
     borderRight: '1px solid var(--border)',
     color: 'var(--muted-foreground)',
-    minWidth: '36px',
+    minWidth: '38px',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
   },
   '.cm-lineNumbers': {
     color: 'var(--muted-foreground)',
-    minWidth: '36px',
+    minWidth: '38px',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
   },
   '.cm-lineNumbers .cm-gutterElement': {
     padding: '0 8px 0 0',
@@ -92,18 +117,28 @@ export const dynamicTheme = EditorView.theme({
     fontSize: '0.85em',
     lineHeight: '1.65',
     color: 'var(--muted-foreground)',
+    userSelect: 'none',
   },
   '.cm-selectionBackground': {
     backgroundColor: 'var(--editor-selection, var(--selection)) !important',
+    borderRadius: '2px',
   },
   '&.cm-focused .cm-selectionBackground': {
     backgroundColor: 'var(--editor-selection, var(--selection)) !important',
+    borderRadius: '2px',
   },
   '::selection': {
     backgroundColor: 'var(--editor-selection, var(--selection)) !important',
   },
   '.cm-selectionMatch': {
-    backgroundColor: 'var(--accent)',
+    backgroundColor: 'color-mix(in srgb, var(--primary) 15%, transparent)',
+    outline: '1px solid color-mix(in srgb, var(--primary) 35%, transparent)',
+    borderRadius: '2px',
+  },
+  '.cm-selectionMatch-main': {
+    backgroundColor: 'color-mix(in srgb, var(--primary) 22%, transparent)',
+    outline: '1px solid color-mix(in srgb, var(--primary) 50%, transparent)',
+    borderRadius: '2px',
   },
   '.cm-matchingBracket': {
     backgroundColor: 'var(--muted)',

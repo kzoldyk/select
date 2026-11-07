@@ -2061,8 +2061,14 @@ function getExportRows(): GridRow[] {
 
 async function copyAllTsv() {
   const exportRows = getExportRows()
+  const keys = props.columns.map(c => c.key || c.name)
   try {
-    const text = await invoke<string>('format_query_data', { format: 'tsv', columns: props.columns.map(c => c.name), rows: exportRows })
+    const text = await invoke<string>('format_query_data', {
+      format: 'tsv',
+      columns: props.columns.map(c => c.name),
+      keys,
+      rows: exportRows,
+    })
     navigator.clipboard.writeText(text)
     toast.success('Copied all data as TSV')
   } catch {
@@ -2075,9 +2081,15 @@ async function copyAllTsv() {
 
 async function exportCsv() {
   const exportRows = getExportRows()
+  const keys = props.columns.map(c => c.key || c.name)
   let text = ''
   try {
-    text = await invoke<string>('format_query_data', { format: 'csv', columns: props.columns.map(c => c.name), rows: exportRows })
+    text = await invoke<string>('format_query_data', {
+      format: 'csv',
+      columns: props.columns.map(c => c.name),
+      keys,
+      rows: exportRows,
+    })
   } catch {
     const escape = (val: string) => /[",\n\r]/.test(val) ? `"${val.replace(/"/g, '""')}"` : val
     const header = props.columns.map(c => escape(c.name)).join(',')
@@ -2095,9 +2107,15 @@ async function exportCsv() {
 
 async function exportJson() {
   const exportRows = getExportRows()
+  const keys = props.columns.map(c => c.key || c.name)
   let text = ''
   try {
-    text = await invoke<string>('format_query_data', { format: 'json', columns: props.columns.map(c => c.name), rows: exportRows })
+    text = await invoke<string>('format_query_data', {
+      format: 'json',
+      columns: props.columns.map(c => c.name),
+      keys,
+      rows: exportRows,
+    })
   } catch {
     text = JSON.stringify(exportRows, null, 2)
   }
@@ -2398,6 +2416,8 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', closeAllContextMenus)
   window.removeEventListener('mouseup', handleWindowMouseUp)
+  window.removeEventListener('mousemove', onColumnResizeMove)
+  window.removeEventListener('mouseup', stopResizeColumn)
 })
 
 watch(() => props.columns.map(c => c.key || c.name).join('\0'), (next, prev) => {

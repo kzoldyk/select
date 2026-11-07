@@ -45,6 +45,7 @@ agent.md
 
 # Agent skills & generated media
 .agents/
+.ua/
 skills-lock.json
 brag-output/
 video/

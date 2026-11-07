@@ -446,6 +446,11 @@ const editableTableName = computed(() => {
   const cols = currentColumns.value
   if (!cols.length) return undefined
 
+  // Refuse to identify an editable table when columns come from multiple tables — editing
+  // would target the wrong table and silently corrupt data.
+  const distinctTables = new Set(cols.filter(c => c.orgTable).map(c => c.orgTable))
+  if (distinctTables.size > 1) return undefined
+
   const firstColWithTable = cols.find(c => c.orgTable)
   if (firstColWithTable && firstColWithTable.orgTable) {
     const tbl = firstColWithTable.orgTable
@@ -458,6 +463,7 @@ const editableTableName = computed(() => {
 
   // Fallback: extract table from active SQL statement
   const sql = (isPinnedActive.value && activePinnedResult.value?.sql) || resultStore.lastSql || ''
+  if (/\bJOIN\b/i.test(sql)) return undefined
   const match = sql.match(/FROM\s+([`"'\w]+(?:\.[`"'\w]+)?)/i)
   if (match) {
     return match[1].replace(/[`"']/g, '')
@@ -583,10 +589,7 @@ async function handleBatchSaveEdits(
         (c.key || c.name).toLowerCase() === keyCol.toLowerCase()
       )
       const rowKey = colDef ? (colDef.key || colDef.name) : keyCol
-      let val = row[rowKey]
-      if (typeof val === 'string' && (val.trim().toUpperCase() === 'NULL' || val.trim() === '\\N')) {
-        val = null
-      }
+      const val = row[rowKey]
       if (val !== undefined) {
         pks.push({ column: keyCol, value: val })
       }

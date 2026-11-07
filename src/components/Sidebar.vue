@@ -369,6 +369,14 @@
                     :class="sq.id.toLowerCase().endsWith('.md') ? 'text-amber-400' : 'text-muted-foreground/70'"
                   />
                   <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap pointer-events-none">{{ sq.name }}</span>
+                  <button
+                    class="p-0.5 rounded hover:bg-background/80 transition-colors border-none bg-transparent cursor-pointer shrink-0"
+                    :class="editorStore.isBookmarked(sq.id) ? 'text-amber-400 opacity-100' : 'text-muted-foreground/40 opacity-0 group-hover:opacity-100 hover:text-amber-400'"
+                    :title="editorStore.isBookmarked(sq.id) ? 'Remove bookmark' : 'Bookmark query'"
+                    @click.stop="editorStore.toggleBookmark(sq.id)"
+                  >
+                    <PhStar class="w-3 h-3" :weight="editorStore.isBookmarked(sq.id) ? 'fill' : 'regular'" />
+                  </button>
                 </div>
                 <div
                   v-if="!(queriesByFolder[folder] || []).length"
@@ -410,6 +418,14 @@
                 :class="sq.id.toLowerCase().endsWith('.md') ? 'text-amber-400' : 'text-muted-foreground/70'"
               />
               <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap pointer-events-none">{{ sq.name }}</span>
+              <button
+                class="p-0.5 rounded hover:bg-background/80 transition-colors border-none bg-transparent cursor-pointer shrink-0"
+                :class="editorStore.isBookmarked(sq.id) ? 'text-amber-400 opacity-100' : 'text-muted-foreground/40 opacity-0 group-hover:opacity-100 hover:text-amber-400'"
+                :title="editorStore.isBookmarked(sq.id) ? 'Remove bookmark' : 'Bookmark query'"
+                @click.stop="editorStore.toggleBookmark(sq.id)"
+              >
+                <PhStar class="w-3 h-3" :weight="editorStore.isBookmarked(sq.id) ? 'fill' : 'regular'" />
+              </button>
             </div>
 
             <div v-if="!editorStore.savedQueries?.length && !allFolders.length" class="px-4 py-1.5 text-[10.5px] text-muted-foreground/50">
@@ -484,6 +500,10 @@
         :style="{ top: ctxMenu.y + 'px', left: ctxMenu.x + 'px' }"
         @click.stop
       >
+        <button class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left" @click="ctxSqAction('toggleBookmark')">
+          <PhStar class="w-3.5 h-3.5 text-amber-400" :weight="editorStore.isBookmarked(ctxMenu.savedQueryId) ? 'fill' : 'regular'" />
+          {{ editorStore.isBookmarked(ctxMenu.savedQueryId) ? 'Remove Bookmark' : 'Bookmark Query' }}
+        </button>
         <button class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left" @click="ctxSqAction('rename')">
           <PhPencil class="w-3.5 h-3.5" /> Rename
         </button>
@@ -653,6 +673,19 @@
                 class="h-8 text-xs font-mono"
               />
             </div>
+            <div v-if="renameDialogFolderOptions.length > 0" class="grid gap-2">
+              <Label for="rename-query-folder" class="text-xs">Folder</Label>
+              <select
+                id="rename-query-folder"
+                v-model="renameDialogFolder"
+                class="w-full h-8 px-2 text-xs rounded-md border border-input bg-background text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option :value="''">/ (Root folder)</option>
+                <option v-for="f in renameDialogFolderOptions" :key="f" :value="f">
+                  📁 {{ f }}
+                </option>
+              </select>
+            </div>
             <DialogFooter class="gap-2 sm:gap-0">
               <Button variant="outline" size="sm" type="button" class="h-8 text-xs" @click="renameDialogOpen = false">Cancel</Button>
               <Button id="btn-submit-rename" size="sm" type="submit" class="h-8 text-xs" :disabled="!renameDialogName.trim()">Rename</Button>
@@ -772,7 +805,8 @@ import {
   PhMagnifyingGlass, PhCaretRight, PhTable, PhEye, PhLightning, PhHash,
   PhPlay, PhFileCode, PhGitBranch, PhPlug, PhDatabase,
   PhCopy, PhArrowSquareOut, PhPencil, PhTrash, PhNotebook,
-  PhFolder, PhFolderOpen, PhFolderPlus, PhPlus, PhFolderNotch, PhArrowBendUpLeft
+  PhFolder, PhFolderOpen, PhFolderPlus, PhPlus, PhFolderNotch, PhArrowBendUpLeft,
+  PhStar
 } from '@phosphor-icons/vue'
 import { useSchemaStore } from '../stores/schema'
 import { useConnectionStore } from '../stores/connection'
@@ -1089,11 +1123,24 @@ async function submitCreateFolder() {
 const renameDialogOpen = ref(false)
 const renameDialogId = ref('')
 const renameDialogName = ref('')
+const renameDialogFolder = ref('')
 const renameInputRef = ref<any>(null)
+
+const renameDialogFolderOptions = computed(() => {
+  const set = new Set(editorStore.queryFolders)
+  if (renameDialogFolder.value) {
+    set.add(renameDialogFolder.value)
+  }
+  return Array.from(set).sort()
+})
 
 function openRenameDialog(id: string, currentName: string) {
   renameDialogId.value = id
   renameDialogName.value = currentName
+  const q = editorStore.savedQueries.find(sq => sq.id === id)
+  const normId = id.replace(/\\/g, '/')
+  const lastSlash = normId.lastIndexOf('/')
+  renameDialogFolder.value = q?.folder ?? (lastSlash > 0 ? normId.substring(0, lastSlash) : '')
   renameDialogOpen.value = true
   setTimeout(() => {
     renameInputRef.value?.$el?.focus?.() || renameInputRef.value?.focus?.()
@@ -1106,7 +1153,7 @@ async function submitRenameQuery() {
   if (!newName || !id) return
   renameDialogOpen.value = false
   try {
-    await editorStore.renameSavedQuery(id, newName)
+    await editorStore.renameSavedQuery(id, newName, renameDialogFolder.value || null)
     toast.success('Renamed query')
   } catch (e: any) {
     toast.error(`Rename failed: ${e?.message || e}`)
@@ -1242,7 +1289,10 @@ function ctxSqAction(action: string) {
   const id = ctxMenu.savedQueryId
   const oldName = ctxMenu.target
   closeCtxMenu()
-  if (action === 'delete') {
+  if (action === 'toggleBookmark') {
+    editorStore.toggleBookmark(id)
+    toast.success(editorStore.isBookmarked(id) ? 'Bookmarked query' : 'Removed bookmark')
+  } else if (action === 'delete') {
     editorStore.dropSavedQuery(id)
     toast.success('Deleted query')
   } else if (action === 'rename') {

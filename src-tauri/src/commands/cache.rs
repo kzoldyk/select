@@ -46,5 +46,7 @@ pub fn save_history_to_disk(
 ) -> Result<(), String> {
     let path = history_path(app)?;
     let content = serde_json::to_string(history).map_err(|e| e.to_string())?;
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+    let tmp_path = path.with_extension("tmp");
+    std::fs::write(&tmp_path, content).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| e.to_string())
 }

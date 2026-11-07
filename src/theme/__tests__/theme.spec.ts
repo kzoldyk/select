@@ -112,4 +112,19 @@ describe('Theme System Manager', () => {
     expect(activeTheme.value.id).toBe(imported?.id)
     expect(activeTheme.value.colors.background).toBe('#282a36')
   })
+
+  it('includes Baton and new light/synthwave themes in builtin list and can activate them', () => {
+    const ids = allThemes.value.map(t => t.id)
+    expect(ids).toContain('baton')
+    expect(ids).toContain('tokyo-night-light')
+    expect(ids).toContain('rose-pine-dawn')
+    expect(ids).toContain('nord-snow')
+    expect(ids).toContain('synthwave-84')
+
+    setTheme('baton')
+    expect(activeTheme.value.id).toBe('baton')
+    expect(activeTheme.value.colors.background).toBe('#081109')
+    expect(activeTheme.value.colors.primary).toBe('#D97736')
+  })
 })
+

@@ -13,6 +13,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 describe('QueryEditor Toolbar & Formatting (Small to Complex)', () => {
   beforeEach(() => {
+    localStorage.clear()
     setActivePinia(createPinia())
   })
 

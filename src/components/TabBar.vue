@@ -31,6 +31,7 @@
           :aria-selected="editorStore.activeTabId === tab.id"
           :title="tab.name"
           @click="editorStore.selectTab(tab.id)"
+          @dblclick="openTabRename(tab)"
           @keydown.enter.space.prevent="editorStore.selectTab(tab.id)"
           @auxclick.stop="editorStore.closeTab(tab.id)"
           @contextmenu.prevent="openTabCtxMenu($event, tab)"
@@ -244,6 +245,13 @@
       >
         <template v-if="tabCtxMenu.tab.type === 'query' || !tabCtxMenu.tab.type">
           <button
+            class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left text-muted-foreground hover:text-foreground text-[11px]"
+            @click="ctxRenameTab"
+          >
+            <PhPencilSimple class="w-3.5 h-3.5 text-muted-foreground" />
+            <span>Rename...</span>
+          </button>
+          <button
             v-if="isNotebookTab(tabCtxMenu.tab)"
             class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer border-none bg-transparent text-left text-muted-foreground hover:text-foreground text-[11px]"
             @click="ctxConvertToSql"
@@ -289,7 +297,7 @@ import { Button } from '@/components/ui/button'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import { 
   PhSidebar, PhPlus, PhMagnifyingGlass, PhMagicWand, PhTreeStructure, PhPlay, PhX,
-  PhTable, PhFileCode, PhGitBranch, PhNotebook, PhSparkle, PhArrowClockwise
+  PhTable, PhFileCode, PhGitBranch, PhNotebook, PhSparkle, PhArrowClockwise, PhPencilSimple
 } from '@phosphor-icons/vue'
 import { detectDocumentFormat } from '../lib/sqlExtract'
 
@@ -338,6 +346,20 @@ function openTabCtxMenu(e: MouseEvent, tab: Tab) {
 function closeTabCtxMenu() {
   tabCtxMenu.value.visible = false
   tabCtxMenu.value.tab = null
+}
+
+function openTabRename(tab: Tab) {
+  if (tab.type && tab.type !== 'query') return
+  editorStore.saveDialogTabId = tab.id
+  editorStore.saveDialogFolder = editorStore.getTabFolder(tab)
+  editorStore.saveDialogOpen = true
+}
+
+function ctxRenameTab() {
+  if (tabCtxMenu.value.tab) {
+    openTabRename(tabCtxMenu.value.tab)
+  }
+  closeTabCtxMenu()
 }
 
 function ctxConvertToSql() {

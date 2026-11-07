@@ -167,13 +167,14 @@ function hasMultipleStatements(sql: string): boolean {
 }
 
 function stripSqlLiterals(sql: string): string {
+  // Strip comments FIRST so apostrophes inside comments don't open fake string literals.
   return sql
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/--[^\n]*$/gm, '')
+    .replace(/#[^\n]*$/gm, '')
     .replace(/'(?:[^'\\]|\\.|'')*'/g, "''")
     .replace(/"(?:[^"\\]|\\.|"")*"/g, '""')
     .replace(/`[^`]*`/g, '``')
-    .replace(/--[^\n]*$/gm, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/#[^\n]*$/gm, '')
 }
 
 function isDestructiveQuery(sql: string): boolean {

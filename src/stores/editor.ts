@@ -16,6 +16,7 @@ export interface Tab {
   isUnsaved: boolean
   /** Filename of the saved `.sql` file, e.g. `My Query.sql` */
   savedQueryId: string | null
+  folder?: string | null
   cursorLine: number
   cursorCol: number
   selectionAnchor?: number
@@ -25,6 +26,16 @@ export interface Tab {
   tableName?: string
   /** Editor rendering: SQL (default) or notebook. Never auto-inferred from content. */
   format?: 'sql' | 'notebook'
+}
+
+export function extractFolderFromId(id: string | null | undefined): string | null {
+  if (!id) return null
+  const normalized = id.replace(/\\/g, '/')
+  const lastSlash = normalized.lastIndexOf('/')
+  if (lastSlash > 0) {
+    return normalized.substring(0, lastSlash)
+  }
+  return null
 }
 
 export interface SavedQuery {
@@ -76,14 +87,48 @@ export const useEditorStore = defineStore('editor', {
     /** Absolute path to the on-disk queries folder */
     queriesDir: null as string | null,
     queriesDirNeedsSetup: false,
+    /** Bookmarked / starred query IDs */
+    bookmarkedQueryIds: [] as string[],
   }),
 
   getters: {
     activeTab: (state): Tab | null =>
       state.tabs.find(t => t.id === state.activeTabId) ?? null,
+    bookmarkedQueries: (state): SavedQuery[] =>
+      state.savedQueries.filter(sq => state.bookmarkedQueryIds.includes(sq.id)),
+    isBookmarked: (state) => (id: string): boolean =>
+      state.bookmarkedQueryIds.includes(id),
+    getTabFolder: (state) => (tab: Tab | null): string | null => {
+      if (!tab) return null
+      return tab.folder ?? extractFolderFromId(tab.savedQueryId)
+    },
   },
 
   actions: {
+    loadBookmarks() {
+      try {
+        const raw = localStorage.getItem('select_bookmarked_queries')
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          if (Array.isArray(parsed)) {
+            this.bookmarkedQueryIds = parsed.filter(id => typeof id === 'string')
+          }
+        }
+      } catch {
+        this.bookmarkedQueryIds = []
+      }
+    },
+    toggleBookmark(id: string) {
+      const idx = this.bookmarkedQueryIds.indexOf(id)
+      if (idx >= 0) {
+        this.bookmarkedQueryIds.splice(idx, 1)
+      } else {
+        this.bookmarkedQueryIds.push(id)
+      }
+      try {
+        localStorage.setItem('select_bookmarked_queries', JSON.stringify(this.bookmarkedQueryIds))
+      } catch {}
+    },
     saveTabState() {
       const activeIndex = Math.max(0, this.tabs.findIndex(t => t.id === this.activeTabId))
       const data = this.tabs.map(t => ({
@@ -91,6 +136,7 @@ export const useEditorStore = defineStore('editor', {
         name: t.name,
         sql: t.sql,
         savedQueryId: t.savedQueryId,
+        folder: t.folder,
         isUnsaved: t.isUnsaved,
         cursorLine: t.cursorLine,
         cursorCol: t.cursorCol,
@@ -145,6 +191,7 @@ export const useEditorStore = defineStore('editor', {
           connectionId: null,
           isUnsaved: Boolean(d.isUnsaved),
           savedQueryId: d.savedQueryId,
+          folder: (d as any).folder ?? extractFolderFromId(d.savedQueryId),
           cursorLine: d.cursorLine || 1,
           cursorCol: d.cursorCol || 1,
           selectionAnchor: d.selectionAnchor,
@@ -224,6 +271,8 @@ export const useEditorStore = defineStore('editor', {
     openNewQueryInFolder(folder?: string | null) {
       const tabId = this.addTab()
       if (tabId) {
+        const tab = this.tabs.find(t => t.id === tabId)
+        if (tab) tab.folder = folder || null
         this.saveDialogTabId = tabId
         this.saveDialogFolder = folder || null
         this.saveDialogOpen = true
@@ -394,18 +443,24 @@ export const useEditorStore = defineStore('editor', {
     async saveTab(id: string): Promise<boolean> {
       const tab = this.tabs.find(t => t.id === id)
       if (!tab) return false
+      const tabFolder = this.getTabFolder(tab)
       if (tab.savedQueryId) {
         try {
           const saveName = tab.format === 'notebook' && !tab.name.toLowerCase().endsWith('.md')
             ? `${tab.name}.md`
             : tab.name
-          const saved = await invoke<SavedQuery>('save_query', {
+          const payload: Record<string, any> = {
             name: saveName,
             sql: tab.sql,
             id: tab.savedQueryId,
-          })
+          }
+          if (tabFolder) {
+            payload.folder = tabFolder
+          }
+          const saved = await invoke<SavedQuery>('save_query', payload)
           tab.name = saved.name
           tab.savedQueryId = saved.id
+          tab.folder = saved.folder ?? tabFolder ?? extractFolderFromId(saved.id)
           tab.isUnsaved = false
           this.flushTabState()
           await this._refreshSavedQueries()
@@ -416,29 +471,31 @@ export const useEditorStore = defineStore('editor', {
         }
       } else {
         this.saveDialogTabId = id
+        this.saveDialogFolder = tabFolder
         this.saveDialogOpen = true
         return false
       }
     },
-    async saveQueryAs(tabId: string, name: string, folder?: string | null) {
+    async saveQueryAs(tabId: string, name: string, folder?: string | null, isCopy = false) {
       const tab = this.tabs.find(t => t.id === tabId)
       if (!tab) return
       try {
         const saveName = tab.format === 'notebook' && !name.toLowerCase().endsWith('.md')
           ? `${name}.md`
           : name
+        const targetFolder = folder ?? this.saveDialogFolder ?? this.getTabFolder(tab)
         const payload: Record<string, any> = {
           name: saveName,
           sql: tab.sql,
-          id: null,
+          id: isCopy ? null : (tab.savedQueryId || null),
         }
-        const targetFolder = folder ?? this.saveDialogFolder
         if (targetFolder) {
           payload.folder = targetFolder
         }
         const saved = await invoke<SavedQuery>('save_query', payload)
         tab.name = saved.name
         tab.savedQueryId = saved.id
+        tab.folder = saved.folder ?? targetFolder ?? extractFolderFromId(saved.id)
         tab.isUnsaved = false
         this.saveDialogOpen = false
         this.saveDialogTabId = null
@@ -451,6 +508,7 @@ export const useEditorStore = defineStore('editor', {
         }
       } catch (e) {
         console.error('Failed to save query:', e)
+        throw e
       }
     },
     async createFolder(name: string, parentFolder?: string | null) {
@@ -540,19 +598,26 @@ export const useEditorStore = defineStore('editor', {
         console.error('Failed to delete query:', e)
       }
     },
-    async renameSavedQuery(id: string, newName: string) {
+    async renameSavedQuery(id: string, newName: string, folder?: string | null) {
       try {
-        const renamed = await invoke<SavedQuery>('rename_query', { id, newName })
+        const payload: Record<string, any> = { id, newName }
+        if (folder !== undefined) {
+          payload.folder = folder || null
+        }
+        const renamed = await invoke<SavedQuery>('rename_query', payload)
         this.tabs.forEach(t => {
           if (t.savedQueryId === id) {
             t.name = renamed.name
             t.savedQueryId = renamed.id
+            t.folder = renamed.folder ?? extractFolderFromId(renamed.id)
           }
         })
         this.flushTabState()
         await this._refreshSavedQueries()
+        return renamed
       } catch (e) {
         console.error('Failed to rename query:', e)
+        throw e
       }
     },
     openSavedQuery(saved: SavedQuery) {
@@ -564,6 +629,7 @@ export const useEditorStore = defineStore('editor', {
       }
       tabCounter++
       const isNotebook = saved.id.toLowerCase().endsWith('.md') || isNotebookDocument(saved.sql)
+      const tabFolder = saved.folder ?? extractFolderFromId(saved.id)
       const tab: Tab = {
         id: `tab-${Date.now()}-${tabCounter}`,
         name: saved.name,
@@ -571,6 +637,7 @@ export const useEditorStore = defineStore('editor', {
         connectionId: null,
         isUnsaved: false,
         savedQueryId: saved.id,
+        folder: tabFolder,
         cursorLine: 1,
         cursorCol: 1,
         selectionAnchor: 0,
@@ -584,6 +651,7 @@ export const useEditorStore = defineStore('editor', {
       this.saveTabState()
     },
     async loadSavedQueries() {
+      this.loadBookmarks()
       try {
         this.savedQueries = (await invoke<SavedQuery[]>('load_queries')) || []
         try {

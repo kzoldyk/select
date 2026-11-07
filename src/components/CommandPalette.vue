@@ -317,25 +317,31 @@ const allGroups = computed<Group[]>(() => {
   ]
 
   // 4. Saved Queries
-  const savedQueryCommands: Command[] = editorStore.savedQueries.map(sq => ({
-    id: `saved-${sq.id}`,
-    label: `Saved Query: ${sq.name}`,
-    description: sq.sql.slice(0, 70).replace(/\s+/g, ' '),
-    badge: 'Snippet',
-    keywords: `saved query snippet sql ${sq.name}`,
-    iconComponent: PhBookmarkSimple,
-    category: 'query',
-    action: () => {
-      const id = editorStore.addTab()
-      const tab = editorStore.tabs.find(t => t.id === id)
-      if (tab) {
-        tab.name = sq.name
-        tab.sql = sq.sql
-        editorStore.updateSql(id, sq.sql)
-      }
-      uiStore.closePalette()
-    },
-  }))
+  const sortedSavedQueries = [...editorStore.savedQueries].sort((a, b) => {
+    const aBookmarked = editorStore.isBookmarked(a.id) ? 1 : 0
+    const bBookmarked = editorStore.isBookmarked(b.id) ? 1 : 0
+    if (aBookmarked !== bBookmarked) return bBookmarked - aBookmarked
+    return a.name.localeCompare(b.name)
+  })
+
+  const savedQueryCommands: Command[] = sortedSavedQueries.map(sq => {
+    const isStarred = editorStore.isBookmarked(sq.id)
+    return {
+      id: `saved-${sq.id}`,
+      label: isStarred ? `★ ${sq.name}` : sq.name,
+      description: sq.sql.slice(0, 70).replace(/\s+/g, ' '),
+      badge: isStarred ? 'Starred' : 'Saved Query',
+      keywords: `saved query snippet sql ${isStarred ? 'star starred bookmark ' : ''}${sq.name}`,
+      iconComponent: isStarred ? PhStar : PhBookmarkSimple,
+      iconWeight: isStarred ? 'fill' : 'regular',
+      iconBgClass: isStarred ? 'bg-amber-500/20 text-amber-400' : undefined,
+      category: 'query',
+      action: () => {
+        editorStore.openSavedQuery(sq)
+        uiStore.closePalette()
+      },
+    }
+  })
 
   // 5. Connections
   const connectionCommands: Command[] = connStore.connections.map(conn => ({
