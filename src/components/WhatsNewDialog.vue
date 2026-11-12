@@ -192,7 +192,8 @@ function handleDismiss() {
 }
 
 async function handleDownload() {
-  const url = release.value.downloadUrl || 'https://github.com/hitesh103/select/releases'
+  const rawUrl = release.value.downloadUrl || 'https://github.com/hitesh103/select/releases'
+  const url = rawUrl.startsWith('https://') ? rawUrl : 'https://github.com/hitesh103/select/releases'
   try {
     const { open } = await import('@tauri-apps/plugin-opener')
     await open(url)

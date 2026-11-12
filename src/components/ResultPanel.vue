@@ -167,22 +167,16 @@
         v-if="currentStatus === 'running'"
         class="absolute inset-0 z-30 bg-background/95 backdrop-blur-xs flex flex-col items-center justify-center p-6 gap-3 select-none"
       >
-        <div class="flex items-center gap-3">
-          <svg class="w-5 h-5 animate-spin text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-          </svg>
-          <span class="text-sm font-semibold text-foreground">Executing query…</span>
-          <span class="text-xs font-mono text-muted-foreground px-2 py-0.5 rounded bg-muted/70 border border-border/60">
-            {{ runningElapsedFormatted }}
-          </span>
-        </div>
-        <div v-if="resultStore.lastSql" class="max-w-md w-full px-3 py-2 rounded bg-muted/40 border border-border/60 text-muted-foreground font-mono text-xs truncate text-center">
-          {{ resultStore.lastSql.trim().split('\n')[0].slice(0, 80) }}
-        </div>
+        <SelectQueryLoader
+          size="md"
+          message="Executing query…"
+          :elapsed="runningElapsedFormatted"
+          :submessage="resultStore.lastSql ? resultStore.lastSql.trim().split('\n')[0].slice(0, 80) : ''"
+        />
         <Button
           variant="outline"
           size="sm"
-          class="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive hover:border-destructive/40"
+          class="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive hover:border-destructive/40 mt-1"
           :disabled="resultStore.cancelling"
           @click="resultStore.cancelQuery()"
         >
@@ -328,6 +322,7 @@ import { useUiStore } from '@/stores/ui'
 import UnifiedDataGrid from './UnifiedDataGrid.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import EditReviewDialog from './EditReviewDialog.vue'
+import SelectQueryLoader from '@/components/ui/SelectQueryLoader.vue'
 import { Button } from '@/components/ui/button'
 import { ActionTooltip } from '@/components/ui/tooltip'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'

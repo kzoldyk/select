@@ -45,11 +45,11 @@
             />
           </div>
           <!-- Categories Scrollable -->
-          <div class="flex gap-1 overflow-x-auto py-1 px-0.5 no-scrollbar max-w-[400px]">
+          <div class="flex gap-1 overflow-x-auto py-1 px-0.5 no-scrollbar flex-1 min-w-0">
             <button
               v-for="cat in categories"
               :key="cat"
-              class="px-2 py-0.5 rounded text-[10px] font-medium border transition-all cursor-pointer whitespace-nowrap"
+              class="flex-shrink-0 px-2.5 py-0.5 rounded text-[10px] font-medium border transition-all cursor-pointer whitespace-nowrap"
               :class="themeState.selectedCategory === cat
                 ? 'bg-primary/10 border-primary/30 text-primary'
                 : 'bg-transparent border-border hover:border-text-muted text-text-muted hover:text-foreground'"

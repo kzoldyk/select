@@ -245,11 +245,8 @@
       </div>
 
       <!-- Loading Overlay -->
-      <div v-if="loading" class="absolute inset-0 bg-background/50 backdrop-blur-[1px] z-30 flex items-center justify-center gap-2">
-        <svg class="w-5 h-5 animate-spin text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-        </svg>
-        <span class="text-xs font-semibold text-foreground">Fetching records…</span>
+      <div v-if="loading" class="absolute inset-0 bg-background/60 backdrop-blur-[1px] z-30 flex items-center justify-center">
+        <SelectQueryLoader size="sm" message="Fetching records…" />
       </div>
 
       <!-- Main Data Table with Row Virtualization -->
@@ -838,6 +835,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, ActionTooltip } from '@/components/ui/tooltip'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ValueInspector from './ValueInspector.vue'
+import SelectQueryLoader from '@/components/ui/SelectQueryLoader.vue'
 import {
   PhMagnifyingGlass, PhFunnel, PhSortAscending, PhSortDescending, PhX, PhKey,
   PhCopy, PhFileCode, PhDownloadSimple, PhCaretDown, PhTable, PhCheck,
@@ -2209,6 +2207,7 @@ const fkPeekState = reactive({
   refTable: '',
   refColumn: '',
 })
+let fkPeekRequestId = 0
 
 async function peekForeignKey(e: MouseEvent, col: ColumnDef, val: any) {
   if (val === null || val === undefined) {
@@ -2237,6 +2236,7 @@ async function peekForeignKey(e: MouseEvent, col: ColumnDef, val: any) {
   fkPeekState.loading = true
   fkPeekState.visible = true
 
+  const reqId = ++fkPeekRequestId
   try {
     const connId = useConnectionStore().activeId
     const row = await invoke<Record<string, any> | null>('fetch_referenced_row', {
@@ -2245,11 +2245,15 @@ async function peekForeignKey(e: MouseEvent, col: ColumnDef, val: any) {
       value: String(val),
       id: connId,
     })
+    if (reqId !== fkPeekRequestId) return
     fkPeekState.row = row
   } catch (err) {
+    if (reqId !== fkPeekRequestId) return
     fkPeekState.error = String(err)
   } finally {
-    fkPeekState.loading = false
+    if (reqId === fkPeekRequestId) {
+      fkPeekState.loading = false
+    }
   }
 }
 

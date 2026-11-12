@@ -1,32 +1,43 @@
 {
   "latest": {
-    "version": "0.2.8",
-    "releaseDate": "2026-11-07",
-    "title": "Real Update Downloads, Ghost Selection Guard & Virtual Key Overrides",
+    "version": "0.2.9",
+    "releaseDate": "2026-11-12",
+    "title": "Bespoke Database Query Loader, Security Hardening & Concurrency Fixes",
     "downloadUrl": "https://github.com/hitesh103/select/releases/latest",
-    "summary": "Eliminated simulated updates and version spoofing in favor of real installer downloads, prevented random multi-line selection from stuck Shift modifier events in the editor, and hardened virtual unique key overrides for seamless cell editing.",
+    "summary": "Introduced custom animated database platter query loader, fixed plaintext password exposure on long keys, blocked MySQL executable comment bypasses, fixed statement quote desync, and eliminated ghost shift multi-line editor selections.",
     "highlights": [
       {
-        "icon": "download",
-        "title": "Real Release Downloads",
-        "description": "Removed simulated updater and local version spoofing. Direct installer download via default browser.",
+        "icon": "sparkles",
+        "title": "Bespoke Database Query Loader",
+        "description": "Replaced generic circular spinners with an animated 3-tier database cylinder stack, active index-scan laser beam, and neon glow aura.",
+        "tag": "New"
+      },
+      {
+        "icon": "shield",
+        "title": "Security & Cryptography Hardening",
+        "description": "Enforced strict encryption envelopes on passwords of any length and restricted master key permissions to POSIX 0600.",
+        "tag": "Security"
+      },
+      {
+        "icon": "shield",
+        "title": "Read-Only Validator & Quote Parser",
+        "description": "Blocked MySQL executable comment bypasses and fixed escaped quote handling in SQL statement splitting.",
         "tag": "Fix"
       },
       {
         "icon": "sparkles",
         "title": "Ghost Shift Click Prevention",
-        "description": "Prevents erratic multi-line text selection when single clicking after running queries or switching windows.",
+        "description": "Synchronized physical keyboard modifier state via getModifierState to prevent single clicks from creating massive range selections.",
         "tag": "Fix"
-      },
-      {
-        "icon": "shield",
-        "title": "Virtual Key Editing Overrides",
-        "description": "Prioritizes user-configured virtual keys over database schemas, allowing inline edits on tables without physical primary keys.",
-        "tag": "Improved"
       }
     ]
   },
   "history": [
+    {
+      "version": "0.2.8",
+      "releaseDate": "2026-11-07",
+      "title": "Real Update Downloads, Ghost Selection Guard & Virtual Key Overrides"
+    },
     {
       "version": "0.2.7",
       "releaseDate": "2026-11-07",

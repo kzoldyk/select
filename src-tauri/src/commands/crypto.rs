@@ -99,8 +99,18 @@ fn read_all_keys_from_files(paths: &[PathBuf]) -> Vec<Vec<u8>> {
 /// ad-hoc-signed binary, or a locked keychain). The file bytes ARE the key.
 fn ensure_local_key_copy(paths: &[PathBuf], key: &[u8]) {
     if read_key_from_files(paths).is_none() {
-        let _ = std::fs::write(&paths[0], key);
+        let _ = write_secure_key_file(&paths[0], key);
     }
+}
+
+fn write_secure_key_file(path: &PathBuf, data: &[u8]) -> Result<(), String> {
+    std::fs::write(path, data).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
 }
 
 fn create_and_persist_key(paths: &[PathBuf]) -> Result<Vec<u8>, String> {
@@ -108,7 +118,7 @@ fn create_and_persist_key(paths: &[PathBuf]) -> Result<Vec<u8>, String> {
     OsRng.fill_bytes(&mut key);
     // Write the local copy FIRST so this key is always recoverable, then
     // mirror it into the keychain on a best-effort basis.
-    std::fs::write(&paths[0], &key).map_err(|e| e.to_string())?;
+    write_secure_key_file(&paths[0], &key)?;
     let _ = write_key_to_keychain(&key);
     Ok(key)
 }
@@ -238,7 +248,7 @@ pub async fn seal_connections_for_storage(
         let mut entry = conn.clone();
         if let Some(obj) = entry.as_object_mut() {
             if let Some(Value::String(password)) = obj.get("password") {
-                if !password.is_empty() && !password_looks_encrypted(password) {
+                if !password.is_empty() && !password.starts_with(ENCRYPTED_PASSWORD_PREFIX) {
                     let enc = encrypt_with_key(&key_bytes, password)?;
                     obj.insert(
                         "password".into(),
@@ -359,5 +369,16 @@ mod tests {
         let keys = vec![vec![6u8; 32], old_key.clone()];
         let dec = decrypt_stored_password(&keys, &stored).unwrap();
         assert_eq!(dec, "legacy-secret");
+    }
+
+    #[test]
+    fn long_password_is_encrypted_with_prefix() {
+        let key = vec![7u8; 32];
+        let plain = "Abcdefghijklmnopqrstuvwxyz0123456789+/abcdefghij";
+        let enc = encrypt_with_key(&key, plain).unwrap();
+        let stored = format!("{ENCRYPTED_PASSWORD_PREFIX}{enc}");
+        assert!(stored.starts_with(ENCRYPTED_PASSWORD_PREFIX));
+        let dec = decrypt_stored_password(&[key], &stored).unwrap();
+        assert_eq!(dec, plain);
     }
 }

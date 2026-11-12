@@ -205,9 +205,19 @@ export const useSchemaStore = defineStore('schema', {
         return []
       }
     },
+    invalidateSchemaCache(schema?: string) {
+      if (schema) {
+        const connStore = useConnectionStore()
+        const connectionId = connStore.activeId
+        delete this.schemaTablesCache[`${connectionId}-${schema}`]
+      } else {
+        this.schemaTablesCache = {}
+      }
+    },
     async refreshSchema(connectionId?: string) {
       this.isLoading = true
       this.schemaError = null
+      this.schemaTablesCache = {}
       try {
         const connStore = useConnectionStore()
         if (!this.databases.length) {

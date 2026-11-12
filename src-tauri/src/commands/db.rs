@@ -635,6 +635,16 @@ fn sql_tokens_outside_literals(sql: &str) -> Vec<String> {
             }
             '/' if chars.peek() == Some(&'*') => {
                 chars.next();
+                if chars.peek() == Some(&'!') {
+                    chars.next();
+                    let mut digits_left = 5;
+                    while digits_left > 0 && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                        chars.next();
+                        digits_left -= 1;
+                    }
+                    cleaned.push(' ');
+                    continue;
+                }
                 let mut prev = '\0';
                 while let Some(comment_ch) = chars.next() {
                     if prev == '*' && comment_ch == '/' {
@@ -642,6 +652,10 @@ fn sql_tokens_outside_literals(sql: &str) -> Vec<String> {
                     }
                     prev = comment_ch;
                 }
+                cleaned.push(' ');
+            }
+            '*' if chars.peek() == Some(&'/') => {
+                chars.next();
                 cleaned.push(' ');
             }
             _ => cleaned.push(ch),
@@ -847,6 +861,16 @@ fn sql_identifier_tokens(sql: &str) -> Vec<IdentToken> {
             }
             '/' if chars.peek() == Some(&'*') => {
                 chars.next();
+                if chars.peek() == Some(&'!') {
+                    chars.next();
+                    let mut digits_left = 5;
+                    while digits_left > 0 && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                        chars.next();
+                        digits_left -= 1;
+                    }
+                    cleaned.push((' ', Sep::None));
+                    continue;
+                }
                 let mut prev = '\0';
                 while let Some(c) = chars.next() {
                     if prev == '*' && c == '/' {
@@ -854,6 +878,10 @@ fn sql_identifier_tokens(sql: &str) -> Vec<IdentToken> {
                     }
                     prev = c;
                 }
+                cleaned.push((' ', Sep::None));
+            }
+            '*' if chars.peek() == Some(&'/') => {
+                chars.next();
                 cleaned.push((' ', Sep::None));
             }
             _ => cleaned.push((ch, Sep::None)),
@@ -1422,11 +1450,52 @@ fn split_statements(sql: &str) -> Vec<String> {
             continue;
         }
 
+        if in_single_quote {
+            if ch == '\\' {
+                current.push(ch);
+                if let Some(escaped) = chars.next() {
+                    current.push(escaped);
+                }
+                continue;
+            } else if ch == '\'' {
+                if chars.peek() == Some(&'\'') {
+                    current.push(ch);
+                    current.push(chars.next().unwrap());
+                    continue;
+                }
+                in_single_quote = false;
+            }
+            current.push(ch);
+            continue;
+        }
+
+        if in_double_quote {
+            if ch == '\\' {
+                current.push(ch);
+                if let Some(escaped) = chars.next() {
+                    current.push(escaped);
+                }
+                continue;
+            } else if ch == '"' {
+                in_double_quote = false;
+            }
+            current.push(ch);
+            continue;
+        }
+
+        if in_backtick {
+            if ch == '`' {
+                in_backtick = false;
+            }
+            current.push(ch);
+            continue;
+        }
+
         match ch {
-            '\'' if !in_double_quote && !in_backtick => in_single_quote = !in_single_quote,
-            '"' if !in_single_quote && !in_backtick => in_double_quote = !in_double_quote,
-            '`' => in_backtick = !in_backtick,
-            ';' if !in_single_quote && !in_double_quote && !in_backtick => {
+            '\'' => in_single_quote = true,
+            '"' => in_double_quote = true,
+            '`' => in_backtick = true,
+            ';' => {
                 let trimmed = current.trim().to_string();
                 if !trimmed.is_empty() {
                     statements.push(trimmed);
@@ -3840,6 +3909,23 @@ mod tests {
         assert!(validate_read_only_query("UPDATE users SET name = 'x'").is_err());
         assert!(validate_read_only_query("WITH x AS (DELETE FROM users) SELECT 1").is_err());
         assert!(validate_read_only_query("SELECT * FROM users /* DROP TABLE users */").is_ok());
+        assert!(validate_read_only_query("/*!50000 DROP TABLE users */ SELECT 1").is_err());
+        assert!(validate_read_only_query("/*! DROP TABLE users */ SELECT 1").is_err());
+    }
+
+    #[test]
+    fn split_statements_preserves_escaped_quotes_and_internal_semicolons() {
+        let sql = "SELECT 'hello \\' ; world' AS msg; SELECT 'second ; statement' AS msg2;";
+        let stmts = split_statements(sql);
+        assert_eq!(stmts.len(), 2);
+        assert_eq!(stmts[0], "SELECT 'hello \\' ; world' AS msg");
+        assert_eq!(stmts[1], "SELECT 'second ; statement' AS msg2");
+
+        let sql2 = "SELECT 'hello '' ; world' AS msg; SELECT 1;";
+        let stmts2 = split_statements(sql2);
+        assert_eq!(stmts2.len(), 2);
+        assert_eq!(stmts2[0], "SELECT 'hello '' ; world' AS msg");
+        assert_eq!(stmts2[1], "SELECT 1");
     }
 
     #[test]

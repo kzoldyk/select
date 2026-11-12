@@ -705,6 +705,9 @@ export const useResultStore = defineStore('result', {
         if (result.warning) {
           msgs.push(`Warning: ${result.warning}`)
         }
+        if (/^\s*(create|alter|drop|truncate|rename)\b/i.test(_sql)) {
+          useSchemaStore().invalidateSchemaCache()
+        }
         this.messages = msgs
         this.activeView = 'messages'
       } catch (err) {

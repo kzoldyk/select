@@ -483,12 +483,20 @@ function insertDivider() {
 
 let isShiftPhysicallyDown = false
 
+function updatePhysicalShift(e: KeyboardEvent | MouseEvent | PointerEvent) {
+  if (typeof (e as any).getModifierState === 'function') {
+    isShiftPhysicallyDown = (e as any).getModifierState('Shift')
+  }
+}
+
 if (typeof window !== 'undefined') {
   window.addEventListener('keydown', (e) => {
+    updatePhysicalShift(e)
     if (e.key === 'Shift') isShiftPhysicallyDown = true
   }, { capture: true })
 
   window.addEventListener('keyup', (e) => {
+    updatePhysicalShift(e)
     if (e.key === 'Shift') isShiftPhysicallyDown = false
   }, { capture: true })
 
@@ -501,7 +509,17 @@ if (typeof window !== 'undefined') {
   })
 
   window.addEventListener('pointerdown', (e) => {
-    if (!e.shiftKey) isShiftPhysicallyDown = false
+    updatePhysicalShift(e)
+  }, { capture: true })
+
+  window.addEventListener('pointermove', (e) => {
+    if (typeof e.getModifierState === 'function') {
+      isShiftPhysicallyDown = e.getModifierState('Shift')
+    }
+  }, { capture: true })
+
+  window.addEventListener('mouseup', () => {
+    isShiftPhysicallyDown = false
   }, { capture: true })
 }
 
@@ -511,7 +529,10 @@ function buildGutterExtensions(_mode: 'sql' | 'notebook') {
       domEventHandlers: {
         mousedown(view, line, event) {
           if (event.button !== 0) return false
-          const isShift = event.shiftKey && isShiftPhysicallyDown
+          const hasPhysicalShift = typeof event.getModifierState === 'function'
+            ? event.getModifierState('Shift')
+            : isShiftPhysicallyDown
+          const isShift = event.shiftKey && hasPhysicalShift && isShiftPhysicallyDown
           if (isShift) {
             const anchor = view.state.selection.main.anchor
             const head = anchor <= line.from ? line.to : line.from
@@ -739,18 +760,25 @@ function buildExtensions(
     EditorView.domEventHandlers({
       mousedown(event, view) {
         // Guard against ghost/stuck Shift modifier in WebKit/Tauri:
-        // If a single click occurs and Shift is NOT physically held down, place cursor cleanly
-        // and prevent CodeMirror from extending selection from a previous cursor location.
-        if (event.button === 0 && event.detail === 1 && event.shiftKey && !isShiftPhysicallyDown) {
-          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
-          if (pos !== null) {
-            view.dispatch({
-              selection: { anchor: pos, head: pos },
-              scrollIntoView: true,
-              userEvent: 'select.pointer',
-            })
-            event.preventDefault()
-            return true
+        // Query the physical keyboard modifier state directly via DOM Level 3 getModifierState.
+        const hasPhysicalShift = typeof event.getModifierState === 'function'
+          ? event.getModifierState('Shift')
+          : isShiftPhysicallyDown
+
+        // If a single left-click occurs and Shift is NOT physically held down, force a clean collapsed
+        // cursor and prevent CodeMirror from extending selection from a previous cursor location.
+        if (event.button === 0 && event.detail === 1 && (!hasPhysicalShift || !isShiftPhysicallyDown)) {
+          if (event.shiftKey) {
+            const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+            if (pos !== null) {
+              view.dispatch({
+                selection: { anchor: pos, head: pos },
+                scrollIntoView: true,
+                userEvent: 'select.pointer',
+              })
+              event.preventDefault()
+              return true
+            }
           }
         }
         return false
